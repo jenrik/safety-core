@@ -8,12 +8,13 @@
 #   wires the core into a harness-specific API.
 #
 # * Pi and opencode load TypeScript at runtime. Their adapters import
-#   `../src/index.js` — but Nix would import a bare `./adapters/foo.ts` file
-#   as its own single-file store path with no surrounding directory, breaking
-#   that relative import. We therefore package each adapter alongside its
-#   src/ core files in a small runCommand-produced directory, and expose the
-#   path to the adapter file *inside* that directory. Node's module resolver
-#   follows the symlink back into the packaged directory where src/ lives.
+#   `../src/index.js` relative to themselves — but when the adapter is loaded
+#   through a symlink, jiti resolves relative imports from the symlink
+#   location, not the realpath.  To avoid this we package each extension as a
+#   *directory* with an index.ts at the root, rewriting adapter imports from
+#   `../src/` to `./src/`.  The directory symlink means index.ts and src/ are
+#   children of the symlink target, so relative resolution works regardless
+#   of whether jiti resolves symlinks.
 #
 # * Claude Code invokes hooks as bare commands, so its adapters must be
 #   self-contained node scripts. We esbuild-bundle each hook script into an
@@ -44,14 +45,12 @@ let
   wasmAssets = pkgs.runCommand "safety-core-wasm" { } ''
     mkdir -p $out/node_modules/web-tree-sitter
 
-    # web-tree-sitter.js → node_modules/web-tree-sitter/index.js
     ${pkgs.gnutar}/bin/tar -xzf ${webTreeSitter} -C $out/node_modules/web-tree-sitter \
       --strip-components=1 \
       package/web-tree-sitter.js \
       package/web-tree-sitter.d.ts \
       package/web-tree-sitter.wasm
 
-    # Inject a minimal package.json for bare-specifier resolution.
     cat > $out/node_modules/web-tree-sitter/package.json << 'EOF'
     {
       "name": "web-tree-sitter",
@@ -62,7 +61,6 @@ let
     }
     EOF
 
-    # tree-sitter-bash WASM — placed at root alongside node_modules.
     ${pkgs.gnutar}/bin/tar -xzf ${treeSitterBash} -C $out \
       --strip-components=1 \
       package/tree-sitter-bash.wasm
@@ -70,11 +68,12 @@ let
 
   src = ./src;
 
-  # Package an adapter .ts file next to a copy of the shared src/ core and
-  # the WASM assets, so `../src/index.js` and `import "web-tree-sitter"`
-  # resolve within the same store directory.
-  mkAdapterDir = name: adapterFile: pkgs.runCommand "safety-core-${name}" { } ''
-    mkdir -p $out/src $out/adapters
+  # Package a harness adapter as a directory extension (index.ts at root +
+  # src/ + node_modules/ + WASM).  Rewrites `../src/` → `./src/` in the
+  # adapter so it works when placed as index.ts at the root of the output
+  # directory.
+  mkExtensionDir = name: adapterFile: pkgs.runCommand "safety-core-${name}" { } ''
+    mkdir -p $out
 
     # Copy web-tree-sitter node_modules (for bare-specifier resolution).
     cp -r ${wasmAssets}/node_modules $out/
@@ -82,22 +81,26 @@ let
     # Copy WASM files to root (referenced by initBashParser).
     cp ${wasmAssets}/tree-sitter-bash.wasm $out/
 
-    # Copy source files.
-    cp -r ${src}/. $out/src/
-    cp ${adapterFile} $out/adapters/${builtins.baseNameOf adapterFile}
+    # Copy shared source.
+    cp -r ${src} $out/src
+
+    # Place the adapter as index.ts at the root, rewriting imports so they
+    # resolve relative to the new location.
+    ${pkgs.gnused}/bin/sed 's|../src/|./src/|g' ${adapterFile} > $out/index.ts
   '';
 
-  piDir = mkAdapterDir "pi" ./adapters/pi.ts;
-  opencodeDir = mkAdapterDir "opencode" ./adapters/opencode.ts;
+  piDir = mkExtensionDir "pi" ./adapters/pi.ts;
+  opencodeDir = mkExtensionDir "opencode" ./adapters/opencode.ts;
 in
 {
-  # Path to the pi adapter .ts file inside a store directory that also
-  # contains ../src/, node_modules/, and WASM assets.
-  piExtensionFile = "${piDir}/adapters/pi.ts";
+  # Directory containing index.ts + src/ + WASM assets.  Home-manager
+  # symlinks this as ~/.pi/agent/extensions/safety-hook/ so pi discovers
+  # index.ts inside it.
+  piExtensionDir = piDir;
 
   # Path to the opencode adapter .ts file inside a store directory that also
-  # contains ../src/, node_modules/, and WASM assets.
-  opencodePluginFile = "${opencodeDir}/adapters/opencode.ts";
+  # contains ./src/, node_modules/, and WASM assets.
+  opencodePluginFile = "${opencodeDir}/index.ts";
 
   # Standalone bundled hook scripts for claude-code. Produces a directory of
   # executable .mjs files matching the original .py names one-for-one.
