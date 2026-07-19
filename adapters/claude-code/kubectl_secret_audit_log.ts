@@ -7,13 +7,16 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { appendAuditRecord, summariseKubectlSecret } from "../../src/index.js";
+import { appendAuditRecord, discoverWasmDir, initBashParser, summariseKubectlSecret } from "../../src/index.js";
 
 import { parseHookEvent, readStdin, run } from "./_shared.js";
 
 const LOG_PATH = join(homedir(), ".claude", "logs", "kubectl-secret-audit.jsonl");
 
 run(async () => {
+  // Initialise the bash parser (lazy, first-call only).
+  await initBashParser(discoverWasmDir(import.meta.url));
+
   const event = parseHookEvent(readStdin());
   if (!event || event.tool_name !== "Bash") return;
 

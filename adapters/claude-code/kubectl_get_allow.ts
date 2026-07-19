@@ -5,11 +5,14 @@
 // own. This hook parses the command and emits an allow / deny decision;
 // silent exit means "defer to default permissions".
 
-import { analyzeKubectl } from "../../src/index.js";
+import { analyzeKubectl, discoverWasmDir, initBashParser } from "../../src/index.js";
 
 import { emitAllow, emitDeny, parseHookEvent, readStdin, run } from "./_shared.js";
 
-run(() => {
+run(async () => {
+  // Initialise the bash parser (lazy, first-call only).
+  await initBashParser(discoverWasmDir(import.meta.url));
+
   const event = parseHookEvent(readStdin());
   if (!event || event.tool_name !== "Bash") return;
 

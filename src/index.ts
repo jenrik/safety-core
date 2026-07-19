@@ -3,7 +3,8 @@
 
 export * from "./patterns.js";
 export * from "./messages.js";
-export * from "./shell.js";
+export { basename, discoverWasmDir, initBashParser, matchesAnyGlob, parseBash } from "./shell.js";
+export type { Redirect, SimpleCommand } from "./shell.js";
 export * from "./secrets.js";
 export * from "./github.js";
 export * from "./kubectl.js";

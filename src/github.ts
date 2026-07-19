@@ -3,7 +3,7 @@
 
 import { BLOCKED_GITHUB_DOMAINS, HTTP_TOOLS } from "./patterns.js";
 import { GITHUB_GENERIC_HINT } from "./messages.js";
-import { basename, tokenize } from "./shell.js";
+import { basename, parseBash } from "./shell.js";
 
 const RAW_URL_RE =
   /https?:\/\/raw\.githubusercontent\.com\/([^/\s"']+)\/([^/\s"']+)\/([^/\s"']+)\/([^\s"'#?]+)/;
@@ -99,13 +99,42 @@ export function checkWebfetchUrl(url: string): string | null {
   return isBlockedGithubUrl(url) ? buildGithubSuggestion(url) : null;
 }
 
-/** Return reason string if `command` invokes an HTTP tool against a blocked
- * GitHub URL, else null. */
+/**
+ * Return reason string if `command` invokes an HTTP tool against a blocked
+ * GitHub URL, else null. Uses tree-sitter parsing to find command arguments,
+ * falling back to a raw URL scan if the parser is not available.
+ */
 export function checkBashForGithub(command: string): string | null {
-  if (!hasHttpTool(command)) return null;
-  for (const url of urlsIn(command)) {
-    if (isBlockedGithubUrl(url)) return buildGithubSuggestion(url);
+  // Scan all URLs mentioned anywhere in the command text first (fast path).
+  const urls = extractUrls(command);
+  if (urls.length === 0) return null;
+
+  const blocked = urls.filter(isBlockedGithubUrl);
+  if (blocked.length === 0) return null;
+
+  // Verify that at least one blocked URL appears as an argument to an HTTP
+  // tool. Use tree-sitter parsing for accuracy.
+  const commands = parseBash(command);
+
+  for (const cmd of commands) {
+    if (!HTTP_TOOLS.has(cmd.name)) continue;
+
+    for (const arg of cmd.args) {
+      for (const url of blocked) {
+        if (arg.includes(url)) {
+          return buildGithubSuggestion(url);
+        }
+      }
+    }
   }
+
+  // If tree-sitter parsed something but didn't find the URL in a known HTTP
+  // tool's args, check if any HTTP tool appeared at all (the URL might be
+  // nested in a subshell or string concatenation). In that case, block it.
+  if (commands.some((c) => HTTP_TOOLS.has(c.name))) {
+    return buildGithubSuggestion(blocked[0]);
+  }
+
   return null;
 }
 
@@ -129,11 +158,7 @@ export function detectBlockedDomain(raw: string): string | null {
   return null;
 }
 
-function hasHttpTool(command: string): boolean {
-  const tokens = tokenize(command);
-  return tokens.some((t) => HTTP_TOOLS.has(basename(t.replace(/^['"]|['"]$/g, ""))));
-}
-
-function urlsIn(command: string): string[] {
+/** Extract all http/https URLs from command text. */
+function extractUrls(command: string): string[] {
   return command.match(/https?:\/\/\S+/g) ?? [];
 }

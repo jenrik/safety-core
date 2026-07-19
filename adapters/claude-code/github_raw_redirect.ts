@@ -6,11 +6,16 @@ import {
   checkBashForGithub,
   checkWebfetchUrl,
   detectBlockedDomain,
+  discoverWasmDir,
+  initBashParser,
 } from "../../src/index.js";
 
 import { emitDeny, parseHookEvent, readStdin, run } from "./_shared.js";
 
-run(() => {
+run(async () => {
+  // Initialise the bash parser (lazy, first-call only).
+  await initBashParser(discoverWasmDir(import.meta.url));
+
   const raw = readStdin();
   const event = parseHookEvent(raw);
 

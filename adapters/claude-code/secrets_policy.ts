@@ -12,6 +12,8 @@ import {
   SECRETS_POLICY_FALLBACK,
   basename,
   buildSecretBlockMessage,
+  discoverWasmDir,
+  initBashParser,
   isSecretPath,
   parseBashForSecretRead,
 } from "../../src/index.js";
@@ -45,7 +47,10 @@ function handlePreToolUseBash(event: ReturnType<typeof parseHookEvent>): void {
   if (reason) hardBlock(buildSecretBlockMessage(reason));
 }
 
-run(() => {
+run(async () => {
+  // Initialise the bash parser (lazy, first-call only).
+  await initBashParser(discoverWasmDir(import.meta.url));
+
   const event = parseHookEvent(readStdin());
   if (!event) return;
 

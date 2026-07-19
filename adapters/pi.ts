@@ -14,6 +14,8 @@ import {
   checkBashForKubectlSecret,
   checkWebfetchUrl,
   defaultAuditPath,
+  discoverWasmDir,
+  initBashParser,
   isSecretPath,
   parseBashForSecretRead,
   summariseKubectlSecret,
@@ -21,6 +23,17 @@ import {
 } from "../src/index.js";
 
 export default function (pi: ExtensionAPI) {
+  // ── Initialise the bash parser ────────────────────────────────────────
+  pi.on("session_start", async (_event, _ctx) => {
+    try {
+      const wasmDir = discoverWasmDir(import.meta.url);
+      await initBashParser(wasmDir);
+    } catch {
+      // If WASM loading fails, the parser stays null and consumers fall
+      // back to safe defaults (no commands parsed → no blocks).
+    }
+  });
+
   // ── PreToolUse: block dangerous tool invocations ───────────────────────
   pi.on("tool_call", async (event, ctx) => {
     if (event.toolName === "read") {
@@ -85,10 +98,6 @@ export default function (pi: ExtensionAPI) {
         content: appendTextToContent(event.content, `\n\n${SECRET_COMMAND_REMINDER}`),
       };
     }
-  });
-
-  pi.on("session_start", async (_event, ctx) => {
-    ctx.ui.setStatus("safety-hook", "safety: guarded");
   });
 }
 

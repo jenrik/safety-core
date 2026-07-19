@@ -8,7 +8,7 @@ import {
   KUBECTL_ROLLOUT_ALLOW,
   KUBECTL_SECRET_TYPES,
 } from "./patterns.js";
-import { splitShellSegments, stripQuotes, tokenize } from "./shell.js";
+import { basename, parseBash, type SimpleCommand } from "./shell.js";
 
 export type KubectlDecision =
   | { kind: "allow"; reason: string }
@@ -16,21 +16,22 @@ export type KubectlDecision =
   | { kind: "defer" }
   | { kind: "ignore" }; // not a kubectl command at all
 
-/** Analyse a shell command for kubectl policy. Returns:
+/**
+ * Analyse a shell command for kubectl policy. Returns:
  *   - allow  → hook should override permission gate to allow
  *   - deny   → hook should override permission gate to deny
  *   - defer  → hook should stay silent; let harness default rules decide
  *   - ignore → command is not kubectl
  */
 export function analyzeKubectl(command: string): KubectlDecision {
-  const tokens = tokenize(command).map(stripQuotes);
-  const kubectlIdx = findKubectl(tokens);
-  if (kubectlIdx < 0) return { kind: "ignore" };
+  const commands = parseBash(command);
+  const kubectl = commands.find(isKubectl);
+  if (!kubectl) return { kind: "ignore" };
 
-  const sub = nextPositional(tokens, kubectlIdx + 1);
-  if (sub.value === undefined) return { kind: "ignore" };
+  const sub = kubectl.args[0];
+  if (!sub) return { kind: "ignore" };
 
-  if (sub.value === "view-secret") {
+  if (sub === "view-secret") {
     return {
       kind: "deny",
       reason:
@@ -38,13 +39,13 @@ export function analyzeKubectl(command: string): KubectlDecision {
     };
   }
 
-  if (KUBECTL_ALWAYS_ALLOW.has(sub.value)) {
-    return { kind: "allow", reason: `kubectl ${sub.value} auto-allowed (read-only)` };
+  if (KUBECTL_ALWAYS_ALLOW.has(sub)) {
+    return { kind: "allow", reason: `kubectl ${sub} auto-allowed (read-only)` };
   }
 
-  if (sub.value === "get") {
-    const resource = nextPositional(tokens, sub.next).value;
-    if (resource === undefined) return { kind: "defer" };
+  if (sub === "get") {
+    const resource = nextPositionalArg(kubectl.args, 1);
+    if (!resource) return { kind: "defer" };
     const types = new Set(
       resource.split(",").map((r) => r.split("/")[0].toLowerCase()),
     );
@@ -59,16 +60,16 @@ export function analyzeKubectl(command: string): KubectlDecision {
     return { kind: "allow", reason: "kubectl get auto-allowed" };
   }
 
-  if (sub.value === "rollout") {
-    const sub2 = nextPositional(tokens, sub.next).value;
+  if (sub === "rollout") {
+    const sub2 = kubectl.args[1];
     if (sub2 && KUBECTL_ROLLOUT_ALLOW.has(sub2)) {
       return { kind: "allow", reason: `kubectl rollout ${sub2} auto-allowed (read-only)` };
     }
     return { kind: "defer" };
   }
 
-  if (sub.value === "config") {
-    const sub2 = nextPositional(tokens, sub.next).value;
+  if (sub === "config") {
+    const sub2 = kubectl.args[1];
     if (sub2 === "get-contexts") {
       return {
         kind: "allow",
@@ -78,16 +79,16 @@ export function analyzeKubectl(command: string): KubectlDecision {
     return { kind: "defer" };
   }
 
-  if (sub.value === "auth") {
-    const sub2 = nextPositional(tokens, sub.next).value;
+  if (sub === "auth") {
+    const sub2 = kubectl.args[1];
     if (sub2 && KUBECTL_AUTH_ALLOW.has(sub2)) {
       return { kind: "allow", reason: `kubectl auth ${sub2} auto-allowed (read-only)` };
     }
     return { kind: "defer" };
   }
 
-  if (sub.value === "plugin") {
-    const sub2 = nextPositional(tokens, sub.next).value;
+  if (sub === "plugin") {
+    const sub2 = kubectl.args[1];
     if (sub2 === "list") {
       return { kind: "allow", reason: "kubectl plugin list auto-allowed (read-only)" };
     }
@@ -99,28 +100,32 @@ export function analyzeKubectl(command: string): KubectlDecision {
 
 // ─── Bash-level scan variant used by opencode/pi (as fallback deny) ──────────
 
-/** Return a reason string if `command` invokes kubectl on Secrets, else null.
- *  Used by harnesses that only have a hard-block hook and no permission gate. */
+/**
+ * Return a reason string if `command` invokes kubectl on Secrets, else null.
+ * Used by harnesses that only have a hard-block hook and no permission gate.
+ */
 export function checkBashForKubectlSecret(command: string): string | null {
-  for (const segment of splitShellSegments(command)) {
-    const decision = analyzeKubectl(segment);
-    if (decision.kind === "deny") return decision.reason;
-    if (decision.kind === "defer") {
-      // In pi/opencode we don't have a separate "defer to LLM judge" mode:
-      // for kubectl get on Secrets, block outright.
-      const tokens = tokenize(segment).map(stripQuotes);
-      const idx = findKubectl(tokens);
-      if (idx < 0) continue;
-      const sub = nextPositional(tokens, idx + 1);
-      if (sub.value !== "get") continue;
-      const resource = nextPositional(tokens, sub.next).value;
-      if (!resource) continue;
-      const types = resource.split(",").map((r) => r.split("/")[0].toLowerCase());
-      if (types.some((t) => KUBECTL_SECRET_TYPES.has(t))) {
-        return "kubectl get Secret is not auto-approved. Use metadata-only output or request confirmation for a safe command.";
-      }
-    }
+  const commands = parseBash(command);
+  const kubectl = commands.find(isKubectl);
+  if (!kubectl) return null;
+
+  const decision = analyzeKubectl(command);
+  if (decision.kind === "deny") return decision.reason;
+  if (decision.kind !== "defer") return null;
+
+  // In pi/opencode we don't have a separate "defer to LLM judge" mode:
+  // for kubectl get on Secrets, block outright.
+  const sub = kubectl.args[0];
+  if (sub !== "get") return null;
+
+  const resource = nextPositionalArg(kubectl.args, 1);
+  if (!resource) return null;
+
+  const types = resource.split(",").map((r) => r.split("/")[0].toLowerCase());
+  if (types.some((t) => KUBECTL_SECRET_TYPES.has(t))) {
+    return "kubectl get Secret is not auto-approved. Use metadata-only output or request confirmation for a safe command.";
   }
+
   return null;
 }
 
@@ -132,42 +137,47 @@ export interface KubectlAuditRecord {
   command_length: number;
 }
 
-/** Return an audit summary of a kubectl command that touched a Secret, or
- *  null if the command doesn't reference kubectl / Secrets. Never returns the
- *  raw command text — value-bearing --from-literal arguments must not persist. */
+/**
+ * Return an audit summary of a kubectl command that touched a Secret, or
+ * null if the command doesn't reference kubectl / Secrets. Never returns the
+ * raw command text — value-bearing --from-literal arguments must not persist.
+ */
 export function summariseKubectlSecret(command: string): KubectlAuditRecord | null {
-  const tokens = tokenize(command).map(stripQuotes);
-  const idx = findKubectl(tokens);
-  if (idx < 0) return null;
+  const commands = parseBash(command);
+  const kubectl = commands.find(isKubectl);
+  if (!kubectl) return null;
 
-  const mentionsSecret = tokens.some((t) =>
-    /(^|[/,])secrets?(?:$|[/,])|view-secret/.test(t),
+  // Check if the command mentions a Secret resource anywhere in its args.
+  const mentionsSecret = kubectl.args.some(
+    (a) => /(^|[/,])secrets?(?:$|[/,])|view-secret/.test(a),
   );
   if (!mentionsSecret) return null;
 
-  const sub = nextPositional(tokens, idx + 1);
-  const resource = sub.value !== undefined ? nextPositional(tokens, sub.next).value : undefined;
+  const sub = kubectl.args[0] ?? null;
+  const resource = kubectl.args.length > 1 ? kubectl.args[1].split("/")[0].split("=")[0] : null;
 
   return {
-    kubectl_subcommand: sub.value ?? null,
-    resource: resource ? resource.split("/")[0].split("=")[0] : null,
+    kubectl_subcommand: sub,
+    resource,
     command_length: command.length,
   };
 }
 
-// ─── Token helpers ──────────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
-function findKubectl(tokens: string[]): number {
-  return tokens.findIndex((t) => t === "kubectl" || t.endsWith("/kubectl"));
+function isKubectl(cmd: SimpleCommand): boolean {
+  return cmd.name === "kubectl";
 }
 
-interface PositionalResult { value: string | undefined; next: number }
-
-function nextPositional(tokens: string[], start: number): PositionalResult {
+/**
+ * Return the value of a positional argument (skipping flags and their
+ * values) at or after `start` index. Returns undefined if none found.
+ */
+function nextPositionalArg(args: readonly string[], start: number): string | undefined {
   let i = start;
-  while (i < tokens.length) {
-    const t = tokens[i];
-    if (!t.startsWith("-")) return { value: t, next: i + 1 };
+  while (i < args.length) {
+    const t = args[i];
+    if (!t.startsWith("-")) return t;
     if (t.includes("=")) {
       i++;
     } else if (KUBECTL_FLAGS_WITH_VALUES.has(t)) {
@@ -176,5 +186,5 @@ function nextPositional(tokens: string[], start: number): PositionalResult {
       i++;
     }
   }
-  return { value: undefined, next: tokens.length };
+  return undefined;
 }
