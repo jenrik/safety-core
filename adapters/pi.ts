@@ -3,7 +3,10 @@
 // Delegates all policy decisions to ../src/*. This file only knows how
 // to translate between the pi event model and core decision functions.
 
+import { createBashTool } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Container, Text } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
 
 import {
   SECRET_BLOCK_MESSAGE,
@@ -20,6 +23,8 @@ import {
   parseBashForSecretRead,
   summariseKubectlSecret,
   appendAuditRecord,
+  setJudgeVerdict,
+  getJudgeVerdict,
 } from "../src/index.js";
 
 export default function (pi: ExtensionAPI) {
@@ -58,21 +63,39 @@ export default function (pi: ExtensionAPI) {
 
       const secretReason = parseBashForSecretRead(command);
       if (secretReason) {
+        setJudgeVerdict(event.toolCallId, {
+          safe: false,
+          reasoning: `Blocked: ${secretReason}`,
+        });
         ctx.ui.notify(`Blocked ${secretReason}`, "warning");
         return { block: true, reason: SECRET_BLOCK_MESSAGE };
       }
 
       const githubReason = checkBashForGithub(command);
       if (githubReason) {
+        setJudgeVerdict(event.toolCallId, {
+          safe: false,
+          reasoning: "Blocked: direct GitHub HTTP request",
+        });
         ctx.ui.notify("Blocked direct GitHub HTTP request", "warning");
         return { block: true, reason: githubReason };
       }
 
       const kubectlReason = checkBashForKubectlSecret(command);
       if (kubectlReason) {
+        setJudgeVerdict(event.toolCallId, {
+          safe: false,
+          reasoning: "Blocked: kubectl Secret exposure",
+        });
         ctx.ui.notify("Blocked kubectl Secret exposure", "warning");
         return { block: true, reason: kubectlReason };
       }
+
+      // Command passed all safety checks — store judge verdict for TUI annotation.
+      setJudgeVerdict(event.toolCallId, {
+        safe: true,
+        reasoning: "Safety check passed — no policy violations detected",
+      });
     }
   });
 
@@ -98,6 +121,73 @@ export default function (pi: ExtensionAPI) {
         content: appendTextToContent(event.content, `\n\n${SECRET_COMMAND_REMINDER}`),
       };
     }
+  });
+
+  // ── Bash tool override: judge annotation in TUI ────────────────────────
+  //
+  // Override the built-in bash tool to inject a safety-review annotation
+  // (🧑‍⚖️ ✅ / ❌ + reasoning) at the top of the tool invocation box.
+  // Execution delegates to createBashTool so we keep full built-in behaviour
+  // (truncation, temp files, streaming, etc.).  renderResult is inherited
+  // from the built-in tool automatically.
+
+  const bashSchema = Type.Object({
+    command: Type.String({
+      description:
+        "Execute a bash command. Returns stdout and stderr. Output is truncated to 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.",
+    }),
+    timeout: Type.Optional(Type.Number({
+      description: "Optional timeout in seconds.",
+    })),
+  });
+
+  pi.registerTool({
+    name: "bash",
+    label: "Bash",
+    description:
+      "Execute a bash command. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.",
+    parameters: bashSchema,
+
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
+      const bashTool = createBashTool(ctx.cwd);
+      return bashTool.execute(toolCallId, params, signal, onUpdate, ctx);
+    },
+
+    renderCall(args, theme, context) {
+      const container = new Container();
+
+      // ── Judge annotation line ────────────────────────────────────
+      const verdict = getJudgeVerdict(context.toolCallId);
+      if (verdict) {
+        const icon = verdict.safe ? "✅" : "❌";
+        container.addChild(
+          new Text(
+            `🧑‍⚖️ ${icon} ${theme.italic(verdict.reasoning)}`,
+            0,
+            0,
+          ),
+        );
+      }
+
+      // ── Command display (matches built-in style) ─────────────────
+      const command = args.command || "...";
+      const timeout = args.timeout;
+      const timeoutSuffix = timeout
+        ? theme.fg("muted", ` (timeout ${timeout}s)`)
+        : "";
+      container.addChild(
+        new Text(
+          theme.fg("toolTitle", theme.bold(`$ ${command}`)) + timeoutSuffix,
+          0,
+          0,
+        ),
+      );
+
+      return container;
+    },
+
+    // renderResult is omitted — the built-in Bash result renderer
+    // (with truncation footer, timing, streaming) is used automatically.
   });
 }
 

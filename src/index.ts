@@ -9,3 +9,4 @@ export * from "./secrets.js";
 export * from "./github.js";
 export * from "./kubectl.js";
 export * from "./audit.js";
+export * from "./judge.js";
