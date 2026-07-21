@@ -242,7 +242,7 @@ export default function (pi: ExtensionAPI) {
       const container = new Container();
 
       const verdict = getJudgeVerdict(context.toolCallId);
-      if (verdict) {
+      if (verdict?.fromLLM) {
         const icon = verdict.safe ? "✅" : "❌";
         container.addChild(
           new Text(

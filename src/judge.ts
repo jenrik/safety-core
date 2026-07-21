@@ -24,6 +24,9 @@ export interface JudgeVerdict {
   safe: boolean;
   /** Human-readable reasoning for display. Keep short (one line). */
   reasoning: string;
+  /** True if the verdict was produced by the LLM judge (vs rule-based).
+   *  TUI only renders the 🧑‍⚖️ annotation for LLM verdicts. */
+  fromLLM?: boolean;
 }
 
 /**
@@ -199,6 +202,7 @@ export function createAnthropicJudge(options: AnthropicJudgeOptions): JudgeProvi
         return {
           safe: true,
           reasoning: `Judge unavailable (HTTP ${resp.status}); allowing by default`,
+          fromLLM: true,
         };
       }
 
@@ -214,7 +218,7 @@ export function createAnthropicJudge(options: AnthropicJudgeOptions): JudgeProvi
       return parseJudgeResponse(text);
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === "AbortError") throw err;
-      return { safe: true, reasoning: "Judge error; allowing by default" };
+      return { safe: true, reasoning: "Judge error; allowing by default", fromLLM: true };
     }
   };
 }
@@ -257,6 +261,7 @@ export function createOpenAIJudge(options: OpenAIJudgeOptions): JudgeProvider {
         return {
           safe: true,
           reasoning: `Judge unavailable (HTTP ${resp.status}); allowing by default`,
+          fromLLM: true,
         };
       }
 
@@ -268,7 +273,7 @@ export function createOpenAIJudge(options: OpenAIJudgeOptions): JudgeProvider {
       return parseJudgeResponse(text);
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === "AbortError") throw err;
-      return { safe: true, reasoning: "Judge error; allowing by default" };
+      return { safe: true, reasoning: "Judge error; allowing by default", fromLLM: true };
     }
   };
 }
@@ -278,7 +283,7 @@ export function createOpenAIJudge(options: OpenAIJudgeOptions): JudgeProvider {
 function parseJudgeResponse(text: string): JudgeVerdict {
   const json = text.match(/\{[\s\S]*\}/)?.[0];
   if (!json) {
-    return { safe: true, reasoning: "Judge response unparseable; allowing by default" };
+    return { safe: true, reasoning: "Judge response unparseable; allowing by default", fromLLM: true };
   }
 
   try {
@@ -297,8 +302,9 @@ function parseJudgeResponse(text: string): JudgeVerdict {
     return {
       safe,
       reasoning: parsed.reason?.trim() || (safe ? "Approved by judge" : "Blocked by judge"),
+      fromLLM: true,
     };
   } catch {
-    return { safe: true, reasoning: "Judge response invalid JSON; allowing by default" };
+    return { safe: true, reasoning: "Judge response invalid JSON; allowing by default", fromLLM: true };
   }
 }
