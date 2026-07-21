@@ -19,6 +19,12 @@ import {
   isSecretPath,
   parseBashForSecretRead,
   summariseKubectlSecret,
+  setJudgeProvider,
+  invokeJudge,
+  shouldInvokeJudge,
+  createAnthropicJudge,
+  createOpenAIJudge,
+  type JudgeProvider,
 } from "../src/index.js";
 
 // Initialise the bash parser eagerly (plugin factory can be async).
@@ -26,6 +32,10 @@ const initPromise = initBashParser(discoverWasmDir(import.meta.url)).catch(() =>
 
 export default (async () => {
   await initPromise;
+
+  // Wire up LLM judge using OpenCode's provider configuration.
+  // OpenCode sets ANTHROPIC_API_KEY / OPENAI_API_KEY from its provider config.
+  setJudgeProvider(buildJudgeProvider());
 
   return {
     "tool.execute.before": async (input, output) => {
@@ -45,19 +55,36 @@ export default (async () => {
 
       if (input.tool !== "bash") return;
       const command = String(args.command ?? "");
-      const reason =
-        parseBashForSecretRead(command) ??
-        checkBashForGithub(command) ??
-        checkBashForKubectlSecret(command);
-      if (reason) throw new Error(`Blocked by OpenCode safety policy: ${reason}`);
+
+      // ── Rule-based checks: hard-block clear violations ────────────
+      const secretReason = parseBashForSecretRead(command);
+      if (secretReason) {
+        throw new Error(`Blocked by OpenCode safety policy: ${secretReason}`);
+      }
+
+      const githubReason = checkBashForGithub(command);
+      if (githubReason) {
+        throw new Error(githubReason);
+      }
+
+      const kubectlDecision = checkBashForKubectlSecret(command);
+      if (kubectlDecision && !kubectlDecision.startsWith("kubectl get Secret")) {
+        throw new Error(`Blocked by OpenCode safety policy: ${kubectlDecision}`);
+      }
+
+      // ── LLM Judge: second pass for secret-adjacent commands ──────────
+      if (shouldInvokeJudge(command)) {
+        const verdict = await invokeJudge(command);
+        if (verdict && !verdict.safe) {
+          throw new Error(`Blocked by OpenCode safety policy (🧑‍⚖️ judge): ${verdict.reasoning}`);
+        }
+      }
     },
 
     "tool.execute.after": async (input, output) => {
       if (input.tool !== "bash") return;
       const command = String((input.args as Record<string, unknown>).command ?? "");
 
-      // Kubectl-secret audit trail (never logs raw command; --from-literal args
-      // can carry the secret value on the argv line).
       const summary = summariseKubectlSecret(command);
       if (summary) {
         await appendAuditRecord(defaultAuditPath("opencode"), {
@@ -66,7 +93,6 @@ export default (async () => {
         }).catch(() => {});
       }
 
-      // Reminder for the model when the command matched a secret-shaped keyword.
       if (matchesSecretKeyword(command)) {
         output.output += `\n\n${SECRET_COMMAND_REMINDER}`;
       }
@@ -75,6 +101,24 @@ export default (async () => {
 })();
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Build a JudgeProvider from OpenCode's own provider configuration.
+ *
+ * Uses the harness's existing API keys (set by OpenCode from its config)
+ * to decide which API to call.  No separate env-var config needed.
+ */
+function buildJudgeProvider(): JudgeProvider | null {
+  if (process.env.ANTHROPIC_API_KEY) {
+    return createAnthropicJudge({ apiKey: process.env.ANTHROPIC_API_KEY });
+  }
+
+  if (process.env.OPENAI_API_KEY) {
+    return createOpenAIJudge({ apiKey: process.env.OPENAI_API_KEY });
+  }
+
+  return null;
+}
 
 function matchesSecretKeyword(command: string): boolean {
   const haystack = command.toLowerCase();
