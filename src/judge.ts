@@ -157,6 +157,23 @@ export function buildJudgeUserPrompt(command: string): string {
 // returns a JudgeProvider.  Adapters pick the appropriate factory based on
 // ctx.model.provider or env.  The core never reads process.env itself.
 
+/**
+ * Create a judge backed by Pi's native model runtime. The completion callback
+ * owns authentication and provider-specific request serialization.
+ */
+export function createCompletionJudge(
+  complete: (systemPrompt: string, userPrompt: string, signal?: AbortSignal) => Promise<string>,
+): JudgeProvider {
+  return async (command: string, signal?: AbortSignal): Promise<JudgeVerdict> => {
+    try {
+      return parseJudgeResponse(await complete(JUDGE_SYSTEM_PROMPT, buildJudgeUserPrompt(command), signal));
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") throw err;
+      return { safe: true, reasoning: "Judge error; allowing by default", fromLLM: true };
+    }
+  };
+}
+
 export interface AnthropicJudgeOptions {
   apiKey: string;
   /** Model to use (default: claude-haiku-4-5). */

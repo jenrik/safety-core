@@ -9,6 +9,7 @@ import { dirname, join } from "node:path";
 
 import { createBashTool } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { AssistantMessage, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { Container, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
@@ -32,19 +33,43 @@ import {
   setJudgeProvider,
   invokeJudge,
   shouldInvokeJudge,
-  createAnthropicJudge,
-  createOpenAIJudge,
+  createCompletionJudge,
   type JudgeProvider,
 } from "../src/index.js";
 
 // ── Module state ──────────────────────────────────────────────────────
 // judgeModelOverride wins over settings.json; set by /safety-core menu.
+// Values are persisted as provider/model-id, so any configured Pi provider can
+// supply the judge.
 let judgeModelOverride: string | undefined;
 let _sessionCwd: string | undefined;
-let _sessionProvider: string | undefined;
+let _sessionModel: Model<any> | undefined;
+let _modelRegistry: {
+  getAvailable(): Model<any>[];
+  getAll(): Model<any>[];
+} | undefined;
 
-function refreshJudge(): void {
-  setJudgeProvider(buildJudgeProvider(_sessionProvider, _sessionCwd));
+// ModelRegistry intentionally exposes catalog and credential APIs, but not
+// model execution. Its backing ModelRuntime is what Pi itself uses for every
+// configured provider, including providers registered by other extensions.
+// Keep the compatibility boundary narrow and fail open if Pi changes it.
+interface ModelRuntimeAccess {
+  completeSimple(
+    model: Model<any>,
+    context: Context,
+    options?: SimpleStreamOptions,
+  ): Promise<AssistantMessage>;
+}
+
+function getModelRuntime(): ModelRuntimeAccess | undefined {
+  const registry = _modelRegistry as unknown as { runtime?: ModelRuntimeAccess } | undefined;
+  return typeof registry?.runtime?.completeSimple === "function"
+    ? registry.runtime
+    : undefined;
+}
+
+async function refreshJudge(): Promise<void> {
+  setJudgeProvider(await buildJudgeProvider());
 }
 
 export default function (pi: ExtensionAPI) {
@@ -58,50 +83,50 @@ export default function (pi: ExtensionAPI) {
       // back to safe defaults (no commands parsed → no blocks).
     }
 
-    // Wire up LLM judge using Pi's existing provider configuration.
-    // Pi sets ANTHROPIC_API_KEY / OPENAI_API_KEY from auth.json at startup.
-    // ctx.model tells us which provider is active so we can pick the right API.
-    // The "safety.judgeModel" setting (configurable via /safety-core)
-    // overrides the default judge model.
+    // Use Pi's model runtime so every authenticated provider/model available
+    // to this instance can be selected as the judge.
     _sessionCwd = ctx.cwd;
-    _sessionProvider = ctx.model?.provider;
-    refreshJudge();
+    _sessionModel = ctx.model;
+    _modelRegistry = ctx.modelRegistry;
+    await refreshJudge();
   });
 
   // ── /safety-core command ─────────────────────────────────────────────
   pi.registerCommand("safety-core", {
     description: "Configure safety-core settings (judge model)",
     handler: async (_args, ctx) => {
-      const currentModel =
-        judgeModelOverride ?? readSettings("safety.judgeModel", ctx.cwd);
-      const isAnthropic =
-        _sessionProvider === "anthropic" || Boolean(process.env.ANTHROPIC_API_KEY);
+      _sessionCwd = ctx.cwd;
+      _sessionModel = ctx.model;
+      _modelRegistry = ctx.modelRegistry;
 
-      const modelOptions = isAnthropic
-        ? ["(default)", "claude-haiku-4-5", "claude-sonnet-4-6", "claude-sonnet-5", "claude-opus-4-7", "claude-opus-4-8"]
-        : ["(default)", "gpt-4o-mini", "gpt-4.1", "gpt-5", "o4-mini"];
-
-      const labels = modelOptions.map((m) =>
-        m === "(default)"
-          ? `Default (${isAnthropic ? "claude-haiku-4-5" : "gpt-4o-mini"})`
-          : m === currentModel
-            ? `★ ${m} (current)`
-            : m,
+      const currentModel = judgeModelOverride ?? readSettings("safety.judgeModel", ctx.cwd);
+      const models = getAvailableJudgeModels(ctx.modelRegistry);
+      const options = [
+        {
+          value: "(default)",
+          label: "Default (active model: " + formatModel(_sessionModel) + ")",
+        },
+        ...models.map((model) => ({
+          value: modelKey(model),
+          label: formatModel(model),
+        })),
+      ];
+      const labels = options.map(({ value, label }) =>
+        value === currentModel ? "★ " + label + " (current)" : label,
       );
 
       const choice = await ctx.ui.select("Judge model for safety checks:", labels);
       if (choice == null) return;
 
-      const newModel = modelOptions[labels.indexOf(choice)];
-      judgeModelOverride = newModel === "(default)" ? undefined : newModel;
+      const selected = options[labels.indexOf(choice)];
+      if (!selected) return;
+      judgeModelOverride = selected.value === "(default)" ? undefined : selected.value;
 
       // Persist to project settings so it survives restarts.
       writeSettings("safety.judgeModel", judgeModelOverride, ctx.cwd);
 
       // Rebuild the judge provider immediately.
-      _sessionCwd = ctx.cwd;
-      _sessionProvider = ctx.model?.provider;
-      refreshJudge();
+      await refreshJudge();
 
       ctx.ui.notify(
         judgeModelOverride
@@ -110,6 +135,15 @@ export default function (pi: ExtensionAPI) {
         "info",
       );
     },
+  });
+
+  // The default judge follows the active model. Keep it synchronized when the
+  // user switches models; an explicit /safety-core choice is retained.
+  pi.on("model_select", async (event, ctx) => {
+    _sessionCwd = ctx.cwd;
+    _sessionModel = event.model;
+    _modelRegistry = ctx.modelRegistry;
+    await refreshJudge();
   });
 
   // ── PreToolUse: block dangerous tool invocations ───────────────────────
@@ -274,30 +308,75 @@ export default function (pi: ExtensionAPI) {
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * Build a JudgeProvider from Pi's own provider configuration.
- *
- * Uses the harness's existing API keys (set by Pi from auth.json)
- * and the active provider to decide which API to call.  Reads the
- * optional `safety.judgeModel` key from Pi's settings.json (global
- * and project-local, merged with project winning).
+ * Build a judge through Pi's own ModelRuntime. This preserves each provider's
+ * native authentication, request format, and custom extension implementation.
  */
-function buildJudgeProvider(provider?: string, cwd?: string): JudgeProvider | null {
-  const judgeModel = judgeModelOverride ?? readSettings("safety.judgeModel", cwd);
+async function buildJudgeProvider(): Promise<JudgeProvider | null> {
+  const registry = _modelRegistry;
+  const runtime = getModelRuntime();
+  if (!registry || !runtime) return null;
 
-  // Try Anthropic first (matches ctx.model.provider for Anthropic models).
-  if (provider === "anthropic" || process.env.ANTHROPIC_API_KEY) {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (apiKey) return createAnthropicJudge({ apiKey, model: judgeModel });
-  }
+  const configured = judgeModelOverride ?? readSettings("safety.judgeModel", _sessionCwd);
+  const model = resolveJudgeModel(configured, getAvailableJudgeModels(registry), _sessionModel);
+  if (!model) return null;
 
-  // Try OpenAI-compatible.
-  if (process.env.OPENAI_API_KEY) {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (apiKey) return createOpenAIJudge({ apiKey, model: judgeModel });
-  }
+  return createCompletionJudge(async (systemPrompt, userPrompt, signal) => {
+    const response = await runtime.completeSimple(
+      model,
+      {
+        systemPrompt,
+        messages: [{ role: "user", content: userPrompt, timestamp: Date.now() }],
+      },
+      { maxTokens: 256, temperature: 0, signal, maxRetries: 0 },
+    );
 
-  // No usable API key found — judge stays disabled (fail-open).
-  return null;
+    if (response.stopReason === "error") {
+      throw new Error(response.errorMessage ?? "Judge request failed");
+    }
+
+    return response.content
+      .filter((block): block is { type: "text"; text: string } => block.type === "text")
+      .map((block) => block.text)
+      .join("");
+  });
+}
+
+function getAvailableJudgeModels(registry: {
+  getAvailable(): Model<any>[];
+  getAll(): Model<any>[];
+}): Model<any>[] {
+  // getAvailable is Pi's authenticated, credential-aware catalog. Fall back to
+  // the full catalog for older Pi releases whose snapshot is not populated yet;
+  // execution still performs Pi's normal authentication check.
+  const models = registry.getAvailable();
+  return (models.length > 0 ? models : registry.getAll())
+    .slice()
+    .sort((a, b) => modelKey(a).localeCompare(modelKey(b)));
+}
+
+function modelKey(model: Model<any>): string {
+  return model.provider + "/" + model.id;
+}
+
+function formatModel(model: Model<any> | undefined): string {
+  return model
+    ? modelKey(model) + (model.name === model.id ? "" : " (" + model.name + ")")
+    : "none";
+}
+
+function resolveJudgeModel(
+  configured: string | undefined,
+  models: Model<any>[],
+  active: Model<any> | undefined,
+): Model<any> | undefined {
+  if (!configured) return active;
+
+  const exact = models.find((model) => modelKey(model) === configured);
+  if (exact) return exact;
+
+  // Backwards compatibility with the previous bare model-id setting.
+  return models.find((model) => model.provider === active?.provider && model.id === configured)
+    ?? models.find((model) => model.id === configured);
 }
 
 /**
