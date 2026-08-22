@@ -4,7 +4,7 @@
 // regex tokenizer if the parser hasn't been initialised (e.g. in tests).
 
 import { statSync } from "node:fs";
-import { Node as SyntaxNode, Parser } from "web-tree-sitter";
+import { Language, Node as SyntaxNode, Parser } from "web-tree-sitter";
 
 // ─── Parser initialisation ──────────────────────────────────────────────────
 
@@ -31,7 +31,7 @@ export async function initBashParser(wasmDir: string): Promise<void> {
       },
     });
 
-    const BashLang = await Parser.Language.load(
+    const BashLang = await Language.load(
       `${wasmDir}/tree-sitter-bash.wasm`,
     );
     bashParser = new Parser();

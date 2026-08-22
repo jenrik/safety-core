@@ -1,0 +1,11 @@
+{
+  "name": "safety-core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared TypeScript safety-policy core for pi/opencode/claude-code coding-agent hooks",
+  "dependencies": {
+    "web-tree-sitter": "0.26.11",
+    "tree-sitter-bash": "0.25.1"
+  }
+}

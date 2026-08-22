@@ -1,4 +1,11 @@
-{ pkgs }:
+{
+  lib,
+  stdenv,
+  buildNpmPackage,
+  nodejs_22,
+  esbuild,
+  gnused,
+}:
 # Shared TypeScript core for the LLM safety hook, plus per-harness artifacts
 # that wrap it for claude-code, pi, and opencode.
 #
@@ -24,47 +31,39 @@
 #   WASM runtime — no native addons). We bundle the runtime and grammar WASM
 #   files alongside the code. The web-tree-sitter JS module is placed in a
 #   node_modules/ directory so Node's bare-specifier resolution finds it.
-
+#   Both packages come from a real package.json/package-lock.json via
+#   buildNpmPackage rather than hand-vendored fetchurl tarballs.
 let
-  # ── WASM assets ───────────────────────────────────────────────────────
-  # Fetch the web-tree-sitter npm package (pure JS + runtime WASM).
-  webTreeSitter = pkgs.fetchurl {
-    url = "https://registry.npmjs.org/web-tree-sitter/-/web-tree-sitter-0.26.11.tgz";
-    hash = "sha256-GLYbTRpANvU1I+ktKUweB86lFQvjFrZU52pJbKUY8hE=";
+  # ── npm dependencies ──────────────────────────────────────────────────
+  nodeModules = buildNpmPackage {
+    pname = "safety-core-deps";
+    version = "0.0.0";
+    src = ./.;
+    nodejs = nodejs_22;
+    npmDepsHash = "sha256-sJd9RQDXmQ+16MXXcOy+AoOkCLS5avsNB3MOFYQi7FY=";
+    dontNpmBuild = true;
+    # tree-sitter-bash ships native-binding install scripts we don't need —
+    # we only use its prebuilt tree-sitter-bash.wasm.
+    npmFlags = [ "--ignore-scripts" ];
+    installPhase = ''
+      mkdir -p $out/node_modules
+      cp -r node_modules/web-tree-sitter $out/node_modules/
+      cp -r node_modules/tree-sitter-bash $out/node_modules/
+    '';
   };
 
-  # Fetch the tree-sitter-bash npm package (grammar WASM).
-  treeSitterBash = pkgs.fetchurl {
-    url = "https://registry.npmjs.org/tree-sitter-bash/-/tree-sitter-bash-0.25.1.tgz";
-    hash = "sha256-1LKBlQjql8uJU//34wSmENRDAHvTlcjwOhXemorkpvk=";
+  # Lay out the files we need so that Node module resolution works
+  # (`import "web-tree-sitter"` resolves to node_modules/web-tree-sitter/,
+  # which carries its own package.json + exports map).
+  wasmAssets = stdenv.mkDerivation {
+    name = "safety-core-wasm";
+    dontUnpack = true;
+    installPhase = ''
+      mkdir -p $out/node_modules
+      cp -r ${nodeModules}/node_modules/web-tree-sitter $out/node_modules/
+      cp ${nodeModules}/node_modules/tree-sitter-bash/tree-sitter-bash.wasm $out/
+    '';
   };
-
-  # Extract the files we need from each tarball and lay them out so that
-  # Node module resolution works (`import "web-tree-sitter"` resolves to
-  # node_modules/web-tree-sitter/ which has a package.json and index.js).
-  wasmAssets = pkgs.runCommand "safety-core-wasm" { } ''
-    mkdir -p $out/node_modules/web-tree-sitter
-
-    ${pkgs.gnutar}/bin/tar -xzf ${webTreeSitter} -C $out/node_modules/web-tree-sitter \
-      --strip-components=1 \
-      package/web-tree-sitter.js \
-      package/web-tree-sitter.d.ts \
-      package/web-tree-sitter.wasm
-
-    cat > $out/node_modules/web-tree-sitter/package.json << 'EOF'
-    {
-      "name": "web-tree-sitter",
-      "version": "0.26.11",
-      "main": "web-tree-sitter.js",
-      "types": "web-tree-sitter.d.ts",
-      "type": "module"
-    }
-    EOF
-
-    ${pkgs.gnutar}/bin/tar -xzf ${treeSitterBash} -C $out \
-      --strip-components=1 \
-      package/tree-sitter-bash.wasm
-  '';
 
   src = ./src;
 
@@ -72,22 +71,26 @@ let
   # src/ + node_modules/ + WASM).  Rewrites `../src/` → `./src/` in the
   # adapter so it works when placed as index.ts at the root of the output
   # directory.
-  mkExtensionDir = name: adapterFile: pkgs.runCommand "safety-core-${name}" { } ''
-    mkdir -p $out
+  mkExtensionDir = name: adapterFile: stdenv.mkDerivation {
+    name = "safety-core-${name}";
+    dontUnpack = true;
+    installPhase = ''
+      mkdir -p $out
 
-    # Copy web-tree-sitter node_modules (for bare-specifier resolution).
-    cp -r ${wasmAssets}/node_modules $out/
+      # Copy web-tree-sitter node_modules (for bare-specifier resolution).
+      cp -r ${wasmAssets}/node_modules $out/
 
-    # Copy WASM files to root (referenced by initBashParser).
-    cp ${wasmAssets}/tree-sitter-bash.wasm $out/
+      # Copy WASM files to root (referenced by initBashParser).
+      cp ${wasmAssets}/tree-sitter-bash.wasm $out/
 
-    # Copy shared source.
-    cp -r ${src} $out/src
+      # Copy shared source.
+      cp -r ${src} $out/src
 
-    # Place the adapter as index.ts at the root, rewriting imports so they
-    # resolve relative to the new location.
-    ${pkgs.gnused}/bin/sed 's|../src/|./src/|g' ${adapterFile} > $out/index.ts
-  '';
+      # Place the adapter as index.ts at the root, rewriting imports so they
+      # resolve relative to the new location.
+      ${gnused}/bin/sed 's|../src/|./src/|g' ${adapterFile} > $out/index.ts
+    '';
+  };
 
   piDir = mkExtensionDir "pi" ./adapters/pi.ts;
   opencodeDir = mkExtensionDir "opencode" ./adapters/opencode.ts;
@@ -104,11 +107,11 @@ in
 
   # Standalone bundled hook scripts for claude-code. Produces a directory of
   # executable .mjs files matching the original .py names one-for-one.
-  claudeCodeHooks = pkgs.stdenv.mkDerivation {
+  claudeCodeHooks = stdenv.mkDerivation {
     pname = "claude-code-safety-hooks";
     version = "0";
     src = ./.;
-    nativeBuildInputs = [ pkgs.esbuild ];
+    nativeBuildInputs = [ esbuild ];
     buildPhase = ''
       runHook preBuild
       mkdir -p $out
@@ -129,7 +132,7 @@ in
           --target=node20 \
           --external:web-tree-sitter \
           --outfile="$out/$name.mjs" \
-          --banner:js='#!${pkgs.nodejs}/bin/node' \
+          --banner:js='#!${nodejs_22}/bin/node' \
           "$f"
         chmod +x "$out/$name.mjs"
       done
