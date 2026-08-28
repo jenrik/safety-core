@@ -9,6 +9,7 @@ import {
   SECRET_BLOCK_MESSAGE,
   SECRET_COMMAND_REMINDER,
   SECRET_PATTERNS,
+  analyzeGhApiCommand,
   appendAuditRecord,
   checkBashForGithub,
   checkBashForKubectlSecret,
@@ -16,6 +17,7 @@ import {
   defaultAuditPath,
   discoverWasmDir,
   initBashParser,
+  isProfileEnabled,
   isSecretPath,
   parseBashForSecretRead,
   summariseKubectlSecret,
@@ -79,6 +81,26 @@ export default (async () => {
           throw new Error(`Blocked by OpenCode safety policy (🧑‍⚖️ judge): ${verdict.reasoning}`);
         }
       }
+    },
+
+    // `tool.execute.before` can only throw to hard-block; it has no channel
+    // to auto-approve. `permission.ask` is the actual override point: it
+    // fires when OpenCode's native permission gate is about to ask, and a
+    // plugin can set `output.status` to "allow"/"deny"/"ask" to decide the
+    // outcome instead. `input.pattern` carries the full command text for a
+    // bash permission request (populated from the parsed shell command by
+    // OpenCode's own shell tool -- see packages/opencode/src/tool/shell.ts).
+    "permission.ask": async (input, output) => {
+      if (input.type !== "bash") return;
+      if (!isProfileEnabled("ghApiReadOnly")) return;
+
+      const command = Array.isArray(input.pattern) ? input.pattern.join(" && ") : input.pattern;
+      if (!command) return;
+
+      const decision = analyzeGhApiCommand(command);
+      if (decision.kind === "allow") output.status = "allow";
+      else if (decision.kind === "deny") output.status = "deny";
+      // defer / ignore: leave output.status untouched (native permission tree decides).
     },
 
     "tool.execute.after": async (input, output) => {

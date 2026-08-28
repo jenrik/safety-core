@@ -66,11 +66,12 @@ let
   };
 
   src = ./src;
+  data = ./data;
 
   # Package a harness adapter as a directory extension (index.ts at root +
-  # src/ + node_modules/ + WASM).  Rewrites `../src/` → `./src/` in the
-  # adapter so it works when placed as index.ts at the root of the output
-  # directory.
+  # src/ + data/ + node_modules/ + WASM).  Rewrites `../src/` → `./src/` and
+  # `../data/` → `./data/` in the adapter so it works when placed as
+  # index.ts at the root of the output directory.
   mkExtensionDir = name: adapterFile: stdenv.mkDerivation {
     name = "safety-core-${name}";
     dontUnpack = true;
@@ -83,12 +84,13 @@ let
       # Copy WASM files to root (referenced by initBashParser).
       cp ${wasmAssets}/tree-sitter-bash.wasm $out/
 
-      # Copy shared source.
+      # Copy shared source and data.
       cp -r ${src} $out/src
+      cp -r ${data} $out/data
 
       # Place the adapter as index.ts at the root, rewriting imports so they
       # resolve relative to the new location.
-      ${gnused}/bin/sed 's|../src/|./src/|g' ${adapterFile} > $out/index.ts
+      ${gnused}/bin/sed 's|../src/|./src/|g; s|../data/|./data/|g' ${adapterFile} > $out/index.ts
     '';
   };
 

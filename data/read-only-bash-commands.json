@@ -1,0 +1,20 @@
+[
+  "cat",
+  "tail",
+  "head",
+  "echo",
+  "ls",
+  "grep",
+  "find",
+  "wc",
+  "pwd",
+  "whoami",
+  "date",
+  "stat",
+  "file",
+  "diff",
+  "sort",
+  "uniq",
+  "cut",
+  "tr"
+]

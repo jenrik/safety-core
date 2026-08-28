@@ -3,6 +3,8 @@
 // These are the source of truth used by every harness adapter
 // (claude-code, pi, opencode). Do not fork these lists into an adapter.
 
+import readOnlyBashCommandsData from "../data/read-only-bash-commands.json" with { type: "json" };
+
 // ─── Secret files ────────────────────────────────────────────────────────────
 
 // Filename globs treated as containing secret VALUES. Key names and file
@@ -71,6 +73,18 @@ export const READING_COMMANDS: ReadonlySet<string> = new Set([
   "source",
   ".",
 ]);
+
+// Generic commands considered safe to unconditionally auto-allow under the
+// `readOnlyBash` permission profile. Shared with the Nix side via
+// ../data/read-only-bash-commands.json (single source of truth for both).
+//
+// Deliberately distinct from READING_COMMANDS above, and NOT a subset of it:
+// READING_COMMANDS exists for secret-file-read detection and includes
+// `source`/`.`, which *execute* file content rather than just read it --
+// wrong to auto-allow blanket. Pagers (`less`, `more`, `bat`, `view`) are
+// also excluded here despite being in READING_COMMANDS, since they support
+// shell-escape (`!cmd` / `:!cmd`) from an interactive session.
+export const AUTO_ALLOW_READONLY_COMMANDS: readonly string[] = readOnlyBashCommandsData;
 
 // ─── GitHub direct-HTTP block ────────────────────────────────────────────────
 

@@ -39,11 +39,41 @@
 
             touch $out
           '';
+
+          gh-api-hook-runtime = pkgs.runCommand "safety-core-gh-api-hook-runtime-check" { } ''
+            set -e
+            mkdir -p profile-config/safety-core
+            echo '{"ghApiReadOnly":true}' > profile-config/safety-core/profiles.json
+            export XDG_CONFIG_HOME="$PWD/profile-config"
+
+            allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh api user"}}'
+            deny_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh api -f title=x repos/o/r/issues"}}'
+
+            # gh_api_read_allow.mjs uses emitAllow/emitDeny (PreToolUse
+            # override), which both exit 0 and write a permissionDecision
+            # JSON to stdout -- unlike secrets_policy.mjs's hardBlock (exit
+            # 2). Assert on stdout content, not exit code.
+            allow_out=$(echo "$allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_api_read_allow.mjs)
+            deny_out=$(echo "$deny_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_api_read_allow.mjs)
+
+            if ! echo "$allow_out" | grep -q '"permissionDecision":"allow"'; then
+              echo "expected gh_api_read_allow.mjs to allow a read-only call, got: $allow_out" >&2
+              exit 1
+            fi
+            if ! echo "$deny_out" | grep -q '"permissionDecision":"deny"'; then
+              echo "expected gh_api_read_allow.mjs to deny a -f-parameterised call with no explicit --method, got: $deny_out" >&2
+              exit 1
+            fi
+
+            touch $out
+          '';
         });
 
       overlays.default = final: _prev: {
         safety-core = final.callPackage ./package.nix { };
       };
+
+      homeManagerModules.default = import ./nix/permissions.nix;
 
       devShells = forAllSystems (system: {
         default = (pkgsFor system).mkShell {
