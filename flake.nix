@@ -67,6 +67,30 @@
 
             touch $out
           '';
+
+          gh-api-hook-safety-core-config-home-override = pkgs.runCommand "safety-core-gh-api-hook-config-home-override-check" { } ''
+            set -e
+
+            # SAFETY_CORE_CONFIG_HOME must win over XDG_CONFIG_HOME, simulating a
+            # harness (OpenCode2) that overrides XDG_CONFIG_HOME for its own config
+            # isolation but still needs safety-core's shared profile toggle to work.
+            mkdir -p override-config/safety-core decoy-config/safety-core
+            echo '{"ghApiReadOnly":true}' > override-config/safety-core/profiles.json
+            echo '{"ghApiReadOnly":false}' > decoy-config/safety-core/profiles.json
+
+            export SAFETY_CORE_CONFIG_HOME="$PWD/override-config"
+            export XDG_CONFIG_HOME="$PWD/decoy-config"
+
+            allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh api user"}}'
+            allow_out=$(echo "$allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_api_read_allow.mjs)
+
+            if ! echo "$allow_out" | grep -q '"permissionDecision":"allow"'; then
+              echo "expected SAFETY_CORE_CONFIG_HOME to take precedence over XDG_CONFIG_HOME, got: $allow_out" >&2
+              exit 1
+            fi
+
+            touch $out
+          '';
         });
 
       overlays.default = final: _prev: {

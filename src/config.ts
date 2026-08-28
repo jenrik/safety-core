@@ -12,9 +12,17 @@ export interface SafetyCoreProfileConfig {
   ghApiReadOnly?: boolean;
 }
 
-/** Default profile-config path under $XDG_CONFIG_HOME (falling back to ~/.config). */
+/**
+ * Default profile-config path under $SAFETY_CORE_CONFIG_HOME, falling back
+ * to $XDG_CONFIG_HOME, then ~/.config. SAFETY_CORE_CONFIG_HOME lets a
+ * harness that overrides XDG_CONFIG_HOME for its own config isolation (e.g.
+ * OpenCode2) still point safety-core at its real, shared profile config.
+ */
 export function defaultProfileConfigPath(): string {
-  const base = process.env.XDG_CONFIG_HOME ?? join(process.env.HOME ?? "", ".config");
+  const base =
+    process.env.SAFETY_CORE_CONFIG_HOME ??
+    process.env.XDG_CONFIG_HOME ??
+    join(process.env.HOME ?? "", ".config");
   return join(base, "safety-core", "profiles.json");
 }
 
