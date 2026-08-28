@@ -21,6 +21,7 @@
       checks = forAllSystems (system:
         let
           pkgs = pkgsFor system;
+          lib = pkgs.lib;
           sc = pkgs.callPackage ./package.nix { };
         in {
           hooks-runtime = pkgs.runCommand "safety-core-hooks-runtime-check" { } ''
@@ -91,6 +92,29 @@
 
             touch $out
           '';
+
+          readonly-bash-opencode2-eval =
+            let
+              stub = { lib, ... }: {
+                options = {
+                  xdg.configFile = lib.mkOption { type = lib.types.attrsOf lib.types.anything; default = { }; };
+                  programs.claude-code.settings = lib.mkOption { type = lib.types.anything; default = { }; };
+                  programs.opencode.settings = lib.mkOption { type = lib.types.anything; default = { }; };
+                  modules.opencode2.settings = lib.mkOption { type = lib.types.anything; default = { }; };
+                };
+              };
+              evaled = lib.evalModules {
+                modules = [
+                  stub
+                  ./nix/permissions.nix
+                  { config.programs.safetyCorePermissions.profiles.readOnlyBash.enable = true; }
+                ];
+              };
+              bashAllow = evaled.config.modules.opencode2.settings.permission.bash;
+            in
+            assert bashAllow ? "cat *";
+            assert bashAllow."cat *" == "allow";
+            pkgs.runCommand "safety-core-readonlybash-opencode2-eval-check" { } "touch $out";
         });
 
       overlays.default = final: _prev: {
