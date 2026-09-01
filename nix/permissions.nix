@@ -1,17 +1,16 @@
 # Home-manager module exposing safety-core's permission profiles as
 # toggleable options. Each profile is a named, reusable group of permission
 # rules that gets rendered into (or consulted at runtime by) the harnesses
-# it targets -- currently Claude Code, OpenCode, and OpenCode2.
+# it targets -- currently Claude Code and OpenCode.
 #
 # This module only appends a PreToolUse hook entry pointing at the
 # conventional `$HOME/.claude/hooks/gh_api_read_allow.mjs` path -- it relies
 # on the consumer's existing Claude Code module to have already symlinked
 # `pkgs.safety-core.claudeCodeHooks` (which now includes this hook
 # automatically, since it's built from every non-underscore file under
-# adapters/claude-code/) into that directory. Same for OpenCode
-# and OpenCode2: their plugin wiring is untouched here, since
-# adapters/opencode.ts's gh-api check ships as part of the existing,
-# already-wired safety-core plugin file for both.
+# adapters/claude-code/) into that directory. Same for OpenCode: its plugin
+# wiring is untouched here, since adapters/opencode.ts's gh-api check ships
+# as part of the existing, already-wired safety-core plugin file.
 #
 # Static profiles (readOnlyBash) are gated purely in Nix: their allow-list
 # entries are present or absent depending on the option. Dynamic profiles
@@ -65,14 +64,6 @@ in
         map (cmd: "Bash(${cmd}:*)") readOnlyBashCommands;
 
       programs.opencode.settings.permission.bash =
-        listToAttrs (map (cmd: nameValuePair "${cmd} *" "allow") readOnlyBashCommands);
-
-      # Coupled to nixos-config's private `modules.opencode2` option, not a
-      # generic external home-manager module like `programs.opencode` --
-      # acceptable only because nixos-config is safety-core's sole consumer
-      # today (see flake.nix's homeManagerModules.default). Revisit if
-      # safety-core ever gains a second consumer.
-      modules.opencode2.settings.permission.bash =
         listToAttrs (map (cmd: nameValuePair "${cmd} *" "allow") readOnlyBashCommands);
     })
   ];

@@ -119,14 +119,13 @@
             touch $out
           '';
 
-          readonly-bash-opencode2-eval =
+          readonly-bash-opencode-eval =
             let
               stub = { lib, ... }: {
                 options = {
                   xdg.configFile = lib.mkOption { type = lib.types.attrsOf lib.types.anything; default = { }; };
                   programs.claude-code.settings = lib.mkOption { type = lib.types.anything; default = { }; };
                   programs.opencode.settings = lib.mkOption { type = lib.types.anything; default = { }; };
-                  modules.opencode2.settings = lib.mkOption { type = lib.types.anything; default = { }; };
                 };
               };
               evaled = lib.evalModules {
@@ -136,11 +135,11 @@
                   { config.programs.safetyCorePermissions.profiles.readOnlyBash.enable = true; }
                 ];
               };
-              bashAllow = evaled.config.modules.opencode2.settings.permission.bash;
+              bashAllow = evaled.config.programs.opencode.settings.permission.bash;
             in
             assert bashAllow ? "cat *";
             assert bashAllow."cat *" == "allow";
-            pkgs.runCommand "safety-core-readonlybash-opencode2-eval-check" { } "touch $out";
+            pkgs.runCommand "safety-core-readonlybash-opencode-eval-check" { } "touch $out";
         });
 
       overlays.default = final: _prev: {
