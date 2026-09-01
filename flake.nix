@@ -93,6 +93,32 @@
             touch $out
           '';
 
+          opencode-plugin-loads = pkgs.runCommand "safety-core-opencode-plugin-loads-check"
+            {
+              nativeBuildInputs = [ pkgs.bun ];
+            } ''
+            set -e
+            cat > check.ts <<'EOF'
+            const path = process.argv[2];
+            const mod = await import(path);
+            if (typeof mod.default !== "function") {
+              console.error(`expected default export of ''${path} to be a function, got ''${typeof mod.default}`);
+              process.exit(1);
+            }
+            const hooks = await mod.default({});
+            const required = ["tool.execute.before", "permission.ask", "tool.execute.after"];
+            for (const name of required) {
+              if (typeof hooks[name] !== "function") {
+                console.error(`expected hook "''${name}" to be a function, got ''${typeof hooks[name]}`);
+                process.exit(1);
+              }
+            }
+            EOF
+
+            bun run check.ts ${sc.opencodePluginFile}
+            touch $out
+          '';
+
           readonly-bash-opencode2-eval =
             let
               stub = { lib, ... }: {
