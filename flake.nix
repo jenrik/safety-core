@@ -93,6 +93,58 @@
             touch $out
           '';
 
+          gh-pr-create-policy-tests = pkgs.runCommand "safety-core-gh-pr-create-policy-tests"
+            {
+              nativeBuildInputs = [ pkgs.bun ];
+            } ''
+            set -e
+            mkdir test-work
+            cp -r ${builtins.dirOf sc.opencodePluginFile}/src test-work/src
+            cp -r ${builtins.dirOf sc.opencodePluginFile}/data test-work/data
+            cp -r ${builtins.dirOf sc.opencodePluginFile}/node_modules test-work/node_modules
+            cp ${builtins.dirOf sc.opencodePluginFile}/tree-sitter-bash.wasm test-work/
+            cp -r ${./tests} test-work/tests
+            cd test-work
+            bun test tests/gh-pr-create-parser-failure.test.ts
+            bun test tests/gh-pr-create.test.ts
+            touch $out
+          '';
+
+          gh-pr-create-hook-runtime = pkgs.runCommand "safety-core-gh-pr-create-hook-runtime-check" { } ''
+            set -e
+            mkdir -p profile-config/safety-core
+            echo '{"ghApiReadOnly":true,"ghPrCreate":{"enabled":true,"allowedRepositories":["acme/widgets"],"allowedOrganizations":[]}}' > profile-config/safety-core/profiles.json
+            export XDG_CONFIG_HOME="$PWD/profile-config"
+
+            allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh pr create --repo github.com/acme/widgets --fill"}}'
+            deny_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh alias set create-pr \"pr create --repo github.com/attacker/widgets\""}}'
+            compound_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh pr create --repo github.com/acme/widgets --fill; gh api user"}}'
+
+            allow_out=$(echo "$allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_pr_create_policy.mjs)
+            deny_out=$(echo "$deny_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_pr_create_policy.mjs)
+            compound_out=$(echo "$compound_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_pr_create_policy.mjs)
+            gh_api_compound_out=$(echo "$compound_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_api_read_allow.mjs)
+
+            if ! echo "$allow_out" | grep -q '"permissionDecision":"allow"'; then
+              echo "expected gh_pr_create_policy.mjs to allow an allowlisted PR, got: $allow_out" >&2
+              exit 1
+            fi
+            if ! echo "$deny_out" | grep -q '"permissionDecision":"deny"'; then
+              echo "expected gh_pr_create_policy.mjs to deny a non-allowlisted PR, got: $deny_out" >&2
+              exit 1
+            fi
+            if ! echo "$compound_out" | grep -q '"permissionDecision":"deny"'; then
+              echo "expected compound Bash invocation to be denied, got: $compound_out" >&2
+              exit 1
+            fi
+            if ! echo "$gh_api_compound_out" | grep -q '"permissionDecision":"deny"'; then
+              echo "expected gh-api profile not to override a compound PR denial, got: $gh_api_compound_out" >&2
+              exit 1
+            fi
+
+            touch $out
+          '';
+
           opencode-plugin-loads = pkgs.runCommand "safety-core-opencode-plugin-loads-check"
             {
               nativeBuildInputs = [ pkgs.bun ];
@@ -140,6 +192,35 @@
             assert bashAllow ? "cat *";
             assert bashAllow."cat *" == "allow";
             pkgs.runCommand "safety-core-readonlybash-opencode-eval-check" { } "touch $out";
+
+          gh-pr-create-profile-eval =
+            let
+              stub = { lib, ... }: {
+                options = {
+                  xdg.configFile = lib.mkOption { type = lib.types.attrsOf lib.types.anything; default = { }; };
+                  programs.claude-code.settings = lib.mkOption { type = lib.types.anything; default = { }; };
+                  programs.opencode.settings = lib.mkOption { type = lib.types.anything; default = { }; };
+                };
+              };
+              evaled = lib.evalModules {
+                modules = [
+                  stub
+                  ./nix/permissions.nix
+                  {
+                    config.programs.safetyCorePermissions.profiles.ghPrCreate = {
+                      enable = true;
+                      allowedRepositories = [ "acme/widgets" ];
+                      allowedOrganizations = [ "trusted-org" ];
+                    };
+                  }
+                ];
+              };
+              profile = builtins.fromJSON evaled.config.xdg.configFile."safety-core/profiles.json".text;
+            in
+            assert profile.ghPrCreate.enabled;
+            assert profile.ghPrCreate.allowedRepositories == [ "acme/widgets" ];
+            assert profile.ghPrCreate.allowedOrganizations == [ "trusted-org" ];
+            pkgs.runCommand "safety-core-gh-pr-create-profile-eval-check" { } "touch $out";
         });
 
       overlays.default = final: _prev: {

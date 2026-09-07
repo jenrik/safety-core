@@ -21,10 +21,12 @@ import {
   checkBashForGithub,
   checkBashForKubectlSecret,
   checkWebfetchUrl,
+  analyzeGhPrCreateCommand,
   defaultAuditPath,
   discoverWasmDir,
   initBashParser,
   isSecretPath,
+  loadGhPrCreatePolicy,
   parseBashForSecretRead,
   summariseKubectlSecret,
   appendAuditRecord,
@@ -187,6 +189,16 @@ export default function (pi: ExtensionAPI) {
         });
         ctx.ui.notify("Blocked direct GitHub HTTP request", "warning");
         return { block: true, reason: githubReason };
+      }
+
+      const ghPrCreateDecision = analyzeGhPrCreateCommand(command, loadGhPrCreatePolicy());
+      if (ghPrCreateDecision.kind === "deny") {
+        setJudgeVerdict(event.toolCallId, {
+          safe: false,
+          reasoning: `Blocked: ${ghPrCreateDecision.reason}`,
+        });
+        ctx.ui.notify(`Blocked ${ghPrCreateDecision.reason}`, "warning");
+        return { block: true, reason: ghPrCreateDecision.reason };
       }
 
       // For kubectl commands that are clearly dangerous, block immediately.

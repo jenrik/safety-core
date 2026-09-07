@@ -8,7 +8,14 @@
 // src/config.ts) rather than by the hook's mere presence, since this hook
 // entry is wired in unconditionally by the safety-core home-manager module.
 
-import { analyzeGhApiCommand, discoverWasmDir, initBashParser, isProfileEnabled } from "../../src/index.js";
+import {
+  analyzeGhApiCommand,
+  analyzeGhPrCreateCommand,
+  discoverWasmDir,
+  initBashParser,
+  isProfileEnabled,
+  loadGhPrCreatePolicy,
+} from "../../src/index.js";
 
 import { emitAllow, emitDeny, parseHookEvent, readStdin, run } from "./_shared.js";
 
@@ -22,6 +29,12 @@ run(async () => {
   if (!event || event.tool_name !== "Bash") return;
 
   const command = (event.tool_input?.command as string | undefined) ?? "";
+  const ghPrCreateDecision = analyzeGhPrCreateCommand(command, loadGhPrCreatePolicy());
+  if (ghPrCreateDecision.kind === "deny") {
+    emitDeny(ghPrCreateDecision.reason);
+    return;
+  }
+
   const decision = analyzeGhApiCommand(command);
 
   switch (decision.kind) {

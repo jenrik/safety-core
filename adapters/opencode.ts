@@ -10,6 +10,7 @@ import {
   SECRET_COMMAND_REMINDER,
   SECRET_PATTERNS,
   analyzeGhApiCommand,
+  analyzeGhPrCreateCommand,
   appendAuditRecord,
   checkBashForGithub,
   checkBashForKubectlSecret,
@@ -18,6 +19,7 @@ import {
   discoverWasmDir,
   initBashParser,
   isProfileEnabled,
+  loadGhPrCreatePolicy,
   isSecretPath,
   parseBashForSecretRead,
   summariseKubectlSecret,
@@ -69,6 +71,11 @@ export default (async () => {
         throw new Error(githubReason);
       }
 
+      const ghPrCreateDecision = analyzeGhPrCreateCommand(command, loadGhPrCreatePolicy());
+      if (ghPrCreateDecision.kind === "deny") {
+        throw new Error(`Blocked by OpenCode safety policy: ${ghPrCreateDecision.reason}`);
+      }
+
       const kubectlDecision = checkBashForKubectlSecret(command);
       if (kubectlDecision && !kubectlDecision.startsWith("kubectl get Secret")) {
         throw new Error(`Blocked by OpenCode safety policy: ${kubectlDecision}`);
@@ -92,10 +99,16 @@ export default (async () => {
     // OpenCode's own shell tool -- see packages/opencode/src/tool/shell.ts).
     "permission.ask": async (input, output) => {
       if (input.type !== "bash") return;
-      if (!isProfileEnabled("ghApiReadOnly")) return;
 
       const command = Array.isArray(input.pattern) ? input.pattern.join(" && ") : input.pattern;
       if (!command) return;
+
+      const ghPrCreateDecision = analyzeGhPrCreateCommand(command, loadGhPrCreatePolicy());
+      if (ghPrCreateDecision.kind === "allow") output.status = "allow";
+      else if (ghPrCreateDecision.kind === "deny") output.status = "deny";
+      if (ghPrCreateDecision.kind !== "ignore") return;
+
+      if (!isProfileEnabled("ghApiReadOnly")) return;
 
       const decision = analyzeGhApiCommand(command);
       if (decision.kind === "allow") output.status = "allow";

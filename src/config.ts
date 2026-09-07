@@ -10,6 +10,14 @@ import { join } from "node:path";
 export interface SafetyCoreProfileConfig {
   readOnlyBash?: boolean;
   ghApiReadOnly?: boolean;
+  ghPrCreate?: GhPrCreateProfileConfig;
+}
+
+/** Runtime representation of the `gh pr create` permission profile. */
+export interface GhPrCreateProfileConfig {
+  enabled?: boolean;
+  allowedRepositories?: string[];
+  allowedOrganizations?: string[];
 }
 
 /**

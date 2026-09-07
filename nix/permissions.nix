@@ -14,7 +14,7 @@
 #
 # Static profiles (readOnlyBash) are gated purely in Nix: their allow-list
 # entries are present or absent depending on the option. Dynamic profiles
-# (ghApiReadOnly) can't be expressed as static allow-list data, so their
+# (ghApiReadOnly, ghPrCreate) can't be expressed as static allow-list data, so their
 # hook/plugin code is wired in unconditionally once this module is imported,
 # and their actual enabled/disabled state lives in one shared runtime file
 # (~/.config/safety-core/profiles.json, see src/config.ts) that every
@@ -30,6 +30,21 @@ in
   options.programs.safetyCorePermissions.profiles = {
     readOnlyBash.enable = mkEnableOption "auto-allow generic read-only bash commands (cat, tail, echo, ...)";
     ghApiReadOnly.enable = mkEnableOption "auto-allow verifiably read-only `gh api` calls";
+    ghPrCreate = {
+      enable = mkEnableOption "allow `gh pr create` only for explicitly allowlisted GitHub repositories or organizations; direct `gh api` calls are denied";
+      allowedRepositories = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        example = [ "owner/repository" "github.example.com/owner/repository" ];
+        description = "Exact repositories where agents may create pull requests. Values use [HOST/]OWNER/REPO syntax; native commands must pass --repo HOST/OWNER/REPO explicitly.";
+      };
+      allowedOrganizations = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        example = [ "owner" "github.example.com/owner" ];
+        description = "Organizations where agents may create pull requests in any repository. Values use [HOST/]OWNER syntax; native commands must pass --repo HOST/OWNER/REPO explicitly.";
+      };
+    };
   };
 
   config = mkMerge [
@@ -40,6 +55,11 @@ in
       xdg.configFile."safety-core/profiles.json".text = builtins.toJSON {
         readOnlyBash = cfg.profiles.readOnlyBash.enable;
         ghApiReadOnly = cfg.profiles.ghApiReadOnly.enable;
+        ghPrCreate = {
+          enabled = cfg.profiles.ghPrCreate.enable;
+          allowedRepositories = cfg.profiles.ghPrCreate.allowedRepositories;
+          allowedOrganizations = cfg.profiles.ghPrCreate.allowedOrganizations;
+        };
       };
 
       # ghApiReadOnly's Claude Code hook entry: wired in unconditionally
@@ -53,6 +73,15 @@ in
             {
               type = "command";
               command = "$HOME/.claude/hooks/gh_api_read_allow.mjs";
+            }
+          ];
+        }
+        {
+          matcher = "Bash";
+          hooks = [
+            {
+              type = "command";
+              command = "$HOME/.claude/hooks/gh_pr_create_policy.mjs";
             }
           ];
         }

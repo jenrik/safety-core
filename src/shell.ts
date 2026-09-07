@@ -41,6 +41,11 @@ export async function initBashParser(wasmDir: string): Promise<void> {
   return initPromise;
 }
 
+/** True once the Bash AST parser is available for policy checks. */
+export function isBashParserInitialized(): boolean {
+  return bashParser !== null;
+}
+
 /**
  * Discover the WASM directory from the path of the calling module
  * (usually `import.meta.url`). Walks up from `moduleUrl` looking for
@@ -149,9 +154,27 @@ export function matchesAnyGlob(name: string, patterns: readonly string[]): boole
   });
 }
 
-/** Strip surrounding single or double quotes from a token. */
+/** Decode literal quote concatenation and shell escapes in a static word. */
 export function stripQuotes(token: string): string {
-  return token.replace(/^['"]|['"]$/g, "");
+  return decodeAnsiCQuotes(token)
+    .replace(/\\\r?\n/g, "")
+    .replaceAll("'", "")
+    .replaceAll('"', "")
+    .replace(/\\([\s\S])/g, "$1");
+}
+
+/** Decode Bash's static $'...' quoting form for command-policy matching. */
+function decodeAnsiCQuotes(token: string): string {
+  return token.replace(/\$'((?:\\[\s\S]|[^'])*)'/g, (_match, content: string) =>
+    content.replace(/\\(x[0-9a-fA-F]{1,2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|[0-7]{1,3}|[\s\S])/g, (_escape, value: string) => {
+      if (/^x[0-9a-fA-F]+$/.test(value)) return String.fromCharCode(Number.parseInt(value.slice(1), 16));
+      if (/^u[0-9a-fA-F]{4}$/.test(value) || /^U[0-9a-fA-F]{8}$/.test(value)) {
+        return String.fromCodePoint(Number.parseInt(value.slice(1), 16));
+      }
+      if (/^[0-7]{1,3}$/.test(value)) return String.fromCharCode(Number.parseInt(value, 8));
+      return ({ a: "\u0007", b: "\b", e: "\u001b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v" } as Record<string, string>)[value] ?? value;
+    }),
+  );
 }
 
 // ─── Internal tree-sitter helpers ───────────────────────────────────────────
@@ -161,8 +184,6 @@ function findCommands(node: SyntaxNode, out: SimpleCommand[]): void {
   if (node.type === "command") {
     const cmd = extractCommand(node);
     if (cmd) out.push(cmd);
-    // Don't recurse into command children — they've already been handled.
-    return;
   }
 
   for (const child of node.namedChildren) {
@@ -175,7 +196,7 @@ function extractCommand(node: SyntaxNode): SimpleCommand | null {
   const nameNode = node.childForFieldName("name");
   if (!nameNode) return null;
 
-  const name = basename(nameNode.text);
+  const name = canonicalCommandName(nameNode.text);
   if (!name) return null;
 
   // Collect arguments (skip env assignments passed as children of the command).
@@ -198,6 +219,11 @@ function extractCommand(node: SyntaxNode): SimpleCommand | null {
     args: args.filter((a) => a !== ""),
     redirects,
   };
+}
+
+/** Shell quotes do not alter an executable name (`g''h` still runs `gh`). */
+function canonicalCommandName(text: string): string {
+  return basename(stripQuotes(text));
 }
 
 /** Collect file redirect nodes from `node` into `out`. */

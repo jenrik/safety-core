@@ -3,12 +3,20 @@
 
 export * from "./patterns.js";
 export * from "./messages.js";
-export { basename, discoverWasmDir, initBashParser, matchesAnyGlob, parseBash } from "./shell.js";
+export {
+  basename,
+  discoverWasmDir,
+  initBashParser,
+  isBashParserInitialized,
+  matchesAnyGlob,
+  parseBash,
+} from "./shell.js";
 export type { Redirect, SimpleCommand } from "./shell.js";
 export * from "./secrets.js";
 export * from "./github.js";
 export * from "./kubectl.js";
 export * from "./gh.js";
+export * from "./gh-pr-create.js";
 export * from "./audit.js";
 export * from "./judge.js";
 export * from "./config.js";
