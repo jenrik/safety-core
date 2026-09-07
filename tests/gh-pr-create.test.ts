@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -20,8 +20,11 @@ const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-gh-pr-create-"));
 beforeAll(async () => {
   // Keep the test runnable from both the source checkout and the Nix package.
   mkdirSync(join(wasmDir, "node_modules"), { recursive: true });
+  const packagedWasm = join(process.cwd(), "tree-sitter-bash.wasm");
   copyFileSync(
-    join(process.cwd(), "node_modules", "tree-sitter-bash", "tree-sitter-bash.wasm"),
+    existsSync(packagedWasm)
+      ? packagedWasm
+      : join(process.cwd(), "node_modules", "tree-sitter-bash", "tree-sitter-bash.wasm"),
     join(wasmDir, "tree-sitter-bash.wasm"),
   );
   symlinkSync(
