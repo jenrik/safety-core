@@ -11,6 +11,8 @@ import {
   SECRET_PATTERNS,
   analyzeGhApiCommand,
   analyzeGhPrCreateCommand,
+  analyzeGhReadOnlyCommand,
+  analyzeHelmReadOnlyCommand,
   appendAuditRecord,
   checkBashForGithub,
   checkBashForKubectlSecret,
@@ -107,6 +109,18 @@ export default (async () => {
       if (ghPrCreateDecision.kind === "allow") output.status = "allow";
       else if (ghPrCreateDecision.kind === "deny") output.status = "deny";
       if (ghPrCreateDecision.kind !== "ignore") return;
+
+      if (isProfileEnabled("ghReadOnly")) {
+        const decision = analyzeGhReadOnlyCommand(command);
+        if (decision.kind === "allow") output.status = "allow";
+        if (decision.kind !== "ignore") return;
+      }
+
+      if (isProfileEnabled("helmReadOnly")) {
+        const decision = analyzeHelmReadOnlyCommand(command);
+        if (decision.kind === "allow") output.status = "allow";
+        if (decision.kind !== "ignore") return;
+      }
 
       if (!isProfileEnabled("ghApiReadOnly")) return;
 

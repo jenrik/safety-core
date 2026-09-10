@@ -14,7 +14,7 @@
 #
 # Static profiles (readOnlyBash) are gated purely in Nix: their allow-list
 # entries are present or absent depending on the option. Dynamic profiles
-# (ghApiReadOnly, ghPrCreate) can't be expressed as static allow-list data, so their
+# (ghApiReadOnly, ghReadOnly, helmReadOnly, ghPrCreate) can't be expressed as static allow-list data, so their
 # hook/plugin code is wired in unconditionally once this module is imported,
 # and their actual enabled/disabled state lives in one shared runtime file
 # (~/.config/safety-core/profiles.json, see src/config.ts) that every
@@ -30,6 +30,8 @@ in
   options.programs.safetyCorePermissions.profiles = {
     readOnlyBash.enable = mkEnableOption "auto-allow generic read-only bash commands (cat, tail, echo, ...)";
     ghApiReadOnly.enable = mkEnableOption "auto-allow verifiably read-only `gh api` calls";
+    ghReadOnly.enable = mkEnableOption "auto-allow documented read-only `gh` subcommands through parsed command policy";
+    helmReadOnly.enable = mkEnableOption "auto-allow documented read-only `helm` subcommands through parsed command policy";
     ghPrCreate = {
       enable = mkEnableOption "allow `gh pr create` only for explicitly allowlisted GitHub repositories or organizations; direct `gh api` calls are denied";
       allowedRepositories = mkOption {
@@ -55,6 +57,8 @@ in
       xdg.configFile."safety-core/profiles.json".text = builtins.toJSON {
         readOnlyBash = cfg.profiles.readOnlyBash.enable;
         ghApiReadOnly = cfg.profiles.ghApiReadOnly.enable;
+        ghReadOnly = cfg.profiles.ghReadOnly.enable;
+        helmReadOnly = cfg.profiles.helmReadOnly.enable;
         ghPrCreate = {
           enabled = cfg.profiles.ghPrCreate.enable;
           allowedRepositories = cfg.profiles.ghPrCreate.allowedRepositories;
@@ -73,6 +77,15 @@ in
             {
               type = "command";
               command = "$HOME/.claude/hooks/gh_api_read_allow.mjs";
+            }
+          ];
+        }
+        {
+          matcher = "Bash";
+          hooks = [
+            {
+              type = "command";
+              command = "$HOME/.claude/hooks/read_only_cli_allow.mjs";
             }
           ];
         }

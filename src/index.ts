@@ -16,6 +16,7 @@ export * from "./secrets.js";
 export * from "./github.js";
 export * from "./kubectl.js";
 export * from "./gh.js";
+export * from "./read-only-cli.js";
 export * from "./gh-pr-create.js";
 export * from "./audit.js";
 export * from "./judge.js";

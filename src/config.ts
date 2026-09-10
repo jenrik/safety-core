@@ -10,6 +10,8 @@ import { join } from "node:path";
 export interface SafetyCoreProfileConfig {
   readOnlyBash?: boolean;
   ghApiReadOnly?: boolean;
+  ghReadOnly?: boolean;
+  helmReadOnly?: boolean;
   ghPrCreate?: GhPrCreateProfileConfig;
 }
 

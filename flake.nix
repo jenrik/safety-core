@@ -93,7 +93,7 @@
             touch $out
           '';
 
-          gh-pr-create-policy-tests = pkgs.runCommand "safety-core-gh-pr-create-policy-tests"
+          command-profile-tests = pkgs.runCommand "safety-core-command-profile-tests"
             {
               nativeBuildInputs = [ pkgs.bun ];
             } ''
@@ -103,10 +103,13 @@
             cp -r ${builtins.dirOf sc.opencodePluginFile}/data test-work/data
             cp -r ${builtins.dirOf sc.opencodePluginFile}/node_modules test-work/node_modules
             cp ${builtins.dirOf sc.opencodePluginFile}/tree-sitter-bash.wasm test-work/
+            cp -r ${./adapters} test-work/adapters
             cp -r ${./tests} test-work/tests
             cd test-work
             bun test tests/gh-pr-create-parser-failure.test.ts
             bun test tests/gh-pr-create.test.ts
+            bun test tests/read-only-cli.test.ts
+            bun test tests/opencode-read-only-cli.test.ts
             touch $out
           '';
 
@@ -139,6 +142,36 @@
             fi
             if ! echo "$gh_api_compound_out" | grep -q '"permissionDecision":"deny"'; then
               echo "expected gh-api profile not to override a compound PR denial, got: $gh_api_compound_out" >&2
+              exit 1
+            fi
+
+            touch $out
+          '';
+
+          read-only-cli-hook-runtime = pkgs.runCommand "safety-core-read-only-cli-hook-runtime-check" { } ''
+            set -e
+            mkdir -p profile-config/safety-core
+            echo '{"ghReadOnly":true,"helmReadOnly":true}' > profile-config/safety-core/profiles.json
+            export XDG_CONFIG_HOME="$PWD/profile-config"
+
+            gh_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh issue list"}}'
+            gh_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh issue list; id"}}'
+            helm_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"helm list"}}'
+
+            gh_allow_out=$(echo "$gh_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
+            gh_defer_out=$(echo "$gh_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
+            helm_allow_out=$(echo "$helm_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
+
+            if ! echo "$gh_allow_out" | grep -q '"permissionDecision":"allow"'; then
+              echo "expected read_only_cli_allow.mjs to allow gh issue list, got: $gh_allow_out" >&2
+              exit 1
+            fi
+            if [ -n "$gh_defer_out" ]; then
+              echo "expected read_only_cli_allow.mjs to defer a compound command, got: $gh_defer_out" >&2
+              exit 1
+            fi
+            if ! echo "$helm_allow_out" | grep -q '"permissionDecision":"allow"'; then
+              echo "expected read_only_cli_allow.mjs to allow helm list, got: $helm_allow_out" >&2
               exit 1
             fi
 
@@ -221,6 +254,31 @@
             assert profile.ghPrCreate.allowedRepositories == [ "acme/widgets" ];
             assert profile.ghPrCreate.allowedOrganizations == [ "trusted-org" ];
             pkgs.runCommand "safety-core-gh-pr-create-profile-eval-check" { } "touch $out";
+
+          read-only-cli-profile-eval =
+            let
+              stub = { lib, ... }: {
+                options = {
+                  xdg.configFile = lib.mkOption { type = lib.types.attrsOf lib.types.anything; default = { }; };
+                  programs.claude-code.settings = lib.mkOption { type = lib.types.anything; default = { }; };
+                  programs.opencode.settings = lib.mkOption { type = lib.types.anything; default = { }; };
+                };
+              };
+              evaled = lib.evalModules {
+                modules = [
+                  stub
+                  ./nix/permissions.nix
+                  {
+                    config.programs.safetyCorePermissions.profiles.ghReadOnly.enable = true;
+                    config.programs.safetyCorePermissions.profiles.helmReadOnly.enable = true;
+                  }
+                ];
+              };
+              profile = builtins.fromJSON evaled.config.xdg.configFile."safety-core/profiles.json".text;
+            in
+            assert profile.ghReadOnly;
+            assert profile.helmReadOnly;
+            pkgs.runCommand "safety-core-read-only-cli-profile-eval-check" { } "touch $out";
         });
 
       overlays.default = final: _prev: {
