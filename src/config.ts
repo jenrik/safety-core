@@ -12,6 +12,24 @@ export interface SafetyCoreProfileConfig {
   ghApiReadOnly?: boolean;
   ghReadOnly?: boolean;
   helmReadOnly?: boolean;
+  argocdReadOnly?: boolean;
+  cosignReadOnly?: boolean;
+  craneReadOnly?: boolean;
+  dockerReadOnly?: boolean;
+  jfrogReadOnly?: boolean;
+  kubectlReadOnly?: boolean;
+  nixReadOnly?: boolean;
+  nixEnvReadOnly?: boolean;
+  nixStoreReadOnly?: boolean;
+  ocReadOnly?: boolean;
+  podmanReadOnly?: boolean;
+  podmanComposeReadOnly?: boolean;
+  skopeoReadOnly?: boolean;
+  tofuReadOnly?: boolean;
+  npmReadOnly?: boolean;
+  pipReadOnly?: boolean;
+  uvReadOnly?: boolean;
+  yarnReadOnly?: boolean;
   ghPrCreate?: GhPrCreateProfileConfig;
 }
 

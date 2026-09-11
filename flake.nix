@@ -151,16 +151,18 @@
           read-only-cli-hook-runtime = pkgs.runCommand "safety-core-read-only-cli-hook-runtime-check" { } ''
             set -e
             mkdir -p profile-config/safety-core
-            echo '{"ghReadOnly":true,"helmReadOnly":true}' > profile-config/safety-core/profiles.json
+            echo '{"ghReadOnly":true,"helmReadOnly":true,"dockerReadOnly":true}' > profile-config/safety-core/profiles.json
             export XDG_CONFIG_HOME="$PWD/profile-config"
 
-            gh_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh issue list"}}'
-            gh_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh issue list; id"}}'
-            helm_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"helm list"}}'
+            gh_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh repo view"}}'
+            gh_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh repo view; id"}}'
+            helm_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"helm repo list"}}'
+            docker_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"docker image ls"}}'
 
             gh_allow_out=$(echo "$gh_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
             gh_defer_out=$(echo "$gh_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
             helm_allow_out=$(echo "$helm_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
+            docker_allow_out=$(echo "$docker_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
 
             if ! echo "$gh_allow_out" | grep -q '"permissionDecision":"allow"'; then
               echo "expected read_only_cli_allow.mjs to allow gh issue list, got: $gh_allow_out" >&2
@@ -172,6 +174,10 @@
             fi
             if ! echo "$helm_allow_out" | grep -q '"permissionDecision":"allow"'; then
               echo "expected read_only_cli_allow.mjs to allow helm list, got: $helm_allow_out" >&2
+              exit 1
+            fi
+            if ! echo "$docker_allow_out" | grep -q '"permissionDecision":"allow"'; then
+              echo "expected read_only_cli_allow.mjs to allow docker image ls, got: $docker_allow_out" >&2
               exit 1
             fi
 
@@ -222,8 +228,8 @@
               };
               bashAllow = evaled.config.programs.opencode.settings.permission.bash;
             in
-            assert bashAllow ? "cat *";
-            assert bashAllow."cat *" == "allow";
+            assert bashAllow ? "ls *";
+            assert bashAllow."ls *" == "allow";
             pkgs.runCommand "safety-core-readonlybash-opencode-eval-check" { } "touch $out";
 
           gh-pr-create-profile-eval =
@@ -271,6 +277,7 @@
                   {
                     config.programs.safetyCorePermissions.profiles.ghReadOnly.enable = true;
                     config.programs.safetyCorePermissions.profiles.helmReadOnly.enable = true;
+                    config.programs.safetyCorePermissions.profiles.dockerReadOnly.enable = true;
                   }
                 ];
               };
@@ -278,6 +285,7 @@
             in
             assert profile.ghReadOnly;
             assert profile.helmReadOnly;
+            assert profile.dockerReadOnly;
             pkgs.runCommand "safety-core-read-only-cli-profile-eval-check" { } "touch $out";
         });
 

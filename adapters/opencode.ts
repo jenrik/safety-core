@@ -13,6 +13,7 @@ import {
   analyzeGhPrCreateCommand,
   analyzeGhReadOnlyCommand,
   analyzeHelmReadOnlyCommand,
+  analyzeStrictReadOnlyCommand,
   appendAuditRecord,
   checkBashForGithub,
   checkBashForKubectlSecret,
@@ -118,6 +119,22 @@ export default (async () => {
 
       if (isProfileEnabled("helmReadOnly")) {
         const decision = analyzeHelmReadOnlyCommand(command);
+        if (decision.kind === "allow") output.status = "allow";
+        if (decision.kind !== "ignore") return;
+      }
+
+      const strictProfiles = [
+        ["argocdReadOnly", "argocd"], ["cosignReadOnly", "cosign"], ["craneReadOnly", "crane"],
+        ["dockerReadOnly", "docker"], ["jfrogReadOnly", "jf"], ["jfrogReadOnly", "jfrog"],
+        ["kubectlReadOnly", "kubectl"], ["nixReadOnly", "nix"],
+        ["nixEnvReadOnly", "nix-env"], ["nixStoreReadOnly", "nix-store"], ["ocReadOnly", "oc"],
+        ["podmanReadOnly", "podman"], ["podmanComposeReadOnly", "podman-compose"], ["skopeoReadOnly", "skopeo"],
+        ["tofuReadOnly", "tofu"], ["npmReadOnly", "npm"], ["pipReadOnly", "pip"],
+        ["uvReadOnly", "uv"], ["yarnReadOnly", "yarn"],
+      ] as const;
+      for (const [profile, executable] of strictProfiles) {
+        if (!isProfileEnabled(profile)) continue;
+        const decision = analyzeStrictReadOnlyCommand(command, executable);
         if (decision.kind === "allow") output.status = "allow";
         if (decision.kind !== "ignore") return;
       }

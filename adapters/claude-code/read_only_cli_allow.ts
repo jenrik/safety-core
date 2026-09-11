@@ -1,8 +1,9 @@
-// Claude Code hook for the parsed gh/Helm read-only profiles.
+// Claude Code hook for parsed, credential-safe read-only CLI profiles.
 
 import {
   analyzeGhReadOnlyCommand,
   analyzeHelmReadOnlyCommand,
+  analyzeStrictReadOnlyCommand,
   discoverWasmDir,
   initBashParser,
   isProfileEnabled,
@@ -10,7 +11,17 @@ import {
 import { emitAllow, parseHookEvent, readStdin, run } from "./_shared.js";
 
 run(async () => {
-  if (!isProfileEnabled("ghReadOnly") && !isProfileEnabled("helmReadOnly")) return;
+  const strictProfiles = [
+    ["argocdReadOnly", "argocd"], ["cosignReadOnly", "cosign"], ["craneReadOnly", "crane"],
+    ["dockerReadOnly", "docker"], ["jfrogReadOnly", "jf"], ["jfrogReadOnly", "jfrog"],
+    ["kubectlReadOnly", "kubectl"], ["nixReadOnly", "nix"],
+    ["nixEnvReadOnly", "nix-env"], ["nixStoreReadOnly", "nix-store"], ["ocReadOnly", "oc"],
+    ["podmanReadOnly", "podman"], ["podmanComposeReadOnly", "podman-compose"], ["skopeoReadOnly", "skopeo"],
+    ["tofuReadOnly", "tofu"], ["npmReadOnly", "npm"], ["pipReadOnly", "pip"],
+    ["uvReadOnly", "uv"], ["yarnReadOnly", "yarn"],
+  ] as const;
+  if (!isProfileEnabled("ghReadOnly") && !isProfileEnabled("helmReadOnly") &&
+    !strictProfiles.some(([profile]) => isProfileEnabled(profile))) return;
   await initBashParser(discoverWasmDir(import.meta.url));
 
   const event = parseHookEvent(readStdin());
@@ -28,5 +39,15 @@ run(async () => {
   if (isProfileEnabled("helmReadOnly")) {
     const decision = analyzeHelmReadOnlyCommand(command);
     if (decision.kind === "allow") emitAllow(decision.reason);
+  }
+
+  for (const [profile, executable] of strictProfiles) {
+    if (!isProfileEnabled(profile)) continue;
+    const decision = analyzeStrictReadOnlyCommand(command, executable);
+    if (decision.kind === "allow") {
+      emitAllow(decision.reason);
+      return;
+    }
+    if (decision.kind !== "ignore") return;
   }
 });

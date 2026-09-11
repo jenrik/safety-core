@@ -37,14 +37,15 @@ async function permissionStatus(command: string): Promise<string> {
 }
 
 describe("OpenCode read-only CLI profiles", () => {
-  test("allows gh and Helm reads, hands gh api to its dedicated profile, and preserves compound prompts", async () => {
+  test("allows configured profile reads, hands gh api to its dedicated profile, and preserves compound prompts", async () => {
     writeFileSync(
       join(configHome, "safety-core", "profiles.json"),
-      JSON.stringify({ ghReadOnly: true, helmReadOnly: true, ghApiReadOnly: true }),
+      JSON.stringify({ ghReadOnly: true, helmReadOnly: true, dockerReadOnly: true, ghApiReadOnly: true }),
     );
 
-    expect(await permissionStatus("gh issue list")).toBe("allow");
-    expect(await permissionStatus("helm list")).toBe("allow");
+    expect(await permissionStatus("gh repo view")).toBe("allow");
+    expect(await permissionStatus("helm repo list")).toBe("allow");
+    expect(await permissionStatus("docker image ls")).toBe("allow");
     expect(await permissionStatus("gh api user")).toBe("allow");
     expect(await permissionStatus("gh issue list; gh repo delete acme/widgets")).toBe("ask");
   });

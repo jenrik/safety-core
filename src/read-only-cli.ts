@@ -2,6 +2,7 @@
 // patterns cannot safely distinguish subcommands from shell syntax.
 
 import { isBashParserInitialized, parseBash, type SimpleCommand } from "./shell.js";
+import { isSecretPath } from "./secrets.js";
 
 export type ReadOnlyCliDecision =
   | { kind: "allow"; reason: string }
@@ -9,10 +10,6 @@ export type ReadOnlyCliDecision =
   | { kind: "ignore" };
 
 const SHELL_SYNTAX = /[;&|<>`$(){}'"\\*?\[\]~]/;
-const GH_BROWSER_FLAGS = new Set(["--web", "-w"]);
-const GH_OUTPUT_FLAGS = new Set(["--output", "-o", "--clobber"]);
-const GH_SHOW_TOKEN_FLAGS = new Set(["--show-token", "-t"]);
-const HELM_UNSAFE_FLAGS = new Set(["--dependency-update", "--output-dir", "--post-renderer", "--post-renderer-args"]);
 
 const GH_TOP_LEVEL_COMMANDS = new Set([
   "alias", "agent", "agent-task", "agent-tasks", "agents", "attestation", "at",
@@ -23,52 +20,83 @@ const GH_TOP_LEVEL_COMMANDS = new Set([
   "workflow",
 ]);
 
-const GH_READ_ONLY_COMMANDS = new Set([
-  "alias:list", "alias:ls",
-  "agent:list", "agent:view", "agent-task:list", "agent-task:view", "agent-tasks:list", "agent-tasks:view", "agents:list", "agents:view",
-  "attestation:trusted-root", "attestation:verify", "at:trusted-root", "at:verify",
-  "cache:list", "cache:ls",
-  "codespace:list", "codespace:logs", "codespace:ports", "codespace:view", "codespace:ls", "cs:list", "cs:logs", "cs:ports", "cs:view", "cs:ls",
-  "discussion:list", "discussion:view", "discussion:ls",
-  "extension:list", "extension:ls", "extension:search", "ext:list", "ext:ls", "ext:search", "extensions:list", "extensions:ls", "extensions:search",
-  "gist:list", "gist:view", "gist:ls", "gpg-key:list", "gpg-key:ls",
-  "issue:list", "issue:status", "issue:view", "issue:ls", "label:list", "label:ls", "org:list",
-  "pr:checks", "pr:diff", "pr:list", "pr:status", "pr:view",
-  "project:field-list", "project:item-list", "project:list", "project:view", "project:ls",
-  "release:list", "release:ls", "release:verify", "release:verify-asset", "release:view",
-  "repo:autolink:list", "repo:autolink:view", "repo:autolink:ls", "repo:deploy-key:list", "repo:deploy-key:ls",
-  "repo:gitignore:list", "repo:gitignore:view", "repo:gitignore:ls", "repo:license:list", "repo:license:view", "repo:license:ls",
-  "repo:list", "repo:ls", "repo:read-dir", "repo:read-file", "repo:view",
-  "ruleset:check", "ruleset:list", "ruleset:view", "ruleset:ls", "rs:check", "rs:list", "rs:view", "rs:ls",
-  "run:list", "run:view", "run:watch", "run:ls",
-  "search:code", "search:commits", "search:issues", "search:prs", "search:repos",
-  "secret:list", "secret:ls", "skill:list", "skill:ls", "skill:preview", "skill:search", "skill:show",
-  "skills:list", "skills:ls", "skills:preview", "skills:search", "skills:show",
-  "ssh-key:list", "ssh-key:ls", "variable:list", "variable:ls", "workflow:list", "workflow:view", "workflow:ls",
+
+const GH_CREDENTIAL_SAFE_COMMANDS = new Set([
+  "alias:list", "alias:ls", "auth:status", "cache:list", "cache:ls",
+  "extension:list", "extension:ls", "extension:search", "ext:list", "ext:ls", "ext:search",
+  "extensions:list", "extensions:ls", "extensions:search", "gpg-key:list", "gpg-key:ls",
+  "label:list", "label:ls", "org:list", "project:field-list", "project:item-list",
+  "project:list", "project:ls", "project:view", "repo:list", "repo:ls", "repo:view",
+  "ruleset:check", "ruleset:list", "ruleset:ls", "ruleset:view", "rs:check", "rs:list",
+  "rs:ls", "rs:view", "search:code", "search:commits", "search:issues", "search:prs",
+  "search:repos", "ssh-key:list", "ssh-key:ls", "workflow:list", "workflow:ls", "workflow:view",
 ]);
 
-const GH_EXACT_MODES = new Map<string, readonly string[]>([
-  ["browse", ["--no-browser"]],
-  ["issue:develop", ["--list"]],
-  ["repo:set-default", ["--view"]],
-  ["codespace:ssh", ["--config"]],
-  ["cs:ssh", ["--config"]],
-  ["extension:upgrade", ["--dry-run"]],
-  ["ext:upgrade", ["--dry-run"]],
-  ["extensions:upgrade", ["--dry-run"]],
-  ["skill:update", ["--dry-run"]],
-  ["skills:update", ["--dry-run"]],
+const HELM_CREDENTIAL_SAFE_COMMANDS = new Set([
+  "completion", "env", "lint", "repo:list", "search:hub", "search:repo", "show:chart",
+  "show:crds", "show:readme", "show:values", "verify", "version",
 ]);
 
-const HELM_READ_ONLY_COMMANDS = new Set([
-  "completion", "dependency:list", "env", "get:all", "get:hooks", "get:manifest",
-  "get:metadata", "get:notes", "get:values", "history", "lint", "list", "plugin:list",
-  "repo:list", "search:hub", "search:repo", "show:all", "show:chart", "show:crds",
-  "show:readme", "show:values", "status", "template", "verify", "version",
-]);
-const HELM_READ_ONLY_ROOT_COMMANDS = new Set([
-  "env", "history", "lint", "list", "status", "template", "verify", "version",
-]);
+/**
+ * Credential-safe native CLI profiles.  These intentionally accept no flags:
+ * many otherwise read-only CLIs use flags for credentials, output files,
+ * arbitrary code, or alternate configuration.  Users can still approve an
+ * uncommon safe form through the harness' regular permission flow.
+ */
+const STRICT_READ_ONLY_COMMANDS: Readonly<Record<string, ReadonlySet<string>>> = {
+  argocd: new Set(["account:can-i", "account:get", "account:get-user-info", "account:list", "app:list", "appset:list", "cluster:list", "proj:list", "proj:role:list", "repo:list", "version"]),
+  cosign: new Set(["env", "tree", "verify", "verify-attestation", "verify-blob", "verify-blob-attestation", "version"]),
+  crane: new Set(["catalog", "config", "digest", "ls", "manifest", "validate", "version"]),
+  docker: new Set(["config:ls", "context:ls", "image:ls", "images", "info", "network:ls", "node:ls", "plugin:ls", "search", "secret:ls", "service:ls", "stack:ls", "system:df", "version", "volume:ls"]),
+  jf: new Set(["config:show", "options", "rt:search", "stats:rt", "version"]),
+  jfrog: new Set(["config:show", "options", "rt:search", "stats:rt", "version"]),
+  kubectl: new Set(["api-resources", "api-versions", "auth:can-i", "auth:whoami", "cluster-info", "config:current-context", "config:get-contexts", "explain", "get", "plugin:list", "version"]),
+  nix: new Set(["hash:file", "hash:path", "hash:to-base16", "hash:to-base32", "hash:to-base64", "help-stores", "nar:ls", "path-info", "store:ping", "store:verify", "version", "why-depends"]),
+  "nix-env": new Set(["version"]),
+  "nix-store": new Set(["version"]),
+  oc: new Set(["api-resources", "api-versions", "auth:can-i", "cluster-info", "config:current-context", "config:get-contexts", "explain", "get", "plugin:list", "projects", "version", "whoami"]),
+  podman: new Set(["artifact:ls", "diff", "history", "image:ls", "images", "info", "network:ls", "pod:ls", "port", "search", "secret:ls", "system:connection:ls", "system:connection:list", "system:df", "version", "volume:ls"]),
+  "podman-compose": new Set(["images", "port", "ps", "version"]),
+  skopeo: new Set(["inspect", "list-tags", "manifest-digest", "standalone-verify", "version"]),
+  tofu: new Set(["graph", "providers", "providers:schema", "validate", "version"]),
+  npm: new Set(["explain", "help-search", "info", "list", "ll", "ls", "outdated", "prefix", "query", "root", "search", "view"]),
+  pip: new Set(["check", "freeze", "inspect", "list", "show", "version"]),
+  uv: new Set(["cache:dir", "cache:size", "check", "help", "pip:check", "pip:freeze", "pip:list", "pip:show", "pip:tree", "python:dir", "python:find", "python:list", "self:version", "tool:dir", "tool:list", "tree", "version", "workspace:dir", "workspace:list", "workspace:metadata"]),
+  yarn: new Set(["explain", "explain:peer-requirements", "info", "npm:info", "npm:tag:list", "plugin:list", "plugin:runtime", "why", "workspaces:list"]),
+};
+
+/** Analyze one strict, credential-safe CLI profile by executable name. */
+export function analyzeStrictReadOnlyCommand(command: string, executable: string): ReadOnlyCliDecision {
+  const parsed = parseStandaloneLiteralCommand(command, executable);
+  if (parsed.kind !== "command") return parsed.kind === "other" ? { kind: "ignore" } : { kind: "defer" };
+
+  const { args } = parsed.command;
+  if (args.some((arg) => !arg.startsWith("-") && isSecretPath(arg))) return { kind: "defer" };
+  if (args.length === 1 && (args[0] === "--help" || args[0] === "--version" || args[0] === "version")) return allow(executable);
+  if (args.some((arg) => arg.startsWith("-"))) return { kind: "defer" };
+
+  const allowed = STRICT_READ_ONLY_COMMANDS[executable];
+  if (!allowed) return { kind: "ignore" };
+  const path = strictCommandPath(args, allowed);
+  if (!path) return { kind: "defer" };
+  if (path === "version" && args.length !== 1) return { kind: "defer" };
+  if ((executable === "kubectl" || executable === "oc") && path === "get") {
+    const resource = args[1]?.split(",").map((value) => value.split("/")[0].toLowerCase()) ?? [];
+    if (resource.length === 0 || resource.some((value) =>
+      ["secret", "secrets", "serviceaccount", "serviceaccounts", "tokenrequest", "tokenrequests"].includes(value))) {
+      return { kind: "defer" };
+    }
+  }
+  return allow(executable);
+}
+
+function strictCommandPath(args: readonly string[], allowed: ReadonlySet<string>): string | undefined {
+  for (const value of allowed) {
+    const tokens = value.split(":");
+    if (tokens.every((token, index) => args[index] === token)) return value;
+  }
+  return undefined;
+}
 
 /** Auto-allow only documented `gh` reads; all other forms retain native prompts. */
 export function analyzeGhReadOnlyCommand(command: string): ReadOnlyCliDecision {
@@ -76,22 +104,14 @@ export function analyzeGhReadOnlyCommand(command: string): ReadOnlyCliDecision {
   if (parsed.kind !== "command") return parsed.kind === "other" ? { kind: "ignore" } : { kind: "defer" };
 
   const { args } = parsed.command;
-  if (hasGhUnsafeFlag(args)) return { kind: "defer" };
-  if (args.length === 1 && (args[0] === "--help" || args[0] === "--version")) return allow("gh");
   if (firstGhSubcommand(args) === "api") return { kind: "ignore" };
+  if (args.length === 1 && (args[0] === "--help" || args[0] === "--version")) return allow("gh");
+  if (args.some((arg) => arg.startsWith("-"))) return { kind: "defer" };
 
   const path = ghPath(args);
   if (!path) return { kind: "defer" };
-  if (path.value === "help" || path.value === "completion" || path.value === "licenses" || path.value === "status") return allow("gh");
-  if (path.value === "auth:status") return hasGhTokenFlag(args) ? { kind: "defer" } : allow("gh");
-
-  const exactArgs = GH_EXACT_MODES.get(path.value);
-  if (exactArgs) return sameArguments(args, [...path.value.split(":"), ...exactArgs]) ? allow("gh") : { kind: "defer" };
-
-  if ((path.value === "codespace:ports" || path.value === "cs:ports") &&
-    path.remaining.some((arg) => arg === "forward" || arg === "visibility")) return { kind: "defer" };
-
-  return GH_READ_ONLY_COMMANDS.has(path.value) ? allow("gh") : { kind: "defer" };
+  if (["help", "completion", "licenses", "status"].includes(path.value)) return allow("gh");
+  return GH_CREDENTIAL_SAFE_COMMANDS.has(path.value) ? allow("gh") : { kind: "defer" };
 }
 
 /** Auto-allow Helm inspection, rendering, and validation commands only. */
@@ -100,13 +120,12 @@ export function analyzeHelmReadOnlyCommand(command: string): ReadOnlyCliDecision
   if (parsed.kind !== "command") return parsed.kind === "other" ? { kind: "ignore" } : { kind: "defer" };
 
   const { args } = parsed.command;
-  if (args.some((arg) => isFlag(arg, HELM_UNSAFE_FLAGS))) return { kind: "defer" };
   if (args.length === 1 && (args[0] === "--help" || args[0] === "--version")) return allow("helm");
+  if (args.some((arg) => arg.startsWith("-"))) return { kind: "defer" };
   const path = commandPath(args);
   if (!path) return { kind: "defer" };
-  return (path.value === "help" || path.value.startsWith("help:") || path.value === "completion" ||
-    path.value.startsWith("completion:") || HELM_READ_ONLY_ROOT_COMMANDS.has(path.root) ||
-    HELM_READ_ONLY_COMMANDS.has(path.value)) ? allow("helm") : { kind: "defer" };
+  return (path.value === "help" || path.value.startsWith("help:") || path.value.startsWith("completion:") ||
+    HELM_CREDENTIAL_SAFE_COMMANDS.has(path.value)) ? allow("helm") : { kind: "defer" };
 }
 
 function parseStandaloneLiteralCommand(command: string, executable: string):
@@ -175,19 +194,6 @@ function commandTokens(args: readonly string[], valueFlags: ReadonlySet<string>)
 
 function sameArguments(args: readonly string[], expected: readonly string[]): boolean {
   return args.length === expected.length && args.every((arg, index) => arg === expected[index]);
-}
-
-function hasGhUnsafeFlag(args: readonly string[]): boolean {
-  return args.some((arg) => isFlag(arg, GH_BROWSER_FLAGS) || isFlag(arg, GH_OUTPUT_FLAGS));
-}
-
-function hasGhTokenFlag(args: readonly string[]): boolean {
-  return args.some((arg) => isFlag(arg, GH_SHOW_TOKEN_FLAGS));
-}
-
-function isFlag(arg: string, flags: ReadonlySet<string>): boolean {
-  if (flags.has(arg) || [...flags].some((flag) => arg.startsWith(`${flag}=`))) return true;
-  return arg.startsWith("-") && !arg.startsWith("--") && arg.slice(1).split("").some((letter) => flags.has(`-${letter}`));
 }
 
 function allow(tool: string): ReadOnlyCliDecision {
