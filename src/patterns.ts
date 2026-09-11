@@ -164,9 +164,14 @@ export const KUBECTL_ALWAYS_ALLOW: ReadonlySet<string> = new Set([
   "annotate",
 ]);
 
-export const KUBECTL_SECRET_TYPES: ReadonlySet<string> = new Set([
+export const KUBECTL_PROTECTED_TYPES: ReadonlySet<string> = new Set([
   "secret",
   "secrets",
+  "sa",
+  "serviceaccount",
+  "serviceaccounts",
+  "tokenrequest",
+  "tokenrequests",
 ]);
 
 export const KUBECTL_ROLLOUT_ALLOW: ReadonlySet<string> = new Set([

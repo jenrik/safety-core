@@ -40,14 +40,35 @@ describe("OpenCode read-only CLI profiles", () => {
   test("allows configured profile reads, hands gh api to its dedicated profile, and preserves compound prompts", async () => {
     writeFileSync(
       join(configHome, "safety-core", "profiles.json"),
-      JSON.stringify({ ghReadOnly: true, helmReadOnly: true, dockerReadOnly: true, ghApiReadOnly: true }),
+      JSON.stringify({
+        ghReadOnly: true,
+        helmReadOnly: true,
+        dockerReadOnly: true,
+        kubectlReadOnly: true,
+        npmReadOnly: true,
+        podmanReadOnly: true,
+        tofuReadOnly: true,
+        ghApiReadOnly: true,
+      }),
     );
 
-    expect(await permissionStatus("gh repo view")).toBe("allow");
-    expect(await permissionStatus("helm repo list")).toBe("allow");
+    expect(await permissionStatus("gh -R acme/widgets label list")).toBe("allow");
+    expect(await permissionStatus("helm version")).toBe("allow");
     expect(await permissionStatus("docker image ls")).toBe("allow");
+    expect(await permissionStatus("kubectl get pods -n default")).toBe("allow");
+    expect(await permissionStatus("npm ls package --json")).toBe("allow");
+    expect(await permissionStatus("podman network list")).toBe("allow");
+    expect(await permissionStatus("tofu providers schema -json")).toBe("ask");
+    expect(await permissionStatus("tofu -json providers schema")).toBe("ask");
     expect(await permissionStatus("gh api user")).toBe("allow");
     expect(await permissionStatus("gh issue list; gh repo delete acme/widgets")).toBe("ask");
+    expect(await permissionStatus("docker ps")).toBe("ask");
+    expect(await permissionStatus("./docker image ls")).toBe("ask");
+    expect(await permissionStatus("NODE_OPTIONS=--require=./instrumentation.js npm ls package")).toBe("ask");
+    expect(await permissionStatus("tofu providers lock")).toBe("ask");
+    expect(await permissionStatus("helm env")).toBe("ask");
+    expect(await permissionStatus("helm show readme chart")).toBe("ask");
+    expect(await permissionStatus("npm query :root")).toBe("ask");
   });
 
   test("does not override OpenCode permissions when profiles are disabled", async () => {

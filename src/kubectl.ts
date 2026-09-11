@@ -6,7 +6,7 @@ import {
   KUBECTL_AUTH_ALLOW,
   KUBECTL_FLAGS_WITH_VALUES,
   KUBECTL_ROLLOUT_ALLOW,
-  KUBECTL_SECRET_TYPES,
+  KUBECTL_PROTECTED_TYPES,
 } from "./patterns.js";
 import { basename, parseBash, type SimpleCommand } from "./shell.js";
 
@@ -44,18 +44,13 @@ export function analyzeKubectl(command: string): KubectlDecision {
   }
 
   if (sub === "get") {
-    const resource = nextPositionalArg(kubectl.args, 1);
-    if (!resource) return { kind: "defer" };
-    const types = new Set(
-      resource.split(",").map((r) => r.split("/")[0].toLowerCase()),
-    );
-    for (const t of types) {
-      if (KUBECTL_SECRET_TYPES.has(t)) {
-        // Defer to the harness LLM judge / permission gate. get on Secret
-        // resources can either be metadata-only (safe) or full YAML dumps
-        // (unsafe); the judge decides.
-        return { kind: "defer" };
-      }
+    const resources = positionalArgs(kubectl.args, 1);
+    if (resources.length === 0) return { kind: "defer" };
+    if (kubectlResourceOperandsRequireReview(resources)) {
+      // Defer to the harness LLM judge / permission gate. get on Secret
+      // resources can either be metadata-only (safe) or full YAML dumps
+      // (unsafe); the judge decides.
+      return { kind: "defer" };
     }
     return { kind: "allow", reason: "kubectl get auto-allowed" };
   }
@@ -118,11 +113,10 @@ export function checkBashForKubectlSecret(command: string): string | null {
   const sub = kubectl.args[0];
   if (sub !== "get") return null;
 
-  const resource = nextPositionalArg(kubectl.args, 1);
-  if (!resource) return null;
+  const resources = positionalArgs(kubectl.args, 1);
+  if (resources.length === 0) return null;
 
-  const types = resource.split(",").map((r) => r.split("/")[0].toLowerCase());
-  if (types.some((t) => KUBECTL_SECRET_TYPES.has(t))) {
+  if (kubectlResourceOperandsRequireReview(resources)) {
     return "kubectl get Secret is not auto-approved. Use metadata-only output or request confirmation for a safe command.";
   }
 
@@ -169,22 +163,42 @@ function isKubectl(cmd: SimpleCommand): boolean {
   return cmd.name === "kubectl";
 }
 
+/** Normalize TYPE[.VERSION[.GROUP]][/NAME] to its resource type. */
+export function kubectlResourceType(resource: string): string {
+  return resource.split("/", 1)[0].split(".", 1)[0].toLowerCase();
+}
+
+/** True for Kubernetes resource types whose metadata can lead to credentials. */
+export function isProtectedKubectlResource(resource: string): boolean {
+  return KUBECTL_PROTECTED_TYPES.has(kubectlResourceType(resource));
+}
+
 /**
- * Return the value of a positional argument (skipping flags and their
- * values) at or after `start` index. Returns undefined if none found.
+ * Check whether `kubectl get` operands need review. A bare first type may be
+ * followed by names; mixed bare-type and TYPE/NAME forms are ambiguous.
  */
-function nextPositionalArg(args: readonly string[], start: number): string | undefined {
+export function kubectlResourceOperandsRequireReview(operands: readonly string[]): boolean {
+  const [first, ...remaining] = operands;
+  if (!first) return false;
+  if (!first.includes("/") && remaining.some((operand) => operand.includes("/"))) return true;
+  const resources = first.includes("/") ? operands : [first];
+  return resources.some((resource) => resource.split(",").some(isProtectedKubectlResource));
+}
+
+/** Return positional arguments at or after `start`, skipping flags and values. */
+function positionalArgs(args: readonly string[], start: number): string[] {
+  const positionals: string[] = [];
   let i = start;
   while (i < args.length) {
     const t = args[i];
-    if (!t.startsWith("-")) return t;
-    if (t.includes("=")) {
+    if (!t.startsWith("-")) {
+      positionals.push(t);
       i++;
-    } else if (KUBECTL_FLAGS_WITH_VALUES.has(t)) {
+    } else if (!t.includes("=") && KUBECTL_FLAGS_WITH_VALUES.has(t)) {
       i += 2;
     } else {
       i++;
     }
   }
-  return undefined;
+  return positionals;
 }

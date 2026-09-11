@@ -22,32 +22,36 @@ mutators, interpreters, and command runners are also excluded.
 ## Parsed profiles
 
 The following opt-in Nix options use the shared parser and require one literal
-standalone command. They reject shell syntax, redirects, quoting, expansions,
-any flag, and secret-shaped positional paths. Options may not be auto-approved
-because these tools commonly use them for credentials, output files, config
-selection, execution, or local mutation.
+standalone command. They reject explicit executable paths, leading environment
+assignments, shell syntax, redirects, quoting, expansions, unknown flags, and
+secret-shaped positional paths. The only accepted options are `gh -R/--repo`,
+`kubectl`/`oc -n/--namespace` and `--context`, and npm `--json`. These options
+may appear before or after command operands where their CLIs support it. Other
+options remain prompt-gated because these tools commonly use them for
+credentials, output files, configuration selection, execution, or local
+mutation.
 
 | Nix option | Executable | Approved command paths |
 | --- | --- | --- |
-| `ghReadOnly` | `gh` | help/version, account and repository metadata, extension/cache/search/project/ruleset/workflow inspection; `gh api` remains subject to `ghApiReadOnly` |
-| `helmReadOnly` | `helm` | help/completion, env, lint, repository/search/chart metadata, verify, version |
-| `argocdReadOnly` | `argocd` | account inspection, app get/history/list/resources, appset get/list, cluster/repo list, project get/list/role get/list, version |
-| `cosignReadOnly` | `cosign` | env, tree, verify variants, version |
-| `craneReadOnly` | `crane` | catalog, config, digest, ls, manifest, validate, version |
-| `dockerReadOnly` | `docker` | info, version, search, image/network/volume and system-df metadata paths |
+| `ghReadOnly` | `gh` | help/version, account and repository-list metadata, extension/cache/search/project/ruleset/workflow inspection; configured aliases, repository README display, and code search are excluded, and `gh api` remains subject to `ghApiReadOnly` |
+| `helmReadOnly` | `helm` | help/completion, search/chart metadata and documented aliases, verify, version; repository configuration, lint, and chart values/README/CRD contents are excluded because they can expose credentials or chart values |
+| `argocdReadOnly` | `argocd` | account inspection, app/appset/cluster/repository/project lists, project role lists and the `project`/`proj` aliases, version |
+| `cosignReadOnly` | `cosign` | tree, verify variants, version; environment output is excluded |
+| `craneReadOnly` | `crane` | catalog, digest, ls, manifest, validate, version; image configuration is excluded |
+| `dockerReadOnly` | `docker` | info, version, search, image/network/volume and other structural lists, plus system-df metadata; container lists are excluded because they display configured commands |
 | `jfrogReadOnly` | `jf`, `jfrog` | config show, options, Artifactory search, stats, version |
 | `kubectlReadOnly` | `kubectl` | API discovery, auth checks, context metadata, explain, non-secret get, plugin list, version |
 | `nixReadOnly` | `nix` | hash, nar ls, path/store inspection, version, why-depends |
 | `nixEnvReadOnly` | `nix-env` | exact version only; legacy operation flags require a dedicated parser |
 | `nixStoreReadOnly` | `nix-store` | exact version only; legacy operation flags require a dedicated parser |
 | `ocReadOnly` | `oc` | OpenShift equivalents of the restricted kubectl profile plus projects/whoami |
-| `podmanReadOnly` | `podman` | info/version, metadata lists, diff/history/port, system metadata |
-| `podmanComposeReadOnly` | `podman-compose` | images, port, ps, version |
-| `skopeoReadOnly` | `skopeo` | inspect, list-tags, manifest-digest, standalone-verify, version |
-| `tofuReadOnly` | `tofu` | graph, providers/schema, validate, version |
-| `npmReadOnly` | `npm` | package/environment inspection paths |
+| `podmanReadOnly` | `podman` | info/version, structural lists and their documented aliases, diff/port, system metadata; container lists and image history are excluded |
+| `podmanComposeReadOnly` | `podman-compose` | images, port, version; `ps` is excluded because it displays configured commands |
+| `skopeoReadOnly` | `skopeo` | list-tags, manifest-digest, standalone-verify, version; image inspection is excluded |
+| `tofuReadOnly` | `tofu` | version only; configuration-aware commands are excluded because parser diagnostics can echo source configuration |
+| `npmReadOnly` | `npm` | dependency/environment inspection and package search paths with credential-safe aliases; unrestricted package-object `view`/`query` output is excluded |
 | `pipReadOnly` | `pip` | local environment inspection: check, freeze, inspect, list, show, version |
-| `uvReadOnly` | `uv` | environment/package/cache/workspace inspection paths |
+| `uvReadOnly` | `uv` | environment/package/cache/workspace inspection paths; project `tree` is excluded because it can create or update `uv.lock` |
 | `yarnReadOnly` | `yarn` | package/workspace/plugin inspection paths |
 
 `kubeseal` is intentionally not profiled: its primary purpose is reading or
@@ -64,3 +68,7 @@ Profiles must use `analyzeStrictReadOnlyCommand` or a dedicated parser when a
 safe form needs flags. Dedicated parsers must handle flag order, both attached
 and separate flag values, command aliases, and shell AST wrappers. Unknown
 flags or subcommands must defer, never be treated as harmless.
+
+Project-controlled plugins and configured credential-helper execution are
+outside this policy's read-only classification; this policy classifies the
+requested CLI operation itself.

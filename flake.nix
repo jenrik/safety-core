@@ -151,21 +151,37 @@
           read-only-cli-hook-runtime = pkgs.runCommand "safety-core-read-only-cli-hook-runtime-check" { } ''
             set -e
             mkdir -p profile-config/safety-core
-            echo '{"ghReadOnly":true,"helmReadOnly":true,"dockerReadOnly":true}' > profile-config/safety-core/profiles.json
+            echo '{"ghReadOnly":true,"helmReadOnly":true,"dockerReadOnly":true,"kubectlReadOnly":true,"npmReadOnly":true,"podmanReadOnly":true,"tofuReadOnly":true}' > profile-config/safety-core/profiles.json
             export XDG_CONFIG_HOME="$PWD/profile-config"
 
-            gh_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh repo view"}}'
-            gh_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh repo view; id"}}'
-            helm_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"helm repo list"}}'
+            gh_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh -R acme/widgets label list"}}'
+            gh_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh label list; id"}}'
+            helm_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"helm version"}}'
+            helm_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"helm show readme chart"}}'
             docker_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"docker image ls"}}'
+            docker_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"./docker image ls"}}'
+            docker_content_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"docker ps"}}'
+            kubectl_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"kubectl get pods -n default"}}'
+            kubectl_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"kubectl get pod/example secret/credentials"}}'
+            npm_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"npm query :root"}}'
+            podman_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"podman network list"}}'
+            tofu_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"tofu providers schema -json"}}'
 
             gh_allow_out=$(echo "$gh_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
             gh_defer_out=$(echo "$gh_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
             helm_allow_out=$(echo "$helm_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
+            helm_defer_out=$(echo "$helm_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
             docker_allow_out=$(echo "$docker_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
+            docker_defer_out=$(echo "$docker_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
+            docker_content_defer_out=$(echo "$docker_content_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
+            kubectl_allow_out=$(echo "$kubectl_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
+            kubectl_defer_out=$(echo "$kubectl_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
+            npm_defer_out=$(echo "$npm_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
+            podman_allow_out=$(echo "$podman_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
+            tofu_defer_out=$(echo "$tofu_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
 
             if ! echo "$gh_allow_out" | grep -q '"permissionDecision":"allow"'; then
-              echo "expected read_only_cli_allow.mjs to allow gh issue list, got: $gh_allow_out" >&2
+              echo "expected read_only_cli_allow.mjs to allow gh label list, got: $gh_allow_out" >&2
               exit 1
             fi
             if [ -n "$gh_defer_out" ]; then
@@ -173,11 +189,43 @@
               exit 1
             fi
             if ! echo "$helm_allow_out" | grep -q '"permissionDecision":"allow"'; then
-              echo "expected read_only_cli_allow.mjs to allow helm list, got: $helm_allow_out" >&2
+              echo "expected read_only_cli_allow.mjs to allow helm version, got: $helm_allow_out" >&2
+              exit 1
+            fi
+            if [ -n "$helm_defer_out" ]; then
+              echo "expected read_only_cli_allow.mjs to defer helm show readme, got: $helm_defer_out" >&2
               exit 1
             fi
             if ! echo "$docker_allow_out" | grep -q '"permissionDecision":"allow"'; then
               echo "expected read_only_cli_allow.mjs to allow docker image ls, got: $docker_allow_out" >&2
+              exit 1
+            fi
+            if [ -n "$docker_defer_out" ]; then
+              echo "expected read_only_cli_allow.mjs to defer an explicit Docker path, got: $docker_defer_out" >&2
+              exit 1
+            fi
+            if [ -n "$docker_content_defer_out" ]; then
+              echo "expected read_only_cli_allow.mjs to defer Docker command-column output, got: $docker_content_defer_out" >&2
+              exit 1
+            fi
+            if ! echo "$kubectl_allow_out" | grep -q '"permissionDecision":"allow"'; then
+              echo "expected read_only_cli_allow.mjs to allow namespaced kubectl get, got: $kubectl_allow_out" >&2
+              exit 1
+            fi
+            if [ -n "$kubectl_defer_out" ]; then
+              echo "expected read_only_cli_allow.mjs to defer a later protected kubectl resource, got: $kubectl_defer_out" >&2
+              exit 1
+            fi
+            if [ -n "$npm_defer_out" ]; then
+              echo "expected read_only_cli_allow.mjs to defer npm package-object output, got: $npm_defer_out" >&2
+              exit 1
+            fi
+            if ! echo "$podman_allow_out" | grep -q '"permissionDecision":"allow"'; then
+              echo "expected read_only_cli_allow.mjs to allow a Podman list alias, got: $podman_allow_out" >&2
+              exit 1
+            fi
+            if [ -n "$tofu_defer_out" ]; then
+              echo "expected read_only_cli_allow.mjs to defer configuration-aware OpenTofu reads, got: $tofu_defer_out" >&2
               exit 1
             fi
 
