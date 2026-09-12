@@ -8,6 +8,7 @@ import {
   detectBlockedDomain,
   discoverWasmDir,
   initBashParser,
+  loadBashAnalysisLimits,
 } from "../../src/index.js";
 
 import { emitDeny, parseHookEvent, readStdin, run } from "./_shared.js";
@@ -30,6 +31,7 @@ run(async () => {
     if (event.tool_name === "Bash") {
       const reason = checkBashForGithub(
         (event.tool_input?.command as string | undefined) ?? "",
+        bashAuthorizationContext(),
       );
       if (reason) emitDeny(reason);
       return;
@@ -46,3 +48,10 @@ run(async () => {
     if (domain) emitDeny(buildFallbackGithubBlock(domain));
   }
 });
+
+function bashAuthorizationContext() {
+  return Object.freeze({
+    limits: loadBashAnalysisLimits(),
+    initialEnvironment: { kind: "unavailable" as const },
+  });
+}

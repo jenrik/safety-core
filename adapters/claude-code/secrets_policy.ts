@@ -15,6 +15,7 @@ import {
   discoverWasmDir,
   initBashParser,
   isSecretPath,
+  loadBashAnalysisLimits,
   parseBashForSecretRead,
 } from "../../src/index.js";
 
@@ -43,7 +44,7 @@ function handlePreToolUseRead(event: ReturnType<typeof parseHookEvent>): void {
 
 function handlePreToolUseBash(event: ReturnType<typeof parseHookEvent>): void {
   const command = (event?.tool_input?.command as string | undefined) ?? "";
-  const reason = parseBashForSecretRead(command);
+  const reason = parseBashForSecretRead(command, bashAuthorizationContext());
   if (reason) hardBlock(buildSecretBlockMessage(reason));
 }
 
@@ -65,3 +66,10 @@ run(async () => {
       return;
   }
 });
+
+function bashAuthorizationContext() {
+  return Object.freeze({
+    limits: loadBashAnalysisLimits(),
+    initialEnvironment: { kind: "unavailable" as const },
+  });
+}

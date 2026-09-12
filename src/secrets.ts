@@ -8,7 +8,7 @@ import {
   basename,
   matchesAnyGlob,
 } from "./shell.js";
-import { analyzeBashAuthorization } from "./authorization.js";
+import { analyzeBashAuthorization, type BashAuthorizationContext } from "./authorization.js";
 
 /** True iff `name` is treated as a secret file by policy. */
 export function isSecretFileName(name: string): boolean {
@@ -35,9 +35,9 @@ export function isSecretPath(path: string): boolean {
  *   - dynamic paths from command substitutions
  * Those are covered by the prompt-level rule injected at SessionStart.
  */
-export function parseBashForSecretRead(command: string): string | null {
+export function parseBashForSecretRead(command: string, context: BashAuthorizationContext = {}): string | null {
   if (!command) return null;
-  const policy = analyzeBashAuthorization({ source: command }).policies
+  const policy = analyzeBashAuthorization({ source: command, ...context }).policies
     .find((evidence) => evidence.name === "secret-read" && evidence.decision === "deny");
   return policy?.reason ?? null;
 }

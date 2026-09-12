@@ -67,6 +67,29 @@ in
     };
   };
 
+  options.programs.safetyCorePermissions.bashAnalysis = {
+    maxFunctionDepth = mkOption {
+      type = types.addCheck types.ints.positive (value: value <= 9007199254740991);
+      default = 128;
+      description = "Maximum Bash function-recursion depth inspected by the authorization walker.";
+    };
+    maxNestedScriptDepth = mkOption {
+      type = types.addCheck types.ints.positive (value: value <= 9007199254740991);
+      default = 64;
+      description = "Maximum nested Bash script depth inspected by the authorization walker.";
+    };
+    maxSteps = mkOption {
+      type = types.addCheck types.ints.positive (value: value <= 9007199254740991);
+      default = 25000;
+      description = "Maximum continuation steps inspected by the Bash authorization walker.";
+    };
+    maxWorkItems = mkOption {
+      type = types.addCheck types.ints.positive (value: value <= 9007199254740991);
+      default = 10000;
+      description = "Maximum queued continuation work items inspected by the Bash authorization walker.";
+    };
+  };
+
   config = mkMerge [
     {
       # Written unconditionally once the module is imported, with both keys
@@ -99,6 +122,12 @@ in
           enabled = cfg.profiles.ghPrCreate.enable;
           allowedRepositories = cfg.profiles.ghPrCreate.allowedRepositories;
           allowedOrganizations = cfg.profiles.ghPrCreate.allowedOrganizations;
+        };
+        bashAnalysis = {
+          maxFunctionDepth = cfg.bashAnalysis.maxFunctionDepth;
+          maxNestedScriptDepth = cfg.bashAnalysis.maxNestedScriptDepth;
+          maxSteps = cfg.bashAnalysis.maxSteps;
+          maxWorkItems = cfg.bashAnalysis.maxWorkItems;
         };
       };
 

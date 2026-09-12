@@ -173,7 +173,7 @@
   ```ts
   expect(normalizeCommand(command("F=BAR D=GAR echo $D $F"), emptyEnvironment())).toMatchObject({
     executable: { kind: "known", value: "echo" },
-    argv: [{ kind: "known", value: "GAR" }, { kind: "known", value: "BAR" }],
+    argv: [{ kind: "known", value: "" }, { kind: "known", value: "" }],
   });
   expect(expandWord(word("$COMMAND"), unknownEnvironment("COMMAND"))).toMatchObject({ kind: "unknown" });
   expect(expandWord(word("$(id)"), emptyEnvironment())).toMatchObject({ kind: "unknown" });
@@ -187,7 +187,7 @@
 
 - [ ] **Step 3: Implement supported expansion without executing shell code**
 
-  Implement `expandWord(word, environment)` and `normalizeCommand(command, environment)`. Expand literal concatenation and direct `$NAME`/`${NAME}` references only when every referenced binding is known. Mark command substitution, process substitution, indirect expansion, globbing, array expansion, arithmetic expansion, and unsupported parameter operators unknown with redacted reasons. Apply assignment prefixes left-to-right to a command overlay before expanding subsequent assignments, executable, arguments, and redirects.
+  Implement `expandWord(word, environment)` and `normalizeCommand(command, environment)`. Expand literal concatenation and direct `$NAME`/`${NAME}` references only when every referenced binding is known. Mark command substitution, process substitution, indirect expansion, globbing, array expansion, arithmetic expansion, and unsupported parameter operators unknown with redacted reasons. Apply assignment prefixes left-to-right to a command overlay before expanding subsequent assignments. Construct the child environment from that overlay, but expand executable, arguments, and redirects against the caller environment. Treat direct expansion of an unset binding as a known empty string in the supported default shell mode; retain `Unknown` for unavailable or tainted bindings.
 
 - [ ] **Step 4: Prove lifetime and provenance behavior**
 
@@ -199,7 +199,7 @@
 
 - [ ] **Step 5: Add expansion properties**
 
-  Generate ordered chains of literal assignments and direct references. Compare their normalized known argv against a simple test-local left-to-right model. Generate a chain with at least one unknown dependency and assert no dependent expansion returns a known value until a later literal assignment overwrites that name.
+  Generate ordered chains of literal assignments and direct references. Compare prefix-assignment values and child environments against a simple test-local left-to-right model, while comparing executable/argv/redirect expansion against the caller environment. Assert unset caller bindings expand to known empty strings and unknown dependencies remain unknown until a deterministic later assignment overwrites the affected name.
 
 ## Task 4: Implement outcomes, budgets, and the iterative work runner
 
@@ -507,7 +507,7 @@
 
   ```ts
   const trace = await runBashOracle('F=BAR D=GAR record-command "$D" "$F"', { BASE: "root" });
-  expect(trace[0]).toEqual({ argv: ["GAR", "BAR"], environment: { BASE: "root", F: "BAR", D: "GAR" } });
+   expect(trace[0]).toEqual({ argv: ["", ""], environment: { BASE: "root", F: "BAR", D: "GAR" } });
   ```
 
 - [ ] **Step 2: Run the equivalence test and confirm failure**

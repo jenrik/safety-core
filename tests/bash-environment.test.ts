@@ -196,7 +196,7 @@ describe("persistent Bash environment", () => {
     expect(() => { (environment.frame as { parent?: object }).parent = {}; }).toThrow();
     expect(() => { (binding.value as { value: string }).value = "changed"; }).toThrow();
     expect(lookupBinding(environment, "F").value).toEqual(known("stable"));
-    expect(environment.budgets.steps).toBe(100_000);
+    expect(environment.budgets.steps).toBe(25_000);
   });
 
   test("property: an unwritten unknown binding never becomes known", () => {

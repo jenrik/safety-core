@@ -9,6 +9,7 @@ import {
   analyzeStrictReadOnlyCommand,
   discoverWasmDir,
   initBashParser,
+  loadBashAnalysisLimits,
   isProfileEnabled,
 } from "../../src/index.js";
 
@@ -23,12 +24,13 @@ run(async () => {
   if (!event || event.tool_name !== "Bash") return;
 
   const command = (event.tool_input?.command as string | undefined) ?? "";
-  const decision = analyzeStrictReadOnlyCommand(command, "kubectl");
-
-  switch (decision.kind) {
-    case "allow":
-      emitAllow(decision.reason);
-      return;
-    // defer / ignore → exit 0 silently
-  }
+  const decision = analyzeStrictReadOnlyCommand(command, "kubectl", bashAuthorizationContext());
+  if (decision.kind === "allow") emitAllow(decision.reason);
 });
+
+function bashAuthorizationContext() {
+  return Object.freeze({
+    limits: loadBashAnalysisLimits(),
+    initialEnvironment: { kind: "unavailable" as const },
+  });
+}

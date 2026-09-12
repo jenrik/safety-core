@@ -95,7 +95,7 @@
 
           command-profile-tests = pkgs.runCommand "safety-core-command-profile-tests"
             {
-              nativeBuildInputs = [ pkgs.bun ];
+              nativeBuildInputs = [ pkgs.bash pkgs.bun ];
             } ''
             set -e
             mkdir test-work
@@ -110,6 +110,8 @@
             bun test tests/gh-pr-create.test.ts
             bun test tests/read-only-cli.test.ts
             bun test tests/opencode-read-only-cli.test.ts
+            bun test ./tests/bash-equivalence.test.ts
+            bun test ./tests/bash-performance.test.ts
             touch $out
           '';
 
@@ -119,17 +121,23 @@
             echo '{"ghApiReadOnly":true,"ghPrCreate":{"enabled":true,"allowedRepositories":["acme/widgets"],"allowedOrganizations":[]}}' > profile-config/safety-core/profiles.json
             export XDG_CONFIG_HOME="$PWD/profile-config"
 
-            allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh pr create --repo github.com/acme/widgets --fill"}}'
+             allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh pr create --repo github.com/acme/widgets --fill"}}'
+             unrelated_safe_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"cat README.md"}}'
             deny_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh alias set create-pr \"pr create --repo github.com/attacker/widgets\""}}'
             compound_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh pr create --repo github.com/acme/widgets --fill; gh api user"}}'
 
-            allow_out=$(echo "$allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_pr_create_policy.mjs)
+             allow_out=$(echo "$allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_pr_create_policy.mjs)
+             unrelated_safe_out=$(echo "$unrelated_safe_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_pr_create_policy.mjs)
             deny_out=$(echo "$deny_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_pr_create_policy.mjs)
             compound_out=$(echo "$compound_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_pr_create_policy.mjs)
             gh_api_compound_out=$(echo "$compound_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_api_read_allow.mjs)
 
             if ! echo "$allow_out" | grep -q '"permissionDecision":"allow"'; then
               echo "expected gh_pr_create_policy.mjs to allow an allowlisted PR, got: $allow_out" >&2
+              exit 1
+            fi
+            if [ -n "$unrelated_safe_out" ]; then
+              echo "expected gh_pr_create_policy.mjs to leave unrelated base-handler reads untouched, got: $unrelated_safe_out" >&2
               exit 1
             fi
             if ! echo "$deny_out" | grep -q '"permissionDecision":"deny"'; then
@@ -158,27 +166,33 @@
             gh_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh label list; id"}}'
             helm_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"helm version"}}'
             helm_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"helm show readme chart"}}'
-            docker_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"docker image ls"}}'
-            docker_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"./docker image ls"}}'
+             docker_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"docker image ls"}}'
+             wrapper_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"TOOL=docker; strace $TOOL image ls"}}'
+             docker_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"./docker image ls"}}'
             docker_content_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"docker ps"}}'
             kubectl_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"kubectl get pods -n default"}}'
             kubectl_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"kubectl get pod/example secret/credentials"}}'
             npm_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"npm query :root"}}'
             podman_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"podman network list"}}'
-            tofu_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"tofu providers schema -json"}}'
+             tofu_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"tofu providers schema -json"}}'
+             dynamic_child_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"DYNAMIC=$UNKNOWN; $DYNAMIC"}}'
+             deny_after_indeterminate_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"DYNAMIC=$UNKNOWN; curl https://api.github.com/user"}}'
 
             gh_allow_out=$(echo "$gh_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
             gh_defer_out=$(echo "$gh_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
             helm_allow_out=$(echo "$helm_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
             helm_defer_out=$(echo "$helm_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
-            docker_allow_out=$(echo "$docker_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
+             docker_allow_out=$(echo "$docker_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
+             wrapper_allow_out=$(echo "$wrapper_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
             docker_defer_out=$(echo "$docker_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
             docker_content_defer_out=$(echo "$docker_content_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
             kubectl_allow_out=$(echo "$kubectl_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
             kubectl_defer_out=$(echo "$kubectl_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
             npm_defer_out=$(echo "$npm_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
             podman_allow_out=$(echo "$podman_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
-            tofu_defer_out=$(echo "$tofu_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
+             tofu_defer_out=$(echo "$tofu_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
+             dynamic_child_out=$(echo "$dynamic_child_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
+             deny_after_indeterminate_out=$(echo "$deny_after_indeterminate_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/github_raw_redirect.mjs)
 
             if ! echo "$gh_allow_out" | grep -q '"permissionDecision":"allow"'; then
               echo "expected read_only_cli_allow.mjs to allow gh label list, got: $gh_allow_out" >&2
@@ -196,10 +210,18 @@
               echo "expected read_only_cli_allow.mjs to defer helm show readme, got: $helm_defer_out" >&2
               exit 1
             fi
-            if ! echo "$docker_allow_out" | grep -q '"permissionDecision":"allow"'; then
+             if ! echo "$docker_allow_out" | grep -q '"permissionDecision":"allow"'; then
               echo "expected read_only_cli_allow.mjs to allow docker image ls, got: $docker_allow_out" >&2
               exit 1
-            fi
+             fi
+             if [ -n "$unrelated_safe_out" ]; then
+               echo "expected gh_pr_create_policy.mjs to leave unrelated base-handler reads untouched, got: $unrelated_safe_out" >&2
+               exit 1
+             fi
+             if ! echo "$wrapper_allow_out" | grep -q '"permissionDecision":"allow"'; then
+               echo "expected read_only_cli_allow.mjs to allow a stateful assignment through a wrapper, got: $wrapper_allow_out" >&2
+               exit 1
+             fi
             if [ -n "$docker_defer_out" ]; then
               echo "expected read_only_cli_allow.mjs to defer an explicit Docker path, got: $docker_defer_out" >&2
               exit 1
@@ -224,10 +246,18 @@
               echo "expected read_only_cli_allow.mjs to allow a Podman list alias, got: $podman_allow_out" >&2
               exit 1
             fi
-            if [ -n "$tofu_defer_out" ]; then
+             if [ -n "$tofu_defer_out" ]; then
               echo "expected read_only_cli_allow.mjs to defer configuration-aware OpenTofu reads, got: $tofu_defer_out" >&2
               exit 1
-            fi
+             fi
+             if [ -n "$dynamic_child_out" ]; then
+               echo "expected read_only_cli_allow.mjs to leave a dynamic child permission untouched, got: $dynamic_child_out" >&2
+               exit 1
+             fi
+             if ! echo "$deny_after_indeterminate_out" | grep -q '"permissionDecision":"deny"'; then
+               echo "expected github_raw_redirect.mjs to deny after an indeterminate child, got: $deny_after_indeterminate_out" >&2
+               exit 1
+             fi
 
             touch $out
           '';
@@ -294,20 +324,30 @@
                   stub
                   ./nix/permissions.nix
                   {
-                    config.programs.safetyCorePermissions.profiles.ghPrCreate = {
+                     config.programs.safetyCorePermissions.profiles.ghPrCreate = {
                       enable = true;
                       allowedRepositories = [ "acme/widgets" ];
                       allowedOrganizations = [ "trusted-org" ];
-                    };
+                     };
+                     config.programs.safetyCorePermissions.bashAnalysis = {
+                       maxFunctionDepth = 7;
+                       maxNestedScriptDepth = 6;
+                       maxSteps = 5;
+                       maxWorkItems = 4;
+                     };
                   }
                 ];
               };
               profile = builtins.fromJSON evaled.config.xdg.configFile."safety-core/profiles.json".text;
             in
             assert profile.ghPrCreate.enabled;
-            assert profile.ghPrCreate.allowedRepositories == [ "acme/widgets" ];
-            assert profile.ghPrCreate.allowedOrganizations == [ "trusted-org" ];
-            pkgs.runCommand "safety-core-gh-pr-create-profile-eval-check" { } "touch $out";
+             assert profile.ghPrCreate.allowedRepositories == [ "acme/widgets" ];
+             assert profile.ghPrCreate.allowedOrganizations == [ "trusted-org" ];
+             assert profile.bashAnalysis.maxFunctionDepth == 7;
+             assert profile.bashAnalysis.maxNestedScriptDepth == 6;
+             assert profile.bashAnalysis.maxSteps == 5;
+             assert profile.bashAnalysis.maxWorkItems == 4;
+             pkgs.runCommand "safety-core-gh-pr-create-profile-eval-check" { } "touch $out";
 
           read-only-cli-profile-eval =
             let

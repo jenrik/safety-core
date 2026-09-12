@@ -10,11 +10,13 @@
 
 import {
   analyzeGhApiCommand,
-  analyzeGhPrCreateCommand,
+  analyzeGhPrCreateAuthorization,
   discoverWasmDir,
   initBashParser,
   isProfileEnabled,
+  loadBashAnalysisLimits,
   loadGhPrCreatePolicy,
+  mapClaudeBashDecision,
 } from "../../src/index.js";
 
 import { emitAllow, emitDeny, parseHookEvent, readStdin, run } from "./_shared.js";
@@ -29,14 +31,17 @@ run(async () => {
   if (!event || event.tool_name !== "Bash") return;
 
   const command = (event.tool_input?.command as string | undefined) ?? "";
-  const ghPrCreateDecision = analyzeGhPrCreateCommand(command, loadGhPrCreatePolicy());
-  if (ghPrCreateDecision.kind === "deny") {
-    emitDeny(ghPrCreateDecision.reason);
-    return;
+  const context = bashAuthorizationContext();
+  const ghPrCreatePolicy = loadGhPrCreatePolicy();
+  if (ghPrCreatePolicy.enabled) {
+    const ghPrCreateAnalysis = analyzeGhPrCreateAuthorization(command, ghPrCreatePolicy, context);
+    if (mapClaudeBashDecision(ghPrCreateAnalysis.verdict) === "deny") {
+      emitDeny(ghPrCreateAnalysis.policies.find((policy) => policy.decision === "deny")?.reason
+        ?? "Pull-request creation is blocked");
+      return;
+    }
   }
-
-  const decision = analyzeGhApiCommand(command);
-
+  const decision = analyzeGhApiCommand(command, context);
   switch (decision.kind) {
     case "allow":
       emitAllow(decision.reason);
@@ -47,3 +52,10 @@ run(async () => {
     // defer / ignore → exit 0 silently
   }
 });
+
+function bashAuthorizationContext() {
+  return Object.freeze({
+    limits: loadBashAnalysisLimits(),
+    initialEnvironment: { kind: "unavailable" as const },
+  });
+}

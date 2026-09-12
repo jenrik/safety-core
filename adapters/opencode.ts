@@ -10,7 +10,7 @@ import {
   SECRET_COMMAND_REMINDER,
   SECRET_PATTERNS,
   analyzeGhApiCommand,
-  analyzeGhPrCreateCommand,
+  analyzeGhPrCreateAuthorization,
   analyzeGhReadOnlyCommand,
   analyzeHelmReadOnlyCommand,
   analyzeStrictReadOnlyCommand,
@@ -22,7 +22,9 @@ import {
   discoverWasmDir,
   initBashParser,
   isProfileEnabled,
+  loadBashAnalysisLimits,
   loadGhPrCreatePolicy,
+  mapOpenCodeBashStatus,
   isSecretPath,
   parseBashForSecretRead,
   summariseKubectlSecret,
@@ -62,24 +64,30 @@ export default (async () => {
 
       if (input.tool !== "bash") return;
       const command = String(args.command ?? "");
+      const bashContext = bashAuthorizationContext();
 
       // ── Rule-based checks: hard-block clear violations ────────────
-      const secretReason = parseBashForSecretRead(command);
+      const secretReason = parseBashForSecretRead(command, bashContext);
       if (secretReason) {
         throw new Error(`Blocked by OpenCode safety policy: ${secretReason}`);
       }
 
-      const githubReason = checkBashForGithub(command);
+      const githubReason = checkBashForGithub(command, bashContext);
       if (githubReason) {
         throw new Error(githubReason);
       }
 
-      const ghPrCreateDecision = analyzeGhPrCreateCommand(command, loadGhPrCreatePolicy());
-      if (ghPrCreateDecision.kind === "deny") {
-        throw new Error(`Blocked by OpenCode safety policy: ${ghPrCreateDecision.reason}`);
+      const ghPrCreatePolicy = loadGhPrCreatePolicy();
+      const ghPrCreateAnalysis = ghPrCreatePolicy.enabled
+        ? analyzeGhPrCreateAuthorization(command, ghPrCreatePolicy, bashContext)
+        : null;
+      if (ghPrCreateAnalysis?.verdict.kind === "deny") {
+        const reason = ghPrCreateAnalysis.policies.find((policy) => policy.decision === "deny")?.reason
+          ?? "Pull-request creation is blocked";
+        throw new Error(`Blocked by OpenCode safety policy: ${reason}`);
       }
 
-      const kubectlDecision = checkBashForKubectlSecret(command);
+      const kubectlDecision = checkBashForKubectlSecret(command, bashContext);
       if (kubectlDecision && !kubectlDecision.startsWith("kubectl get Secret")) {
         throw new Error(`Blocked by OpenCode safety policy: ${kubectlDecision}`);
       }
@@ -105,21 +113,24 @@ export default (async () => {
 
       const command = Array.isArray(input.pattern) ? input.pattern.join(" && ") : input.pattern;
       if (!command) return;
+      const bashContext = bashAuthorizationContext();
 
-      const ghPrCreateDecision = analyzeGhPrCreateCommand(command, loadGhPrCreatePolicy());
-      if (ghPrCreateDecision.kind === "allow") output.status = "allow";
-      else if (ghPrCreateDecision.kind === "deny") output.status = "deny";
-      if (ghPrCreateDecision.kind !== "ignore") return;
+      const ghPrCreatePolicy = loadGhPrCreatePolicy();
+      if (ghPrCreatePolicy.enabled) {
+        const ghPrCreateAnalysis = analyzeGhPrCreateAuthorization(command, ghPrCreatePolicy, bashContext);
+        output.status = mapOpenCodeBashStatus(output.status, ghPrCreateAnalysis.verdict);
+        if (ghPrCreateAnalysis.verdict.kind !== "neutral") return;
+      }
 
       if (isProfileEnabled("ghReadOnly")) {
-        const decision = analyzeGhReadOnlyCommand(command);
-        if (decision.kind === "allow") output.status = "allow";
+        const decision = analyzeGhReadOnlyCommand(command, bashContext);
+        output.status = mapOpenCodeBashStatus(output.status, decision);
         if (decision.kind !== "ignore") return;
       }
 
       if (isProfileEnabled("helmReadOnly")) {
-        const decision = analyzeHelmReadOnlyCommand(command);
-        if (decision.kind === "allow") output.status = "allow";
+        const decision = analyzeHelmReadOnlyCommand(command, bashContext);
+        output.status = mapOpenCodeBashStatus(output.status, decision);
         if (decision.kind !== "ignore") return;
       }
 
@@ -134,24 +145,20 @@ export default (async () => {
       ] as const;
       for (const [profile, executable] of strictProfiles) {
         if (!isProfileEnabled(profile)) continue;
-        const decision = analyzeStrictReadOnlyCommand(command, executable);
-        if (decision.kind === "allow") output.status = "allow";
+        const decision = analyzeStrictReadOnlyCommand(command, executable, bashContext);
+        output.status = mapOpenCodeBashStatus(output.status, decision);
         if (decision.kind !== "ignore") return;
       }
 
       if (!isProfileEnabled("ghApiReadOnly")) return;
-
-      const decision = analyzeGhApiCommand(command);
-      if (decision.kind === "allow") output.status = "allow";
-      else if (decision.kind === "deny") output.status = "deny";
-      // defer / ignore: leave output.status untouched (native permission tree decides).
+      output.status = mapOpenCodeBashStatus(output.status, analyzeGhApiCommand(command, bashContext));
     },
 
     "tool.execute.after": async (input, output) => {
       if (input.tool !== "bash") return;
       const command = String((input.args as Record<string, unknown>).command ?? "");
 
-      const summary = summariseKubectlSecret(command);
+      const summary = summariseKubectlSecret(command, bashAuthorizationContext());
       if (summary) {
         await appendAuditRecord(defaultAuditPath("opencode"), {
           timestamp: new Date().toISOString(),
@@ -191,4 +198,11 @@ function matchesSecretKeyword(command: string): boolean {
   return SECRET_PATTERNS.some((p) =>
     haystack.includes(p.toLowerCase().replaceAll("*", "")),
   );
+}
+
+function bashAuthorizationContext() {
+  return Object.freeze({
+    limits: loadBashAnalysisLimits(),
+    initialEnvironment: { kind: "unavailable" as const },
+  });
 }

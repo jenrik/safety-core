@@ -1,6 +1,6 @@
 // gh-api compatibility adapter backed by the stateful Bash authorization walker.
 
-import { analyzeBashAuthorization } from "./authorization.js";
+import { analyzeBashAuthorization, type BashAuthorizationContext } from "./authorization.js";
 import { ghApiHandler } from "./bash/handlers/gh.js";
 
 export type GhApiDecision =
@@ -10,8 +10,8 @@ export type GhApiDecision =
   | { kind: "ignore" };
 
 /** Analyze every resolved gh api invocation, allowing only an all-safe Bash call. */
-export function analyzeGhApiCommand(command: string): GhApiDecision {
-  const analysis = analyzeBashAuthorization({ source: command, handlers: [ghApiHandler] });
+export function analyzeGhApiCommand(command: string, context: BashAuthorizationContext = {}): GhApiDecision {
+  const analysis = analyzeBashAuthorization({ source: command, handlers: [ghApiHandler], ...context });
   const policy = analysis.policies.find((evidence) => evidence.name === "gh-api");
   if (!policy || policy.name !== "gh-api") return { kind: "ignore" };
   if (policy.decision === "deny") return { kind: "deny", reason: policy.reason ?? "gh api is not read-only" };

@@ -9,6 +9,7 @@ import {
   analyzeGhReadOnlyCommand,
   analyzeHelmReadOnlyCommand,
   analyzeStrictReadOnlyCommand,
+  analyzeGhPrCreateAuthorization,
   analyzeBashAuthorization,
   initBashParser,
   type GhPrCreatePolicy,
@@ -177,5 +178,34 @@ describe("walker-backed gh policy compatibility", () => {
 
   test("keeps ordinary unresolved execution neutral in the generic analysis API", () => {
     expect(analyzeBashAuthorization({ source: "$UNKNOWN image ls" }).verdict.kind).toBe("neutral");
+  });
+
+  test("keeps raw PR authorization neutral until every reachable command is safe", () => {
+    const context = {
+      initialEnvironment: { kind: "unavailable" as const },
+      limits: { maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 100_000, maxWorkItems: 10_000 },
+    };
+
+    expect(analyzeGhPrCreateAuthorization(
+      "gh pr create --repo github.com/acme/widgets --fill",
+      policy,
+      context,
+    ).verdict.kind).toBe("allow");
+    expect(analyzeGhPrCreateAuthorization(
+      "gh pr create --repo github.com/acme/widgets --fill; $UNKNOWN",
+      policy,
+      context,
+    ).verdict.kind).toBe("neutral");
+    expect(analyzeGhPrCreateAuthorization(
+      "$UNKNOWN; gh pr create --repo github.com/attacker/widgets --fill",
+      policy,
+      context,
+    ).verdict.kind).toBe("deny");
+  });
+
+  test("raw PR adapter analysis does not auto-allow unrelated base-handler reads", () => {
+    expect(analyzeGhPrCreateAuthorization("cat README.md", policy, {
+      initialEnvironment: { kind: "unavailable" },
+    }).verdict.kind).toBe("neutral");
   });
 });

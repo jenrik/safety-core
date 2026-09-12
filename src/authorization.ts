@@ -1,5 +1,5 @@
 import { createCommandRegistry, dispatchCommand, type CommandHandler } from "./bash/dispatch.js";
-import { fromInitialEnvironment } from "./bash/environment.js";
+import { fromInitialEnvironment, fromVerifiedInitialEnvironment } from "./bash/environment.js";
 import { indeterminate, type AuthorizationVerdict, type PolicyEvidence } from "./bash/outcome.js";
 import { DEFAULT_BASH_ANALYSIS_LIMITS, runSteps, type BashAnalysisLimits, type RunStepsResult } from "./bash/runner.js";
 import { walkProgram } from "./bash/walker.js";
@@ -8,14 +8,29 @@ import { kubectlHandler } from "./bash/handlers/kubectl.js";
 import { readerHandlers } from "./bash/handlers/readers.js";
 import { parseBashProgram } from "./shell.js";
 
+export type BashInitialEnvironment =
+  | { readonly kind: "unavailable" }
+  | { readonly kind: "verified"; readonly values: Readonly<Record<string, string>> };
+
 export interface BashAuthorizationOptions {
   readonly source: string;
   readonly limits?: BashAnalysisLimits;
+  /**
+   * A harness may seed inherited variables only from a snapshot it proves is
+   * equivalent to the Bash invocation environment. Omission is unavailable.
+   */
+  readonly initialEnvironment?: BashInitialEnvironment;
   /** Explicit policy handlers define the active profiles for this analysis. */
   readonly handlers?: readonly CommandHandler[];
   /** Compatibility profiles can opt out of unrelated baseline policy handlers. */
   readonly includeBaseHandlers?: boolean;
 }
+
+/** Adapter-supplied walker settings, excluding command-specific policy handlers. */
+export type BashAuthorizationContext = Pick<
+  BashAuthorizationOptions,
+  "limits" | "initialEnvironment"
+>;
 
 export interface BashAuthorizationAnalysis {
   readonly verdict: AuthorizationVerdict;
@@ -46,7 +61,7 @@ export function analyzeBashAuthorization(options: BashAuthorizationOptions): Bas
   }
   const registry = createCommandRegistry([...(options.includeBaseHandlers === false ? [] : baseHandlers), ...(options.handlers ?? [])]);
   const initial = walkProgram(program, {
-    environment: fromInitialEnvironment({}, toEnvironmentBudgets(options.limits)),
+    environment: initialEnvironment(options.initialEnvironment, toEnvironmentBudgets(options.limits)),
     dispatchCommand: (request) => dispatchCommand(request, registry),
   });
   const completed = runSteps(initial, options.limits ?? DEFAULT_BASH_ANALYSIS_LIMITS);
@@ -57,6 +72,54 @@ export function analyzeBashAuthorization(options: BashAuthorizationOptions): Bas
     policy: policyFrom(completed),
     policies: policiesFrom(completed),
   });
+}
+
+
+/**
+ * Run an adapter-facing evaluator with an explicit unavailable environment and
+ * map only the definitive walker verdict onto a native permission status.
+ */
+export function evaluateBashPermission(
+  status: string,
+  source: string,
+  limits: BashAnalysisLimits,
+  evaluator: (options: BashAuthorizationOptions) => { readonly verdict: { readonly kind: string } },
+): string {
+  const result = evaluator({ source, limits, initialEnvironment: { kind: "unavailable" } });
+  return mapBashPermissionStatus(status, result.verdict);
+}
+
+/** Preserve the native status unless analysis proves the invocation safe or denied. */
+export function mapBashPermissionStatus<T extends string>(status: T, verdict: { readonly kind: string }): T | "allow" | "deny" {
+  switch (verdict.kind) {
+    case "allow": return "allow";
+    case "deny": return "deny";
+    default: return status;
+  }
+}
+
+/** OpenCode's native permission mapping: only definitive walker verdicts override it. */
+export function mapOpenCodeBashStatus<T extends string>(status: T, verdict: { readonly kind: string }): T | "allow" | "deny" {
+  return mapBashPermissionStatus(status, verdict);
+}
+
+/** Pi's hard-block phase may stop execution only for a proven denial. */
+export function shouldBlockPiBash(verdict: { readonly kind: string }): boolean {
+  return verdict.kind === "deny";
+}
+
+/** Claude Code hooks emit no decision for analysis uncertainty or failure. */
+export function mapClaudeBashDecision(verdict: { readonly kind: string }): "allow" | "deny" | undefined {
+  return verdict.kind === "allow" || verdict.kind === "deny" ? verdict.kind : undefined;
+}
+
+/** Evaluate a hard-block policy under the same explicit unavailable environment. */
+export function shouldHardBlockBash(
+  source: string,
+  limits: BashAnalysisLimits,
+  evaluator: (options: BashAuthorizationOptions) => { readonly verdict: { readonly kind: string } },
+): boolean {
+  return evaluator({ source, limits, initialEnvironment: { kind: "unavailable" } }).verdict.kind === "deny";
 }
 
 function policyFrom(completed: RunStepsResult): PolicyEvidence | null {
@@ -76,6 +139,13 @@ function toEnvironmentBudgets(limits: BashAnalysisLimits | undefined) {
     workItems: active.maxWorkItems,
   });
 }
+
+function initialEnvironment(initial: BashInitialEnvironment | undefined, budgets: ReturnType<typeof toEnvironmentBudgets>) {
+  return initial?.kind === "verified"
+    ? fromVerifiedInitialEnvironment(initial.values, budgets)
+    : fromInitialEnvironment({}, budgets);
+}
+
 
 function freeze<T extends object>(value: T): T {
   return Object.freeze(value);

@@ -32,10 +32,10 @@ beforeAll(async () => {
 afterAll(() => rmSync(wasmDir, { force: true, recursive: true }));
 
 describe("stateful Bash statement walker", () => {
-  test("persists standalone assignments while discarding external-command prefix overlays", () => {
+  test("uses caller bindings for same-command words while discarding external-command prefix overlays", () => {
     const result = analyze("X=outer; X=prefix echo \"$X\"; echo \"$X\"");
 
-    expect(argvs(result.invocations)).toEqual([["prefix"], ["outer"]]);
+    expect(argvs(result.invocations)).toEqual([["outer"], ["outer"]]);
   });
 
   test("uses dynamic function lookup, local shadows, and function-local prefix overlays", () => {

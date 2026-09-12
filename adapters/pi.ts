@@ -21,10 +21,11 @@ import {
   checkBashForGithub,
   checkBashForKubectlSecret,
   checkWebfetchUrl,
-  analyzeGhPrCreateCommand,
+  analyzeGhPrCreateAuthorization,
   defaultAuditPath,
   discoverWasmDir,
   initBashParser,
+  loadBashAnalysisLimits,
   isSecretPath,
   loadGhPrCreatePolicy,
   parseBashForSecretRead,
@@ -35,6 +36,7 @@ import {
   setJudgeProvider,
   invokeJudge,
   shouldInvokeJudge,
+  shouldBlockPiBash,
   createCompletionJudge,
   type JudgeProvider,
 } from "../src/index.js";
@@ -169,9 +171,10 @@ export default function (pi: ExtensionAPI) {
 
     if (event.toolName === "bash") {
       const command = (event.input as { command?: string })?.command ?? "";
+      const bashContext = bashAuthorizationContext();
 
       // ── Rule-based checks: hard-block clear violations ────────────
-      const secretReason = parseBashForSecretRead(command);
+      const secretReason = parseBashForSecretRead(command, bashContext);
       if (secretReason) {
         setJudgeVerdict(event.toolCallId, {
           safe: false,
@@ -181,7 +184,7 @@ export default function (pi: ExtensionAPI) {
         return { block: true, reason: SECRET_BLOCK_MESSAGE };
       }
 
-      const githubReason = checkBashForGithub(command);
+      const githubReason = checkBashForGithub(command, bashContext);
       if (githubReason) {
         setJudgeVerdict(event.toolCallId, {
           safe: false,
@@ -191,20 +194,25 @@ export default function (pi: ExtensionAPI) {
         return { block: true, reason: githubReason };
       }
 
-      const ghPrCreateDecision = analyzeGhPrCreateCommand(command, loadGhPrCreatePolicy());
-      if (ghPrCreateDecision.kind === "deny") {
+      const ghPrCreatePolicy = loadGhPrCreatePolicy();
+      const ghPrCreateAnalysis = ghPrCreatePolicy.enabled
+        ? analyzeGhPrCreateAuthorization(command, ghPrCreatePolicy, bashContext)
+        : null;
+      if (ghPrCreateAnalysis && shouldBlockPiBash(ghPrCreateAnalysis.verdict)) {
+        const reason = ghPrCreateAnalysis.policies.find((policy) => policy.decision === "deny")?.reason
+          ?? "Pull-request creation is blocked";
         setJudgeVerdict(event.toolCallId, {
           safe: false,
-          reasoning: `Blocked: ${ghPrCreateDecision.reason}`,
+          reasoning: `Blocked: ${reason}`,
         });
-        ctx.ui.notify(`Blocked ${ghPrCreateDecision.reason}`, "warning");
-        return { block: true, reason: ghPrCreateDecision.reason };
+        ctx.ui.notify(`Blocked ${reason}`, "warning");
+        return { block: true, reason };
       }
 
       // For kubectl commands that are clearly dangerous, block immediately.
       // For borderline kubectl commands (e.g. `kubectl get Secret`), defer to
       // the LLM judge below instead of blocking outright.
-      const kubectlDecision = checkBashForKubectlSecret(command);
+      const kubectlDecision = checkBashForKubectlSecret(command, bashContext);
       if (kubectlDecision && !kubectlDecision.startsWith("kubectl get Secret")) {
         setJudgeVerdict(event.toolCallId, {
           safe: false,
@@ -246,7 +254,7 @@ export default function (pi: ExtensionAPI) {
     if (event.toolName !== "bash") return;
     const command = (event.input as { command?: string })?.command ?? "";
 
-    const summary = summariseKubectlSecret(command);
+    const summary = summariseKubectlSecret(command, bashAuthorizationContext());
     if (summary) {
       await appendAuditRecord(defaultAuditPath("pi"), {
         timestamp: new Date().toISOString(),
@@ -483,6 +491,13 @@ function matchesSecretKeyword(command: string): boolean {
   return SECRET_PATTERNS.some((p) =>
     haystack.includes(p.toLowerCase().replaceAll("*", "")),
   );
+}
+
+function bashAuthorizationContext() {
+  return Object.freeze({
+    limits: loadBashAnalysisLimits(),
+    initialEnvironment: { kind: "unavailable" as const },
+  });
 }
 
 type TextBlock = { type: "text"; text: string };

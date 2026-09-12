@@ -35,21 +35,24 @@ beforeAll(async () => {
 afterAll(() => rmSync(wasmDir, { force: true, recursive: true }));
 
 describe("static Bash word expansion", () => {
-  test("normalizes prefix assignments left-to-right before executable and argv expansion", () => {
+  test("normalizes prefix assignments left-to-right for the child while words use the caller", () => {
     const normalized = normalizeCommand(command("F=BAR D=GAR echo $D $F"), fromInitialEnvironment());
 
     expect(normalized).toMatchObject({
       executable: { kind: "known", value: "echo" },
-      argv: [{ kind: "known", value: "GAR" }, { kind: "known", value: "BAR" }],
+      argv: [
+        { kind: "unknown", reason: { kind: "unknown-variable", variable: "D" } },
+        { kind: "unknown", reason: { kind: "unknown-variable", variable: "F" } },
+      ],
     });
     expect(lookupBinding(normalized.environment, "F").value).toEqual(known("BAR"));
     expect(lookupBinding(normalized.environment, "D").value).toEqual(known("GAR"));
   });
 
-  test("expands literal concatenation and direct braced references from known bindings", () => {
+  test("does not expose prefix bindings to same-command literal concatenation", () => {
     const normalized = normalizeCommand(command("F=BAR echo prefix-$F-${F}"), fromInitialEnvironment());
 
-    expect(normalized.argv).toEqual([{ kind: "known", value: "prefix-BAR-BAR" }]);
+    expect(normalized.argv).toMatchObject([{ kind: "unknown", reason: { variable: "F" } }]);
   });
 
   test("keeps single-quoted expansion markers literal", () => {
@@ -184,12 +187,12 @@ describe("static Bash word expansion", () => {
     }
   });
 
-  test("expands redirect targets against the prefix overlay", () => {
+  test("expands redirect targets against the caller environment", () => {
     const normalized = normalizeCommand(command("OUT=result echo ok >$OUT"), fromInitialEnvironment());
 
-    expect(normalized.redirects).toEqual([{
+    expect(normalized.redirects).toMatchObject([{
       kind: "output",
-      target: { kind: "known", value: "result" },
+      target: { kind: "unknown", reason: { variable: "OUT" } },
     }]);
   });
 
@@ -237,7 +240,7 @@ describe("static Bash word expansion", () => {
     expect(() => { ((unknownArgument as { reason: { span: { start: number } } }).reason.span).start = 99; }).toThrow();
     expect(() => { (normalized.assignmentPatch.writes as Set<string>).add("CHANGED"); }).toThrow();
     expect(normalized.argv[0]).toMatchObject({ kind: "unknown", reason: { variable: "MISSING" } });
-    expect(redirect.target).toEqual({ kind: "known", value: "prefix" });
+    expect(redirect.target).toMatchObject({ kind: "unknown", reason: { variable: "F" } });
     expect(normalized.redirects).toEqual([redirect]);
     expect([...normalized.assignmentPatch.writes]).toEqual(["F"]);
   });
@@ -266,7 +269,10 @@ describe("static Bash word expansion", () => {
       }
 
       const normalized = normalizeCommand(command(`${assignments.join(" ")} echo ${observed.map((name) => `$${name}`).join(" ")}`), fromInitialEnvironment());
-      expect(normalized.argv).toEqual(observed.map((name) => ({ kind: "known", value: expected.get(name)! })));
+      expect(normalized.argv).toHaveLength(observed.length);
+      expect(normalized.argv.every((word) => word.kind === "unknown")).toBeTrue();
+      expect(observed.map((name) => lookupBinding(normalized.environment, name).value))
+        .toEqual(observed.map((name) => known(expected.get(name)!)));
     }
   });
 
@@ -287,7 +293,9 @@ describe("static Bash word expansion", () => {
         reason: { kind: "unknown-variable", variable: second },
       });
       expect(normalized.argv[0]).not.toHaveProperty("value");
-      expect(normalized.argv[1]).toEqual({ kind: "known", value: restored });
+      expect(normalized.argv[1]).toMatchObject({ kind: "unknown", reason: { variable: first } });
+      expect(lookupBinding(normalized.environment, first).value).toEqual(known(restored));
+      expect(lookupBinding(normalized.environment, second).value).toMatchObject({ kind: "unknown" });
     }
   });
 });

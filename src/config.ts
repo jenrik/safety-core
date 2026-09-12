@@ -6,6 +6,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { DEFAULT_BASH_ANALYSIS_LIMITS, type BashAnalysisLimits } from "./bash/runner.js";
 
 export interface SafetyCoreProfileConfig {
   readOnlyBash?: boolean;
@@ -31,6 +32,15 @@ export interface SafetyCoreProfileConfig {
   uvReadOnly?: boolean;
   yarnReadOnly?: boolean;
   ghPrCreate?: GhPrCreateProfileConfig;
+  bashAnalysis?: BashAnalysisProfileConfig;
+}
+
+/** Runtime-configurable structural limits for the Bash authorization walker. */
+export interface BashAnalysisProfileConfig {
+  maxFunctionDepth?: number;
+  maxNestedScriptDepth?: number;
+  maxSteps?: number;
+  maxWorkItems?: number;
 }
 
 /** Runtime representation of the `gh pr create` permission profile. */
@@ -71,10 +81,30 @@ export function loadProfileConfig(path: string = defaultProfileConfigPath()): Sa
   }
 }
 
+/**
+ * Load only validated structural analysis limits. Invalid or absent values use
+ * the conservative, finite defaults rather than widening an analysis budget.
+ */
+export function loadBashAnalysisLimits(path?: string): BashAnalysisLimits {
+  const configured = loadProfileConfig(path).bashAnalysis;
+  return Object.freeze({
+    maxFunctionDepth: positiveSafeInteger(configured?.maxFunctionDepth, DEFAULT_BASH_ANALYSIS_LIMITS.maxFunctionDepth),
+    maxNestedScriptDepth: positiveSafeInteger(configured?.maxNestedScriptDepth, DEFAULT_BASH_ANALYSIS_LIMITS.maxNestedScriptDepth),
+    maxSteps: positiveSafeInteger(configured?.maxSteps, DEFAULT_BASH_ANALYSIS_LIMITS.maxSteps),
+    maxWorkItems: positiveSafeInteger(configured?.maxWorkItems, DEFAULT_BASH_ANALYSIS_LIMITS.maxWorkItems),
+  });
+}
+
 /** True iff the named profile is enabled in the profile config. */
 export function isProfileEnabled(
   name: keyof SafetyCoreProfileConfig,
   path?: string,
 ): boolean {
   return loadProfileConfig(path)[name] === true;
+}
+
+function positiveSafeInteger(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    ? value
+    : fallback;
 }

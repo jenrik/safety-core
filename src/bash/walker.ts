@@ -12,6 +12,7 @@ import {
   pushFunctionFrame,
   pushSubshellFrame,
   returnFromFunctionFrame,
+  setExported,
   taintFrame,
   unknown,
   type Environment,
@@ -479,6 +480,7 @@ function scheduleFunctionCall(
     let frame = pushFunctionFrame(input.environment);
     for (const name of normalized.assignmentPatch.writes) {
       frame = assignLocalBinding(frame, name, lookupBinding(normalized.environment, name).value);
+      frame = setExported(frame, name, lookupBinding(normalized.environment, name).exported);
     }
     normalized.argv.forEach((argument, argumentIndex) => {
       frame = assignLocalBinding(frame, String(argumentIndex + 1), argument.kind === "known"

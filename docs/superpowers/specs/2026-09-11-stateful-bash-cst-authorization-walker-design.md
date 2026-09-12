@@ -74,7 +74,8 @@ For each Bash `command` CST node the walker:
 1. creates a command-local environment overlay;
 2. consumes assignment prefixes in source order, expanding each against the
    state accumulated so far;
-3. expands the executable and arguments with that overlay;
+3. expands the executable, arguments, and redirects against the caller
+   environment before prefix assignments take effect;
 4. sends the normalized invocation to `dispatchCommand`; and
 5. discards the overlay after an external command, unless Bash lifetime rules
    make the assignment persistent.
@@ -85,9 +86,13 @@ For example, the temporary assignment overlay in:
 F="BAR" D="GAR" echo "$D" "$F"
 ```
 
-causes the `echo` handler to receive `argv: ["GAR", "BAR"]` and an effective
-child environment containing `F=BAR` and `D=GAR`; it does not modify the parent
-shell frame.
+causes the `echo` handler to receive `argv: ["", ""]` when `F` and `D` are
+unset in the caller environment, and an effective child environment containing
+`F=BAR` and `D=GAR`; it does not modify the parent shell frame. Prefix
+assignments expand left-to-right for their own values and construct the child
+environment, but they are not visible to expansion of words in that same
+command. In the supported default shell mode, direct expansion of an unset
+binding yields a known empty string; an `Unknown` binding remains unknown.
 
 The generic dispatcher resolves exactly one named command handler. The fallback
 is itself an `unknown-command` handler; no implicit generic-command equivalence

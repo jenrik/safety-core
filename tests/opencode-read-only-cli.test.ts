@@ -76,4 +76,11 @@ describe("OpenCode read-only CLI profiles", () => {
     expect(await permissionStatus("gh issue list")).toBe("ask");
     expect(await permissionStatus("helm list")).toBe("ask");
   });
+
+  test("does not auto-allow an unrelated base-handler read when only ghPrCreate is active", async () => {
+    writeFileSync(join(configHome, "safety-core", "profiles.json"), JSON.stringify({
+      ghPrCreate: { enabled: true, allowedRepositories: ["acme/widgets"], allowedOrganizations: [] },
+    }));
+    expect(await permissionStatus("cat README.md")).toBe("ask");
+  });
 });

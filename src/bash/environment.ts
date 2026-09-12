@@ -34,6 +34,8 @@ export interface Environment {
   readonly frame: Frame;
   readonly overlay?: Frame;
   readonly budgets: Budgets;
+  /** Whether names absent from a verified initial snapshot are known unset. */
+  readonly missingBindings: "unknown" | "unset";
 }
 
 export interface BranchCheckpoint {
@@ -65,7 +67,7 @@ const frameStates = new WeakMap<Frame, FrameState>();
 const DEFAULT_BUDGETS: Budgets = Object.freeze({
   functionDepth: 128,
   nestedScriptDepth: 64,
-  steps: 100_000,
+  steps: 25_000,
   workItems: 10_000,
 });
 const UNSET: BindingValue = Object.freeze({ kind: "unset" });
@@ -85,15 +87,34 @@ export function unset(): BindingValue {
 export function fromInitialEnvironment(
   initial: Readonly<Record<string, string | Binding | BindingValue>> = {},
   budgets: Partial<Budgets> = {},
+  missingBindings: Environment["missingBindings"] = "unknown",
 ): Environment {
   const bindings = new Map<string, Binding>();
   for (const [name, value] of Object.entries(initial)) bindings.set(name, normalizeBinding(value));
-  return createEnvironment(createFrame(undefined, undefined, bindings), undefined, { ...DEFAULT_BUDGETS, ...budgets });
+  return createEnvironment(createFrame(undefined, undefined, bindings), undefined, { ...DEFAULT_BUDGETS, ...budgets }, missingBindings);
+}
+
+/** A complete, harness-verified process environment where absent names are unset. */
+export function fromVerifiedInitialEnvironment(
+  initial: Readonly<Record<string, string | Binding | BindingValue>> = {},
+  budgets: Partial<Budgets> = {},
+): Environment {
+  const exported = Object.fromEntries(Object.entries(initial).map(([name, value]) => [name, {
+    value: typeof value === "string" ? known(value) : "value" in value ? value.value : value,
+    exported: true,
+    readonly: false,
+  }])) as Readonly<Record<string, Binding>>;
+  return fromInitialEnvironment(exported, budgets, "unset");
 }
 
 export function lookupBinding(environment: Environment, name: string): Binding {
   return lookupInFrame(environment.overlay ?? environment.frame, name)
     ?? createBinding(unset(), false, false);
+}
+
+/** Distinguishes an explicit `unset` from a name missing in an unavailable environment. */
+export function hasBinding(environment: Environment, name: string): boolean {
+  return lookupInFrame(environment.overlay ?? environment.frame, name) !== undefined;
 }
 
 export function assignBinding(environment: Environment, name: string, value: BindingValue): Environment {
@@ -143,6 +164,7 @@ export function pushFunctionFrame(environment: Environment): Environment {
     createFrame(environment.overlay ?? environment.frame, undefined, new Map(), undefined, new ImmutableSet(), undefined, "function"),
     undefined,
     environment.budgets,
+    environment.missingBindings,
   );
 }
 
@@ -151,6 +173,7 @@ export function pushSubshellFrame(environment: Environment): Environment {
     createFrame(environment.overlay ?? environment.frame, undefined, new Map(), undefined, new ImmutableSet(), undefined, "subshell"),
     undefined,
     environment.budgets,
+    environment.missingBindings,
   );
 }
 
@@ -160,7 +183,7 @@ export function returnFromFunctionFrame(environment: Environment): Environment {
   const state = stateFor(frame);
   if (state.kind !== "function") return environment;
   if (!state.parent) throw new Error("Function frame has no caller frame");
-  return createEnvironment(state.parent, undefined, environment.budgets);
+  return createEnvironment(state.parent, undefined, environment.budgets, environment.missingBindings);
 }
 
 export function beginCommandOverlay(environment: Environment): Environment {
@@ -169,11 +192,12 @@ export function beginCommandOverlay(environment: Environment): Environment {
     environment.frame,
     createFrame(environment.frame, undefined, new Map(), undefined, new ImmutableSet(), undefined, "overlay"),
     environment.budgets,
+    environment.missingBindings,
   );
 }
 
 export function endCommandOverlay(environment: Environment): Environment {
-  return environment.overlay ? createEnvironment(environment.frame, undefined, environment.budgets) : environment;
+  return environment.overlay ? createEnvironment(environment.frame, undefined, environment.budgets, environment.missingBindings) : environment;
 }
 
 export function forkCheckpoint(base: Environment): BranchCheckpoint {
@@ -224,12 +248,17 @@ export function taintFrame(environment: Environment, reason: UnknownReason = { k
     state.localNames,
   );
   return environment.overlay
-    ? createEnvironment(environment.frame, tainted, environment.budgets)
-    : createEnvironment(tainted, undefined, environment.budgets);
+    ? createEnvironment(environment.frame, tainted, environment.budgets, environment.missingBindings)
+    : createEnvironment(tainted, undefined, environment.budgets, environment.missingBindings);
 }
 
-function createEnvironment(frame: Frame, overlay: Frame | undefined, budgets: Budgets): Environment {
-  return Object.freeze({ frame, ...(overlay ? { overlay } : {}), budgets: Object.freeze({ ...budgets }) });
+function createEnvironment(
+  frame: Frame,
+  overlay: Frame | undefined,
+  budgets: Budgets,
+  missingBindings: Environment["missingBindings"],
+): Environment {
+  return Object.freeze({ frame, ...(overlay ? { overlay } : {}), budgets: Object.freeze({ ...budgets }), missingBindings });
 }
 
 function writeBinding(environment: Environment, name: string, binding: Binding): Environment {
@@ -257,8 +286,8 @@ function writeFrame(frame: Frame, name: string, binding: Binding, markLocal = fa
 
 function replaceActiveFrame(environment: Environment, frame: Frame): Environment {
   return environment.overlay
-    ? createEnvironment(environment.frame, frame, environment.budgets)
-    : createEnvironment(frame, undefined, environment.budgets);
+    ? createEnvironment(environment.frame, frame, environment.budgets, environment.missingBindings)
+    : createEnvironment(frame, undefined, environment.budgets, environment.missingBindings);
 }
 
 function findNearestBindingScope(frame: Frame, name: string): Frame | undefined {

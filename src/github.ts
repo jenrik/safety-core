@@ -3,7 +3,7 @@
 
 import { BLOCKED_GITHUB_DOMAINS } from "./patterns.js";
 import { GITHUB_GENERIC_HINT } from "./messages.js";
-import { analyzeBashAuthorization } from "./authorization.js";
+import { analyzeBashAuthorization, type BashAuthorizationContext } from "./authorization.js";
 
 const RAW_URL_RE =
   /https?:\/\/raw\.githubusercontent\.com\/([^/\s"']+)\/([^/\s"']+)\/([^/\s"']+)\/([^\s"'#?]+)/;
@@ -104,8 +104,8 @@ export function checkWebfetchUrl(url: string): string | null {
  * GitHub URL, else null. The stateful authorization walker resolves only
  * statically knowable invocation arguments; unavailable parsing stays neutral.
  */
-export function checkBashForGithub(command: string): string | null {
-  const policy = analyzeBashAuthorization({ source: command }).policies
+export function checkBashForGithub(command: string, context: BashAuthorizationContext = {}): string | null {
+  const policy = analyzeBashAuthorization({ source: command, ...context }).policies
     .find((evidence) => evidence.name === "github-http" && evidence.decision === "deny");
   return policy?.reason ?? null;
 }

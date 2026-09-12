@@ -1,6 +1,6 @@
 // kubectl-specific policy compatibility adapters backed by the Bash walker.
 
-import { analyzeBashAuthorization } from "./authorization.js";
+import { analyzeBashAuthorization, type BashAuthorizationContext } from "./authorization.js";
 import {
   isProtectedKubectlResource,
   kubectlResourceOperandsRequireReview,
@@ -14,8 +14,8 @@ export type KubectlDecision =
   | { kind: "ignore" };
 
 /** Analyze the first walker-observed kubectl policy decision for compatibility. */
-export function analyzeKubectl(command: string): KubectlDecision {
-  const policy = analyzeBashAuthorization({ source: command }).policies
+export function analyzeKubectl(command: string, context: BashAuthorizationContext = {}): KubectlDecision {
+  const policy = analyzeBashAuthorization({ source: command, ...context }).policies
     .find((evidence) => evidence.name === "kubectl");
   if (policy?.name !== "kubectl") return { kind: "ignore" };
   switch (policy.decision) {
@@ -26,8 +26,8 @@ export function analyzeKubectl(command: string): KubectlDecision {
 }
 
 /** Hard-block adapter for kubectl operations that can expose Secret values. */
-export function checkBashForKubectlSecret(command: string): string | null {
-  const policy = analyzeBashAuthorization({ source: command }).policies
+export function checkBashForKubectlSecret(command: string, context: BashAuthorizationContext = {}): string | null {
+  const policy = analyzeBashAuthorization({ source: command, ...context }).policies
     .find((evidence) => evidence.name === "kubectl" && (evidence.decision === "deny" || evidence.kubectl?.secretReview));
   if (!policy) return null;
   if (policy.decision === "deny") return policy.reason ?? null;
@@ -44,8 +44,8 @@ export interface KubectlAuditRecord {
 }
 
 /** Return a redacted audit summary for a kubectl command that mentions Secrets. */
-export function summariseKubectlSecret(command: string): KubectlAuditRecord | null {
-  const policy = analyzeBashAuthorization({ source: command }).policies
+export function summariseKubectlSecret(command: string, context: BashAuthorizationContext = {}): KubectlAuditRecord | null {
+  const policy = analyzeBashAuthorization({ source: command, ...context }).policies
     .find((evidence) => evidence.name === "kubectl" && evidence.kubectl?.mentionsSecret);
   if (!policy?.kubectl) return null;
   return {

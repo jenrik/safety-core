@@ -2,8 +2,10 @@ import type { BashCommand, BashRedirectKind, BashWord, SourceSpan } from "./cst.
 import {
   assignBinding,
   beginCommandOverlay,
+  hasBinding,
   known,
   lookupBinding,
+  setExported,
   unknown,
   type Environment,
   type EnvironmentPatch,
@@ -88,7 +90,7 @@ function expandWordInContext(word: BashWord, environment: Environment, context: 
 
 /**
  * Apply assignments left-to-right before resolving a command. Prefix writes
- * receive an overlay; assignment-only commands return a persistent patch.
+ * receive an overlay, while same-command words expand against the caller.
  */
 export function normalizeCommand(command: BashCommand, environment: Environment): NormalizedCommand {
   const hasInvocation = command.words.length > 0;
@@ -102,16 +104,17 @@ export function normalizeCommand(command: BashCommand, environment: Environment)
       ? expandWordInContext(assignment.value, assignmentEnvironment, "assignment")
       : resolvedKnown("");
     assignmentEnvironment = assignBinding(assignmentEnvironment, assignment.name, bindingValue(resolved));
+    if (hasInvocation) assignmentEnvironment = setExported(assignmentEnvironment, assignment.name, true);
     writes.push(assignment.name);
   }
 
   const effectiveEnvironment = hasInvocation ? assignmentEnvironment : environment;
   const [executableWord, ...argumentWords] = command.words;
-  const executable = executableWord ? expandWordInContext(executableWord, effectiveEnvironment, "executable") : null;
-  const argv = argumentWords.map((word) => expandWordInContext(word, effectiveEnvironment, "argument"));
+  const executable = executableWord ? expandWordInContext(executableWord, environment, "executable") : null;
+  const argv = argumentWords.map((word) => expandWordInContext(word, environment, "argument"));
   const redirects = command.redirects.map((redirect) => freeze({
     kind: redirect.kind,
-    target: redirect.target ? expandWordInContext(redirect.target, effectiveEnvironment, "redirect") : null,
+    target: redirect.target ? expandWordInContext(redirect.target, environment, "redirect") : null,
   }));
   const patchEnvironment = assignmentEnvironment;
 
@@ -230,6 +233,12 @@ function resolveVariable(
   quoted: boolean,
 ): { readonly kind: "known"; readonly value: ResolvedKnownWord; readonly next: number } | ResolvedUnknownWord {
   const binding = lookupBinding(environment, variable).value;
+  if (binding.kind === "unset") {
+    if (environment.missingBindings === "unset" || hasBinding(environment, variable)) {
+      return { kind: "known", value: resolvedKnown(""), next };
+    }
+    return unresolved("unknown-variable", span, variable);
+  }
   if (binding.kind !== "known") return unresolved("unknown-variable", span, variable);
   if (!quoted && context !== "assignment" && changesUnquotedWordShape(binding.value, environment)) {
     return unresolved("unquoted-expansion", span, variable);
