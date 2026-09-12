@@ -1,4 +1,4 @@
-import type { NormalizedCommand } from "../expand.js";
+import { isBindingResolvedWord, type NormalizedCommand } from "../expand.js";
 import { BLOCKED_GITHUB_DOMAINS } from "../../patterns.js";
 import { GITHUB_GENERIC_HINT } from "../../messages.js";
 import { buildGithubSuggestion } from "../../github.js";
@@ -11,7 +11,9 @@ export function analyzeGithubHttpInvocation(invocation: NormalizedCommand): Gith
   for (const argument of invocation.argv) {
     if (argument.kind !== "known") continue;
     const domain = detectBlockedGithubDomain(argument.value);
-    if (domain) return deny(buildGithubSuggestion(argument.value));
+    if (domain) return deny(isBindingResolvedWord(argument)
+      ? "Blocked: direct GitHub HTTP request detected. Use the native gh command where possible."
+      : buildGithubSuggestion(argument.value));
   }
   return Object.freeze({ kind: "allow", evidence: Object.freeze({ name: "github-http", decision: "allow" }) });
 }

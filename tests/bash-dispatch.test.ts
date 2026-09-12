@@ -108,6 +108,14 @@ describe("named Bash command dispatch", () => {
     ]]);
   });
 
+  test("clears omitted positional parameters for sh -c beneath a function call", () => {
+    const invocations: InvocationCursor[] = [];
+    const result = analyze("outer(){ sh -c 'run \"$1\" \"$2\"'; }; outer caller-one caller-two", [recordingHandler("run", invocations)]);
+
+    expect(result.completed.verdict).toEqual({ kind: "allow" });
+    expect(invocations.map(renderInvocation)).toEqual([["run", "", ""]]);
+  });
+
   test.each([
     "sh -xc denied-command",
     "sh -o xtrace -c denied-command",

@@ -18,6 +18,8 @@ export interface InvocationCursor {
 /** The handler boundary exposes only static continuation scheduling, never process execution. */
 export interface DispatchContext {
   readonly continueWith: BashDispatchRequest["continueWith"];
+  /** Effective child environment after command-prefix assignments. */
+  readonly environment: BashDispatchRequest["command"]["environment"];
   readonly span: SourceSpan;
   readonly inPipeline: boolean;
 }
@@ -77,6 +79,7 @@ export function dispatchCommand(
   });
   const context: DispatchContext = freeze({
     continueWith: request.continueWith,
+    environment: request.command.environment,
     span: request.span,
     inPipeline: request.inPipeline,
   });

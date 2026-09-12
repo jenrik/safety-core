@@ -54,10 +54,14 @@ export interface BashDispatchContinuation {
   readonly isolate: boolean;
   /** Explicit caller-state replacement is conservatively unsupported. */
   readonly environmentExplicit: boolean;
+  /** Literal code reparsed from a binding must retain redaction provenance. */
+  readonly sourceDerivedFromBinding?: boolean;
 }
 
 export interface BashDispatchContinuationOptions {
   readonly isolate?: boolean;
+  /** The continuation source was materialized from at least one binding. */
+  readonly sourceDerivedFromBinding?: boolean;
 }
 
 export type BashDispatchResult = Outcome | {
@@ -68,11 +72,14 @@ export type BashDispatchResult = Outcome | {
 interface Path {
   readonly environment: Environment;
   readonly functions: ReadonlyMap<string, readonly BashFunction[]>;
+  /** Function names whose call can still resolve to an external command on another path. */
+  readonly missingFunctions: ReadonlySet<string>;
   readonly outcomes: readonly Outcome[];
   readonly writes: ReadonlySet<string>;
   readonly functionDepth: number;
   readonly nestedScriptDepth: number;
   readonly returned: boolean;
+  readonly sourceDerivedFromBinding: boolean;
 }
 
 interface Work {
@@ -89,7 +96,7 @@ interface Work {
  * injected, so this layer only models Bash statement and binding semantics.
  */
 export function walkProgram(program: BashProgram, context: BashWalkContext): Step {
-  const initial = path(context.environment, new Map(), [], new Set(), 0, 0, false);
+  const initial = path(context.environment, new Map(), new Set(), [], new Set(), 0, 0, false, false);
   const target: DispatchTarget = {
     span: programSpan(program),
     functionDepth: 0,
@@ -279,7 +286,7 @@ function executeCommand(
       return;
     }
   }
-  const normalized = normalizeCommand(command, input.environment);
+  const normalized = normalizeCommand(command, input.environment, input.sourceDerivedFromBinding);
   const redirect = analyzeSecretRedirectInvocation(normalized);
   if (redirect.kind === "deny") {
     completeWithDeny(addOutcome(input, policyDeny(command.span, redirect.evidence)));
@@ -314,7 +321,7 @@ function executeCommand(
 
   const definitions = input.functions.get(normalized.executable.value);
   if (definitions && definitions.length > 0) {
-    scheduleFunctionCall(definitions, command, normalized, input, complete, schedule);
+    scheduleFunctionCall(definitions, command, normalized, input, complete, schedule, input.missingFunctions.has(normalized.executable.value));
     return;
   }
 
@@ -379,6 +386,7 @@ function dispatchNormalized(
         nestedScriptDepth: input.nestedScriptDepth + 1,
         isolate: options.isolate ?? true,
         environmentExplicit: environment !== undefined,
+        sourceDerivedFromBinding: input.sourceDerivedFromBinding || options.sourceDerivedFromBinding === true,
       })]),
     }),
   });
@@ -422,7 +430,10 @@ function dispatchNormalized(
       continue;
     }
     const childEnvironment = continuation.isolate ? pushSubshellFrame(continuation.environment) : continuation.environment;
-    const child = resetWrites(withEnvironment(next, childEnvironment, false, continuation.nestedScriptDepth));
+    const child = withSourceBindingProvenance(
+      resetWrites(withEnvironment(next, childEnvironment, false, continuation.nestedScriptDepth)),
+      continuation.sourceDerivedFromBinding === true,
+    );
     scheduleNested(parsed.statements, child, (finished) => {
       completed.push({ path: finished, isolate: continuation.isolate });
       remaining--;
@@ -474,7 +485,14 @@ function scheduleFunctionCall(
   input: Path,
   complete: (path: Path) => void,
   schedule: (work: Work) => void,
+  mayResolveExternally: boolean,
 ): void {
+  if (mayResolveExternally) {
+    complete(addOutcome(
+      withEnvironment(input, taintFrame(input.environment, { kind: "branch-function-absence", span: command.span })),
+      indeterminate(command.span),
+    ));
+  }
   for (let index = definitions.length - 1; index >= 0; index--) {
     const definition = definitions[index]!;
     let frame = pushFunctionFrame(input.environment);
@@ -583,7 +601,8 @@ function scheduleIf(
         if (finished.length !== branches.length) return;
         const merged = mergeCheckpoint(checkpoint, finished.map((item) => ({ environment: item.environment, writes: item.writes } satisfies EnvironmentPatch)));
         const joined = withEnvironment(condition, merged, finished.every((item) => item.returned), condition.nestedScriptDepth, finished.flatMap((item) => item.outcomes));
-        complete(withFunctions(joined, mergeFunctions(finished)));
+        const functions = mergeFunctions(finished);
+        complete(withFunctions(joined, functions.functions, functions.missing));
       }, schedule);
     }
   }, schedule);
@@ -619,20 +638,24 @@ function scheduleList(
 function path(
   environment: Environment,
   functions: ReadonlyMap<string, readonly BashFunction[]>,
+  missingFunctions: ReadonlySet<string>,
   outcomes: readonly Outcome[],
   writes: ReadonlySet<string>,
   functionDepth: number,
   nestedScriptDepth: number,
   returned: boolean,
+  sourceDerivedFromBinding: boolean,
 ): Path {
   return freeze({
     environment,
     functions: new Map(functions),
+    missingFunctions: new Set(missingFunctions),
     outcomes: Object.freeze([...outcomes]),
     writes: new Set(writes),
     functionDepth,
     nestedScriptDepth,
     returned,
+    sourceDerivedFromBinding,
   });
 }
 
@@ -645,22 +668,37 @@ function withEnvironment(
   writes: ReadonlySet<string> = input.writes,
   functionDepth = input.functionDepth,
 ): Path {
-  return path(environment, input.functions, outcomes, writes, functionDepth, nestedScriptDepth, returned);
+  return path(
+    environment,
+    input.functions,
+    input.missingFunctions,
+    outcomes,
+    writes,
+    functionDepth,
+    nestedScriptDepth,
+    returned,
+    input.sourceDerivedFromBinding,
+  );
 }
 
 function withFunction(input: Path, definition: BashFunction): Path {
   const functions = new Map(input.functions);
+  const missingFunctions = new Set(input.missingFunctions);
   functions.set(definition.name, Object.freeze([definition]));
-  return path(input.environment, functions, input.outcomes, input.writes, input.functionDepth, input.nestedScriptDepth, input.returned);
+  missingFunctions.delete(definition.name);
+  return path(input.environment, functions, missingFunctions, input.outcomes, input.writes, input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding);
 }
 
-function withFunctions(input: Path, functions: ReadonlyMap<string, readonly BashFunction[]>): Path {
-  return path(input.environment, functions, input.outcomes, input.writes, input.functionDepth, input.nestedScriptDepth, input.returned);
+function withFunctions(input: Path, functions: ReadonlyMap<string, readonly BashFunction[]>, missingFunctions: ReadonlySet<string>): Path {
+  return path(input.environment, functions, missingFunctions, input.outcomes, input.writes, input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding);
 }
 
 /** Preserves every branch-reachable definition so a later call walks them all. */
-function mergeFunctions(branches: readonly Path[]): ReadonlyMap<string, readonly BashFunction[]> {
+function mergeFunctions(branches: readonly Path[]): { readonly functions: ReadonlyMap<string, readonly BashFunction[]>; readonly missing: ReadonlySet<string> } {
   const merged = new Map<string, BashFunction[]>();
+  const missing = new Set<string>();
+  const names = new Set<string>();
+  for (const branch of branches) for (const name of branch.functions.keys()) names.add(name);
   for (const branch of branches) {
     for (const [name, definitions] of branch.functions) {
       const candidates = merged.get(name) ?? [];
@@ -668,11 +706,14 @@ function mergeFunctions(branches: readonly Path[]): ReadonlyMap<string, readonly
       merged.set(name, candidates);
     }
   }
-  return merged;
+  for (const name of names) {
+    if (branches.some((branch) => !branch.functions.has(name) || branch.missingFunctions.has(name))) missing.add(name);
+  }
+  return freeze({ functions: merged, missing });
 }
 
 function resetWrites(input: Path): Path {
-  return path(input.environment, input.functions, input.outcomes, new Set(), input.functionDepth, input.nestedScriptDepth, input.returned);
+  return path(input.environment, input.functions, input.missingFunctions, input.outcomes, new Set(), input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding);
 }
 
 function appendWrites(existing: ReadonlySet<string>, next: ReadonlySet<string> | readonly string[]): ReadonlySet<string> {
@@ -680,7 +721,21 @@ function appendWrites(existing: ReadonlySet<string>, next: ReadonlySet<string> |
 }
 
 function addOutcome(input: Path, outcome: Outcome): Path {
-  return path(input.environment, input.functions, [...input.outcomes, outcome], input.writes, input.functionDepth, input.nestedScriptDepth, input.returned);
+  return path(input.environment, input.functions, input.missingFunctions, [...input.outcomes, outcome], input.writes, input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding);
+}
+
+function withSourceBindingProvenance(input: Path, sourceDerivedFromBinding: boolean): Path {
+  return path(
+    input.environment,
+    input.functions,
+    input.missingFunctions,
+    input.outcomes,
+    input.writes,
+    input.functionDepth,
+    input.nestedScriptDepth,
+    input.returned,
+    sourceDerivedFromBinding,
+  );
 }
 
 function programSpan(program: BashProgram): SourceSpan {

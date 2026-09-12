@@ -9,9 +9,10 @@ import * as config from "../src/config.ts";
 const defaults = {
   maxFunctionDepth: 128,
   maxNestedScriptDepth: 64,
-  maxSteps: 25_000,
+  maxSteps: 7_500,
   maxWorkItems: 10_000,
 };
+const nixEvaluationTest = process.env.SAFETY_CORE_PACKAGED_TESTS === "1" ? test.skip : test;
 
 function writeProfile(profile: unknown): string {
   const directory = mkdtempSync(join(tmpdir(), "safety-core-bash-config-"));
@@ -58,7 +59,7 @@ test("bash analysis configuration falls back to every safe default when absent o
   expect(loadBashAnalysisLimits!(writeProfile({}))).toEqual(defaults);
 });
 
-test("Nix renders all configured Bash analysis limits into the shared profile", () => {
+nixEvaluationTest("Nix renders all configured Bash analysis limits into the shared profile", () => {
   const root = process.cwd();
   const profile = JSON.parse(execFileSync("nix", [
     "eval", "--impure", "--json", "--expr", `
@@ -98,7 +99,7 @@ test("Nix renders all configured Bash analysis limits into the shared profile", 
   });
 });
 
-test("Nix rejects every value outside the JavaScript positive-safe-integer domain", () => {
+nixEvaluationTest("Nix rejects every value outside the JavaScript positive-safe-integer domain", () => {
   const root = process.cwd();
   for (const field of ["maxFunctionDepth", "maxNestedScriptDepth", "maxSteps", "maxWorkItems"]) {
     for (const value of [0, -1, Number.MAX_SAFE_INTEGER + 1]) {

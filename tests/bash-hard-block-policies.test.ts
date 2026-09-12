@@ -36,6 +36,15 @@ describe("walker-backed hard-block compatibility policies", () => {
     expect(parseBashForSecretRead("cat README.md; env -i cat credentials.json")).toContain("cat");
   });
 
+  test("applies env environment operands to its child command", () => {
+    const blocked = "https://api.github.com/repos/example/project/issues";
+
+    expect(analyzeBashAuthorization({ source: "env -i -- sh -c 'curl \"$URL\"'", initialEnvironment: { kind: "verified", values: { URL: blocked } } }).verdict)
+      .toEqual({ kind: "allow" });
+    expect(analyzeBashAuthorization({ source: `env -u URL URL=${blocked} sh -c 'curl \"$URL\"'` }).verdict)
+      .toMatchObject({ kind: "deny" });
+  });
+
   test("denies path-qualified reader commands", () => {
     expect(parseBashForSecretRead("/bin/cat credentials.json")).toContain("cat");
   });
@@ -63,6 +72,55 @@ describe("walker-backed hard-block compatibility policies", () => {
     expect(checkBashForGithub("curl https://api.github.com/repos/o/r/issues")).toContain("Use the native gh command");
     expect(checkBashForGithub("curl https://example.test; strace curl https://api.github.com/repos/o/r/issues"))
       .toContain("Use the native gh command");
+  });
+
+  test("recognizes ANSI-C executable quoting and shell long options before --command", () => {
+    expect(checkBashForGithub("$'cu'rl https://api.github.com/repos/o/r/issues")).toContain("Use the native gh command");
+    expect(checkBashForGithub("bash --noprofile --command 'curl https://api.github.com/repos/o/r/issues'"))
+      .toContain("Use the native gh command");
+    expect(checkBashForGithub("bash -c 'curl \"$2\"' shell-name ignored https://api.github.com/repos/o/r/issues"))
+      .toContain("Use the native gh command");
+  });
+
+  test("does not expose a resolved URL or query in GitHub policy evidence", () => {
+    const resolved = "https://api.github.com/repos/o/r/issues?opaque-query-marker";
+    const analysis = analyzeBashAuthorization({ source: "curl \"$URL\"", initialEnvironment: { kind: "verified", values: { URL: resolved } } });
+    const reason = analysis.policies.find((policy) => policy.name === "github-http")?.reason ?? "";
+
+    expect(analysis.policies.length).toBe(1);
+    expect(reason).not.toContain(resolved);
+    expect(JSON.stringify(analysis)).not.toContain(resolved);
+  });
+
+  test("does not expose binding-derived GitHub query data after a transparent wrapper", () => {
+    const resolved = "https://api.github.com/repos/o/r/issues?opaque-query-marker";
+    const analysis = analyzeBashAuthorization({
+      source: "strace -f curl \"$URL\"",
+      initialEnvironment: { kind: "verified", values: { URL: resolved } },
+    });
+    const reason = analysis.policies.find((policy) => policy.name === "github-http")?.reason ?? "";
+
+    expect(analysis.policies.length).toBe(1);
+    expect(reason).not.toContain(resolved);
+    expect(JSON.stringify(analysis)).not.toContain(resolved);
+  });
+
+  test("does not expose a binding-derived GitHub URL after literal eval reparsing", () => {
+    const resolved = "https://api.github.com/repos/o/r/issues";
+    const analysis = analyzeBashAuthorization({
+      source: "eval curl \"$URL\"",
+      initialEnvironment: { kind: "verified", values: { URL: resolved } },
+    });
+    const reason = analysis.policies.find((policy) => policy.name === "github-http")?.reason ?? "";
+
+    expect(analysis.policies.length).toBe(1);
+    expect(reason).not.toContain(resolved);
+    expect(JSON.stringify(analysis)).not.toContain(resolved);
+  });
+
+  test("recurses into known literal eval payloads while keeping unknown eval payloads neutral", () => {
+    expect(parseBashForSecretRead("eval 'cat credentials.json'")).toContain("cat");
+    expect(analyzeBashAuthorization({ source: "eval \"$UNKNOWN\"" }).verdict).toEqual({ kind: "neutral" });
   });
 
   test("preserves URL-specific steering for path-qualified HTTP commands", () => {

@@ -44,6 +44,19 @@ describe("stateful Bash statement walker", () => {
     expect(argvs(result.invocations)).toEqual([["inner"], ["outer"]]);
   });
 
+  test("expands known positional arguments in function bodies", () => {
+    const functionCall = analyze("f(){ run \"$1\" \"$2\"; }; f function-one function-two");
+
+    expect(argvs(functionCall.invocations)).toEqual([["function-one", "function-two"]]);
+  });
+
+  test("clears omitted positional parameters in nested function calls", () => {
+    const result = analyze("outer(){ inner(){ run \"$1\" \"$2\"; }; inner; }; outer caller-one caller-two");
+
+    expect(argvs(result.invocations)).toEqual([["", ""]]);
+  });
+
+
   test("propagates non-local function writes and stops only the function body on return", () => {
     const result = analyze("X=before; f(){ X=after; return; echo never; }; f; echo \"$X\"");
 
@@ -105,6 +118,12 @@ describe("stateful Bash statement walker", () => {
     const result = analyze("if condition; then f(){ echo then; }; else f(){ echo else; }; fi; f");
 
     expect(argvs(result.invocations)).toEqual(expect.arrayContaining([["then"], ["else"]]));
+  });
+
+  test("keeps an unknown external-function possibility when a branch only conditionally defines it", () => {
+    const result = analyze("if condition; then f(){ :; }; fi; f");
+
+    expect(result.completed.verdict).toEqual({ kind: "neutral" });
   });
 
   test("taints unsupported arbitrary mutation while still walking nested statements and following commands", () => {
@@ -421,6 +440,18 @@ describe("stateful Bash statement walker", () => {
         reason: "analysis-failure",
         budget: "max-function-depth",
       });
+    }
+  });
+
+  test("property: nested calls never inherit omitted positional parameters", () => {
+    const random = lcg(0x5511aa77);
+
+    for (let iteration = 0; iteration < 64; iteration++) {
+      const first = `caller-one-${random()}`;
+      const second = `caller-two-${random()}`;
+      const source = `outer(){ inner(){ run \"$1\" \"$2\"; }; inner; }; outer ${first} ${second}`;
+
+      expect(argvs(analyze(source).invocations)).toEqual([["", ""]]);
     }
   });
 });

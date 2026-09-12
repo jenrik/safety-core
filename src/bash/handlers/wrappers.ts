@@ -1,5 +1,6 @@
 import type { CommandHandler, DispatchContext, InvocationCursor } from "../dispatch.js";
-import type { ResolvedWord } from "../expand.js";
+import { isBindingResolvedWord, type ResolvedWord } from "../expand.js";
+import { assignBinding, fromInitialEnvironment, known as knownBinding, setExported, unsetBinding } from "../environment.js";
 import { indeterminate, safe, strongestOutcome, type Outcome } from "../outcome.js";
 import type { BashDispatchContinuation, BashDispatchResult } from "../walker.js";
 
@@ -32,29 +33,44 @@ function handler(name: string, parse: WrapperParser): CommandHandler {
 
 function parseEnv(arguments_: readonly ResolvedWord[], context: DispatchContext): BashDispatchResult {
   let index = 0;
+  let environment = context.environment;
   while (index < arguments_.length) {
     const argument = known(arguments_[index]!, context);
     if (typeof argument !== "string") return argument;
-    if (argument === "--") return continueFrom(arguments_, index + 1, context);
+    if (argument === "--") return continueFrom(arguments_, index + 1, context, environment);
     if (argument === "-i" || argument === "--ignore-environment") {
+      environment = fromInitialEnvironment({}, environment.budgets, "unset");
       index++;
       continue;
     }
-    if (argument === "-u" || argument === "--unset" || argument === "-C" || argument === "--chdir") {
+    if (argument === "-u" || argument === "--unset") {
+      if (!isKnown(arguments_[index + 1])) return indeterminate(context.span);
+      environment = unsetBinding(environment, arguments_[index + 1]!.value);
+      index += 2;
+      continue;
+    }
+    if (argument === "-C" || argument === "--chdir") {
       if (!isKnown(arguments_[index + 1])) return indeterminate(context.span);
       index += 2;
       continue;
     }
-    if (argument.startsWith("--unset=") || argument.startsWith("--chdir=")) {
+    if (argument.startsWith("--unset=")) {
+      environment = unsetBinding(environment, argument.slice("--unset=".length));
       index++;
       continue;
     }
-    if (assignment(argument)) {
+    if (argument.startsWith("--chdir=")) {
+      index++;
+      continue;
+    }
+    const assigned = assignment(argument);
+    if (assigned) {
+      environment = setExported(assignBinding(environment, assigned.name, knownBinding(assigned.value)), assigned.name, true);
       index++;
       continue;
     }
     if (argument.startsWith("-")) return indeterminate(context.span);
-    return continueFrom(arguments_, index, context);
+    return continueFrom(arguments_, index, context, environment);
   }
   return indeterminate(context.span);
 }
@@ -254,10 +270,17 @@ function parseOptionChild(
   return indeterminate(context.span);
 }
 
-function continueFrom(arguments_: readonly ResolvedWord[], index: number, context: DispatchContext): BashDispatchResult {
+function continueFrom(
+  arguments_: readonly ResolvedWord[],
+  index: number,
+  context: DispatchContext,
+  environment?: DispatchContext["environment"],
+): BashDispatchResult {
   const child = arguments_.slice(index);
   if (child.length === 0 || child.some((argument) => argument.kind !== "known")) return indeterminate(context.span);
-  return context.continueWith(child.map((argument) => quote(argument.value)).join(" "));
+  return context.continueWith(child.map((argument) => quote(argument.value)).join(" "), environment, {
+    sourceDerivedFromBinding: child.some(isBindingResolvedWord),
+  });
 }
 
 function known(argument: ResolvedWord | undefined, context: DispatchContext): string | Outcome {
@@ -268,8 +291,9 @@ function isKnown(argument: ResolvedWord | undefined): argument is Extract<Resolv
   return argument?.kind === "known";
 }
 
-function assignment(value: string): boolean {
-  return /^[A-Za-z_][A-Za-z0-9_]*=/.test(value);
+function assignment(value: string): { readonly name: string; readonly value: string } | undefined {
+  const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s.exec(value);
+  return match ? { name: match[1]!, value: match[2]! } : undefined;
 }
 
 function quote(value: string): string {

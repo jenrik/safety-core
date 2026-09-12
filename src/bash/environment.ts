@@ -58,6 +58,8 @@ interface FrameState {
   readonly taintVersion?: TaintVersion;
   readonly writesSinceTaint: ReadonlySet<string>;
   readonly depth: number;
+  /** Positive positional parameters stop at this dynamic call boundary. */
+  readonly positionalParametersLocal: boolean;
 }
 
 interface TaintVersion {}
@@ -67,7 +69,7 @@ const frameStates = new WeakMap<Frame, FrameState>();
 const DEFAULT_BUDGETS: Budgets = Object.freeze({
   functionDepth: 128,
   nestedScriptDepth: 64,
-  steps: 25_000,
+  steps: 7_500,
   workItems: 10_000,
 });
 const UNSET: BindingValue = Object.freeze({ kind: "unset" });
@@ -114,7 +116,12 @@ export function lookupBinding(environment: Environment, name: string): Binding {
 
 /** Distinguishes an explicit `unset` from a name missing in an unavailable environment. */
 export function hasBinding(environment: Environment, name: string): boolean {
-  return lookupInFrame(environment.overlay ?? environment.frame, name) !== undefined;
+  const target = environment.overlay ?? environment.frame;
+  if (lookupInFrame(target, name) !== undefined) return true;
+  for (let current: Frame | undefined = target; current; current = stateFor(current).parent) {
+    if (stateFor(current).positionalParametersLocal && isPositivePositionalParameter(name)) return true;
+  }
+  return false;
 }
 
 export function assignBinding(environment: Environment, name: string, value: BindingValue): Environment {
@@ -145,23 +152,30 @@ export function assignNonLocalBinding(environment: Environment, name: string, va
 }
 
 export function unsetBinding(environment: Environment, name: string): Environment {
-  const previous = lookupBinding(environment, name);
-  return writeBinding(environment, name, createBinding(unset(), previous.exported, previous.readonly));
+  return writeVisibleBinding(environment, name, (previous) => createBinding(unset(), previous.exported, previous.readonly));
 }
 
 export function setExported(environment: Environment, name: string, exported: boolean): Environment {
-  const previous = lookupBinding(environment, name);
-  return writeBinding(environment, name, createBinding(previous.value, exported, previous.readonly));
+  return writeVisibleBinding(environment, name, (previous) => createBinding(previous.value, exported, previous.readonly));
 }
 
 export function setReadonly(environment: Environment, name: string, readonly: boolean): Environment {
-  const previous = lookupBinding(environment, name);
-  return writeBinding(environment, name, createBinding(previous.value, previous.exported, readonly));
+  return writeVisibleBinding(environment, name, (previous) => createBinding(previous.value, previous.exported, readonly));
 }
 
 export function pushFunctionFrame(environment: Environment): Environment {
   return createEnvironment(
-    createFrame(environment.overlay ?? environment.frame, undefined, new Map(), undefined, new ImmutableSet(), undefined, "function"),
+    createFrame(environment.overlay ?? environment.frame, undefined, new Map(), undefined, new ImmutableSet(), undefined, "function", new ImmutableSet(), true),
+    undefined,
+    environment.budgets,
+    environment.missingBindings,
+  );
+}
+
+/** Creates an interpreter-call boundary whose omitted `$N` values are unset. */
+export function pushPositionalFrame(environment: Environment): Environment {
+  return createEnvironment(
+    createFrame(environment.overlay ?? environment.frame, undefined, new Map(), undefined, new ImmutableSet(), undefined, "subshell", new ImmutableSet(), true),
     undefined,
     environment.budgets,
     environment.missingBindings,
@@ -246,6 +260,7 @@ export function taintFrame(environment: Environment, reason: UnknownReason = { k
     Object.freeze({}),
     state.kind,
     state.localNames,
+    state.positionalParametersLocal,
   );
   return environment.overlay
     ? createEnvironment(environment.frame, tainted, environment.budgets, environment.missingBindings)
@@ -266,6 +281,18 @@ function writeBinding(environment: Environment, name: string, binding: Binding):
   return replaceActiveFrame(environment, writeFrame(target, name, binding));
 }
 
+/** Builtin attributes and unset affect the nearest dynamically visible name. */
+function writeVisibleBinding(environment: Environment, name: string, update: (binding: Binding) => Binding): Environment {
+  const target = environment.overlay ?? environment.frame;
+  const destination = findNearestBindingScope(target, name) ?? outermostScope(target);
+  const previous = lookupOwnBinding(destination, name) ?? createBinding(unset(), false, false);
+  const updatedDestination = writeFrame(destination, name, update(previous));
+  const updatedTarget = destination === target
+    ? updatedDestination
+    : replaceAncestorFrame(target, destination, updatedDestination);
+  return replaceActiveFrame(environment, updatedTarget);
+}
+
 function writeFrame(frame: Frame, name: string, binding: Binding, markLocal = false): Frame {
   const state = stateFor(frame);
   const localNames = markLocal ? new ImmutableSet(state.localNames, name) : state.localNames;
@@ -281,6 +308,7 @@ function writeFrame(frame: Frame, name: string, binding: Binding, markLocal = fa
     state.taintVersion,
     state.kind,
     localNames,
+    state.positionalParametersLocal,
   ));
 }
 
@@ -321,6 +349,7 @@ function copyFrameWithParent(frame: Frame, parent: Frame): Frame {
     state.taintVersion,
     state.kind,
     state.localNames,
+    state.positionalParametersLocal,
   );
 }
 
@@ -332,7 +361,10 @@ function lookupInFrame(frame: Frame, name: string): Binding | undefined {
     }
     const binding = state.delta.get(name);
     if (binding) return binding;
-    if (!state.previous) return state.parent ? lookupInFrame(state.parent, name) : undefined;
+    if (!state.previous) {
+      if (state.positionalParametersLocal && isPositivePositionalParameter(name)) return undefined;
+      return state.parent ? lookupInFrame(state.parent, name) : undefined;
+    }
   }
   return undefined;
 }
@@ -354,6 +386,7 @@ function createFrame(
   taintVersion?: TaintVersion,
   kind: FrameKind = "shell",
   localNames: ReadonlySet<string> = new ImmutableSet<string>(),
+  positionalParametersLocal = false,
 ): Frame {
   const frame: Frame = Object.freeze(parent ? { parent } : {});
   const previousState = previous ? stateFor(previous) : undefined;
@@ -367,6 +400,7 @@ function createFrame(
     taintVersion,
     writesSinceTaint: new ImmutableSet(writesSinceTaint),
     depth: (previousState?.depth ?? 0) + 1,
+    positionalParametersLocal,
   });
   return frame;
 }
@@ -390,6 +424,7 @@ function maybeCompact(frame: Frame): Frame {
     state.taintVersion,
     state.kind,
     state.localNames,
+    state.positionalParametersLocal,
   );
 }
 
@@ -435,6 +470,10 @@ function bindingsEqual(left: Binding, right: Binding): boolean {
   return left.exported === right.exported
     && left.readonly === right.readonly
     && valuesEqual(left.value, right.value);
+}
+
+function isPositivePositionalParameter(name: string): boolean {
+  return /^[1-9][0-9]*$/.test(name);
 }
 
 function valuesEqual(left: BindingValue, right: BindingValue): boolean {

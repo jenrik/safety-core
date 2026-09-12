@@ -21,7 +21,7 @@ export interface BashAnalysisLimits {
 export const DEFAULT_BASH_ANALYSIS_LIMITS: BashAnalysisLimits = Object.freeze({
   maxFunctionDepth: 128,
   maxNestedScriptDepth: 64,
-  maxSteps: 25_000,
+  maxSteps: 7_500,
   maxWorkItems: 10_000,
 });
 

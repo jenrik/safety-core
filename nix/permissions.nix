@@ -80,7 +80,7 @@ in
     };
     maxSteps = mkOption {
       type = types.addCheck types.ints.positive (value: value <= 9007199254740991);
-      default = 25000;
+      default = 7500;
       description = "Maximum continuation steps inspected by the Bash authorization walker.";
     };
     maxWorkItems = mkOption {

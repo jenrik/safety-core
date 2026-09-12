@@ -352,6 +352,7 @@ function projectWord(node: SyntaxNode): BashWord {
   switch (node.type) {
     case "word":
     case "raw_string":
+    case "ansi_c_string":
     case "number":
       return { kind: "word", ...shared };
     case "string":

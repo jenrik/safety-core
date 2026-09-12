@@ -1,3 +1,4 @@
+import { stripQuotes } from "../shell.js";
 import type { BashCommand, BashRedirectKind, BashWord, SourceSpan } from "./cst.js";
 import {
   assignBinding,
@@ -42,6 +43,13 @@ export interface ResolvedUnknownWord {
 }
 
 export type ResolvedWord = ResolvedKnownWord | ResolvedUnknownWord;
+
+const bindingResolvedWords = new WeakSet<ResolvedKnownWord>();
+
+/** Whether a known word was materialized from a binding rather than source text. */
+export function isBindingResolvedWord(word: ResolvedWord): boolean {
+  return word.kind === "known" && bindingResolvedWords.has(word);
+}
 
 export interface NormalizedRedirect {
   readonly kind: BashRedirectKind;
@@ -92,7 +100,11 @@ function expandWordInContext(word: BashWord, environment: Environment, context: 
  * Apply assignments left-to-right before resolving a command. Prefix writes
  * receive an overlay, while same-command words expand against the caller.
  */
-export function normalizeCommand(command: BashCommand, environment: Environment): NormalizedCommand {
+export function normalizeCommand(
+  command: BashCommand,
+  environment: Environment,
+  sourceDerivedFromBinding = false,
+): NormalizedCommand {
   const hasInvocation = command.words.length > 0;
   let assignmentEnvironment = hasInvocation && command.assignments.length > 0
     ? beginCommandOverlay(environment)
@@ -110,11 +122,20 @@ export function normalizeCommand(command: BashCommand, environment: Environment)
 
   const effectiveEnvironment = hasInvocation ? assignmentEnvironment : environment;
   const [executableWord, ...argumentWords] = command.words;
-  const executable = executableWord ? expandWordInContext(executableWord, environment, "executable") : null;
-  const argv = argumentWords.map((word) => expandWordInContext(word, environment, "argument"));
+  const executable = executableWord ? retainBindingProvenance(
+    expandWordInContext(executableWord, environment, "executable"),
+    sourceDerivedFromBinding,
+  ) : null;
+  const argv = argumentWords.map((word) => retainBindingProvenance(
+    expandWordInContext(word, environment, "argument"),
+    sourceDerivedFromBinding,
+  ));
   const redirects = command.redirects.map((redirect) => freeze({
     kind: redirect.kind,
-    target: redirect.target ? expandWordInContext(redirect.target, environment, "redirect") : null,
+    target: redirect.target ? retainBindingProvenance(
+      expandWordInContext(redirect.target, environment, "redirect"),
+      sourceDerivedFromBinding,
+    ) : null,
   }));
   const patchEnvironment = assignmentEnvironment;
 
@@ -132,6 +153,7 @@ export function normalizeCommand(command: BashCommand, environment: Environment)
 
 function expandStaticText(text: string, span: SourceSpan, environment: Environment, context: WordContext): ResolvedWord {
   let value = "";
+  let containsBindingValue = false;
   let quote: "single" | "double" | null = null;
 
   for (let index = 0; index < text.length;) {
@@ -177,10 +199,18 @@ function expandStaticText(text: string, span: SourceSpan, environment: Environme
     if (quote === null && (character === "*" || character === "?" || character === "[")) {
       return unresolved("globbing", span);
     }
+    if (quote === null && character === "$" && text[index + 1] === "'") {
+      const end = ansiCQuoteEnd(text, index + 2);
+      if (end < 0) return unresolved("unsupported-dollar-expansion", span);
+      value += stripQuotes(text.slice(index, end + 1));
+      index = end + 1;
+      continue;
+    }
     if (quote !== "single" && character === "$") {
       const expansion = expandVariableAt(text, index, span, environment, context, quote === "double");
       if (expansion.kind === "unknown") return expansion;
       value += expansion.value.value;
+      containsBindingValue ||= isBindingResolvedWord(expansion.value);
       index = expansion.next;
       continue;
     }
@@ -191,7 +221,7 @@ function expandStaticText(text: string, span: SourceSpan, environment: Environme
     index++;
   }
 
-  return resolvedKnown(value);
+  return resolvedKnown(value, containsBindingValue);
 }
 
 function expandVariableAt(
@@ -212,8 +242,11 @@ function expandVariableAt(
     const content = text.slice(start + 2, close);
     if (content.startsWith("!")) return unresolved("indirect-expansion", span, variablePrefix(content.slice(1)));
     if (content.includes("[")) return unresolved("array-expansion", span, variablePrefix(content));
-    if (!isVariableName(content)) return unresolved("unsupported-parameter-expansion", span, variablePrefix(content));
+    if (!isVariableReference(content)) return unresolved("unsupported-parameter-expansion", span, variablePrefix(content));
     return resolveVariable(content, span, environment, close + 1, context, quoted);
+  }
+  if (next && /[0-9]/.test(next)) {
+    return resolveVariable(next, span, environment, start + 2, context, quoted);
   }
   if (!next || !isVariableStart(next)) {
     return unresolved("unsupported-dollar-expansion", span);
@@ -243,7 +276,18 @@ function resolveVariable(
   if (!quoted && context !== "assignment" && changesUnquotedWordShape(binding.value, environment)) {
     return unresolved("unquoted-expansion", span, variable);
   }
-  return { kind: "known", value: resolvedKnown(binding.value), next };
+  return { kind: "known", value: resolvedKnown(binding.value, true), next };
+}
+
+function ansiCQuoteEnd(text: string, start: number): number {
+  let escaped = false;
+  for (let index = start; index < text.length; index++) {
+    const character = text[index]!;
+    if (escaped) { escaped = false; continue; }
+    if (character === "\\") { escaped = true; continue; }
+    if (character === "'") return index;
+  }
+  return -1;
 }
 
 function unsupportedPart(word: BashWord): ResolvedUnknownWord | undefined {
@@ -288,11 +332,20 @@ function unresolved(kind: ExpansionUnknownReason["kind"], span: SourceSpan, vari
   });
 }
 
-function resolvedKnown(value: string): ResolvedKnownWord {
-  return freeze({ kind: "known", value });
+function resolvedKnown(value: string, fromBinding = false): ResolvedKnownWord {
+  const result = freeze({ kind: "known" as const, value });
+  if (fromBinding) bindingResolvedWords.add(result);
+  return result;
 }
 
-function isVariableName(value: string): boolean {
+function retainBindingProvenance(word: ResolvedWord, sourceDerivedFromBinding: boolean): ResolvedWord {
+  return sourceDerivedFromBinding && word.kind === "known" && !isBindingResolvedWord(word)
+    ? resolvedKnown(word.value, true)
+    : word;
+}
+
+function isVariableReference(value: string): boolean {
+  if (/^[0-9]+$/.test(value)) return true;
   return value.length > 0 && isVariableStart(value[0]!) && [...value.slice(1)].every(isVariablePart);
 }
 

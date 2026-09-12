@@ -74,6 +74,20 @@ describe("persistent Bash environment", () => {
       .toEqual(known("nested-updated"));
   });
 
+  test("updates the nearest dynamic binding for function-scoped export, readonly, and unset", () => {
+    const parent = fromInitialEnvironment({ EXPORTED: "one", LOCKED: "two", REMOVED: "three" });
+    const functionScope = pushFunctionFrame(parent);
+
+    const exported = setExported(functionScope, "EXPORTED", true);
+    const locked = setReadonly(exported, "LOCKED", true);
+    const removed = unsetBinding(locked, "REMOVED");
+    const caller = returnFromFunctionFrame(removed);
+
+    expect(lookupBinding(caller, "EXPORTED")).toMatchObject({ value: known("one"), exported: true });
+    expect(lookupBinding(caller, "LOCKED")).toMatchObject({ value: known("two"), readonly: true });
+    expect(lookupBinding(caller, "REMOVED").value).toEqual(unset());
+  });
+
   test("uses an identity-sharing command overlay and discards it after the invocation", () => {
     const base = fromInitialEnvironment({ F: "BAR" });
     const overlay = beginCommandOverlay(base);
@@ -196,7 +210,7 @@ describe("persistent Bash environment", () => {
     expect(() => { (environment.frame as { parent?: object }).parent = {}; }).toThrow();
     expect(() => { (binding.value as { value: string }).value = "changed"; }).toThrow();
     expect(lookupBinding(environment, "F").value).toEqual(known("stable"));
-    expect(environment.budgets.steps).toBe(25_000);
+    expect(environment.budgets.steps).toBe(7_500);
   });
 
   test("property: an unwritten unknown binding never becomes known", () => {
@@ -240,6 +254,23 @@ describe("persistent Bash environment", () => {
       expect(lookupBinding(mergeCheckpoint(checkpoint, [left, right]), name).value).toEqual(
         unknown({ kind: "branch-disagreement" }),
       );
+    }
+  });
+
+  test("property: function-scoped declaration attributes update the nearest visible caller binding", () => {
+    const random = lcg(0x7a11ce55);
+
+    for (let index = 0; index < 128; index++) {
+      const exported = `${bindingName(random())}_EXPORTED`;
+      const locked = `${bindingName(random())}_LOCKED`;
+      const removed = `${bindingName(random())}_REMOVED`;
+      const parent = fromInitialEnvironment({ [exported]: `value-${random()}`, [locked]: `value-${random()}`, [removed]: `value-${random()}` });
+      const functionScope = pushFunctionFrame(parent);
+      const result = returnFromFunctionFrame(unsetBinding(setReadonly(setExported(functionScope, exported, true), locked, true), removed));
+
+      expect(lookupBinding(result, exported).exported).toBeTrue();
+      expect(lookupBinding(result, locked).readonly).toBeTrue();
+      expect(lookupBinding(result, removed).value).toEqual(unset());
     }
   });
 });

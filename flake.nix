@@ -102,14 +102,26 @@
             cp -r ${builtins.dirOf sc.opencodePluginFile}/src test-work/src
             cp -r ${builtins.dirOf sc.opencodePluginFile}/data test-work/data
             cp -r ${builtins.dirOf sc.opencodePluginFile}/node_modules test-work/node_modules
-            cp ${builtins.dirOf sc.opencodePluginFile}/tree-sitter-bash.wasm test-work/
             cp -r ${./adapters} test-work/adapters
             cp -r ${./tests} test-work/tests
             cd test-work
+            bun test tests/gh-pr-create-hook-parser-failure.test.ts
+            cp ${builtins.dirOf sc.opencodePluginFile}/tree-sitter-bash.wasm ./
             bun test tests/gh-pr-create-parser-failure.test.ts
             bun test tests/gh-pr-create.test.ts
             bun test tests/read-only-cli.test.ts
             bun test tests/opencode-read-only-cli.test.ts
+            bun test tests/pi-adapter.test.ts
+            bun test ./tests/bash-cst.test.ts
+            SAFETY_CORE_PACKAGED_TESTS=1 bun test ./tests/bash-config.test.ts
+            bun test ./tests/bash-environment.test.ts
+            bun test ./tests/bash-expand.test.ts
+            bun test ./tests/bash-runner.test.ts
+            bun test ./tests/bash-walker.test.ts
+            bun test ./tests/bash-dispatch.test.ts
+            bun test ./tests/bash-hard-block-policies.test.ts
+            bun test ./tests/bash-gh-policies.test.ts
+            bun test ./tests/bash-adapter.test.ts
             bun test ./tests/bash-equivalence.test.ts
             bun test ./tests/bash-performance.test.ts
             touch $out
