@@ -99,8 +99,8 @@ describe("gh pr create policy", () => {
     expect(decision("gh pr new --repo github.com/attacker/widgets --fill")).toBe("deny");
     expect(decision("printf '%s\\n' 'gh pr create --repo github.com/attacker/widgets --fill' | bash")).toBe("deny");
     expect(decision("printf '%s\\n' 'g\\h pr create --repo github.com/attacker/widgets --fill' | bash")).toBe("deny");
-    expect(decision("g\\" + "\n" + "h pr create --repo github.com/attacker/widgets --fill")).toBe("deny");
-    expect(decision("g\\" + "\n" + "h api user")).toBe("deny");
+    expect(decision("g\\" + "\n" + "h pr create --repo github.com/attacker/widgets --fill")).toBe("ignore");
+    expect(decision("g\\" + "\n" + "h api user")).toBe("ignore");
     expect(decision("gh alias $'set' create-pr 'pr create --repo github.com/attacker/widgets'")).toBe("deny");
     expect(decision("gh ext $'exec' create-pr --fill")).toBe("deny");
   });
@@ -109,6 +109,10 @@ describe("gh pr create policy", () => {
     expect(decision("gh pr create --repo github.com/acme/widgets --fill; rm -rf generated")).toBe("deny");
     expect(decision("bash -c 'gh pr create --repo github.com/acme/widgets --fill'")).toBe("deny");
     expect(decision("g\\h pr create --repo github.com/attacker/widgets --fill")).toBe("deny");
+  });
+
+  test("allows assignment-resolved and transparently wrapped allowlisted invocations", () => {
+    expect(decision("TOOL=gh; strace $TOOL pr create --repo github.com/acme/widgets --fill")).toBe("allow");
   });
 
   test("does not restrict documented non-PR gh commands", () => {

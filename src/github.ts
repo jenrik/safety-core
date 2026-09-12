@@ -1,9 +1,9 @@
 // Block direct HTTP requests to raw.githubusercontent.com and api.github.com,
 // steering agents toward `gh` CLI equivalents.
 
-import { BLOCKED_GITHUB_DOMAINS, HTTP_TOOLS } from "./patterns.js";
+import { BLOCKED_GITHUB_DOMAINS } from "./patterns.js";
 import { GITHUB_GENERIC_HINT } from "./messages.js";
-import { basename, parseBash } from "./shell.js";
+import { analyzeBashAuthorization } from "./authorization.js";
 
 const RAW_URL_RE =
   /https?:\/\/raw\.githubusercontent\.com\/([^/\s"']+)\/([^/\s"']+)\/([^/\s"']+)\/([^\s"'#?]+)/;
@@ -101,41 +101,13 @@ export function checkWebfetchUrl(url: string): string | null {
 
 /**
  * Return reason string if `command` invokes an HTTP tool against a blocked
- * GitHub URL, else null. Uses tree-sitter parsing to find command arguments,
- * falling back to a raw URL scan if the parser is not available.
+ * GitHub URL, else null. The stateful authorization walker resolves only
+ * statically knowable invocation arguments; unavailable parsing stays neutral.
  */
 export function checkBashForGithub(command: string): string | null {
-  // Scan all URLs mentioned anywhere in the command text first (fast path).
-  const urls = extractUrls(command);
-  if (urls.length === 0) return null;
-
-  const blocked = urls.filter(isBlockedGithubUrl);
-  if (blocked.length === 0) return null;
-
-  // Verify that at least one blocked URL appears as an argument to an HTTP
-  // tool. Use tree-sitter parsing for accuracy.
-  const commands = parseBash(command);
-
-  for (const cmd of commands) {
-    if (!HTTP_TOOLS.has(cmd.name)) continue;
-
-    for (const arg of cmd.args) {
-      for (const url of blocked) {
-        if (arg.includes(url)) {
-          return buildGithubSuggestion(url);
-        }
-      }
-    }
-  }
-
-  // If tree-sitter parsed something but didn't find the URL in a known HTTP
-  // tool's args, check if any HTTP tool appeared at all (the URL might be
-  // nested in a subshell or string concatenation). In that case, block it.
-  if (commands.some((c) => HTTP_TOOLS.has(c.name))) {
-    return buildGithubSuggestion(blocked[0]);
-  }
-
-  return null;
+  const policy = analyzeBashAuthorization({ source: command }).policies
+    .find((evidence) => evidence.name === "github-http" && evidence.decision === "deny");
+  return policy?.reason ?? null;
 }
 
 /** Fallback deny message when we can't parse the tool payload but a blocked
@@ -156,9 +128,4 @@ export function detectBlockedDomain(raw: string): string | null {
     if (raw.includes(domain)) return domain;
   }
   return null;
-}
-
-/** Extract all http/https URLs from command text. */
-function extractUrls(command: string): string[] {
-  return command.match(/https?:\/\/\S+/g) ?? [];
 }

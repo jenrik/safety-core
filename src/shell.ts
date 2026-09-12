@@ -5,6 +5,21 @@
 
 import { statSync } from "node:fs";
 import { Language, Node as SyntaxNode, Parser } from "web-tree-sitter";
+import type {
+  BashAssignment,
+  BashCommand,
+  BashFunction,
+  BashGroup,
+  BashIf,
+  BashParseFailure,
+  BashPipeline,
+  BashProgram,
+  BashRedirect,
+  BashStatement,
+  BashSubshell,
+  BashWord,
+  SourceSpan,
+} from "./bash/cst.js";
 
 // ─── Parser initialisation ──────────────────────────────────────────────────
 
@@ -120,15 +135,40 @@ export interface Redirect {
  * array if the parser is not initialised or the command cannot be parsed.
  */
 export function parseBash(command: string): SimpleCommand[] {
-  if (!bashParser) return [];
-  if (!command.trim()) return [];
+  const program = parseBashProgram(command);
+  return program.kind === "parse-failure" ? [] : flattenCommands(program.statements);
+}
 
-  const tree = bashParser.parse(command);
-  const commands: SimpleCommand[] = [];
+/**
+ * Parse Bash into an immutable, backend-neutral projection of the CST.
+ *
+ * The returned data never retains a web-tree-sitter node, allowing future
+ * parser backends to produce the same model for the authorization walker.
+ */
+export function parseBashProgram(source: string): BashProgram | BashParseFailure {
+  if (!bashParser) {
+    return freeze({
+      kind: "parse-failure",
+      reason: "Bash parser is unavailable",
+      span: { start: 0, end: source.length },
+    });
+  }
 
-  findCommands(tree.rootNode, commands);
+  const tree = bashParser.parse(source);
+  const error = findSyntaxError(tree.rootNode);
+  if (error) {
+    return freeze({
+      kind: "parse-failure",
+      reason: `Bash parse error at ${error.startIndex}`,
+      span: span(error),
+    });
+  }
 
-  return commands;
+  return freeze({
+    kind: "program",
+    source,
+    statements: tree.rootNode.namedChildren.map(projectStatement),
+  });
 }
 
 // ─── Utility helpers (pure string functions, no parser needed) ──────────────
@@ -177,73 +217,313 @@ function decodeAnsiCQuotes(token: string): string {
   );
 }
 
-// ─── Internal tree-sitter helpers ───────────────────────────────────────────
+// ─── Internal tree-sitter projection helpers ────────────────────────────────
 
-/** Recursively walk the AST, collecting SimpleCommand objects. */
-function findCommands(node: SyntaxNode, out: SimpleCommand[]): void {
-  if (node.type === "command") {
-    const cmd = extractCommand(node);
-    if (cmd) out.push(cmd);
-  }
-
-  for (const child of node.namedChildren) {
-    findCommands(child, out);
+function projectStatement(node: SyntaxNode): BashStatement {
+  switch (node.type) {
+    case "command":
+      return projectCommand(node, []);
+    case "variable_assignment":
+      return {
+        kind: "command",
+        assignments: [projectAssignment(node)],
+        words: [],
+        redirects: [],
+        span: span(node),
+      };
+    case "redirected_statement":
+      return projectRedirectedStatement(node);
+    case "file_redirect":
+      return {
+        kind: "command",
+        assignments: [],
+        words: [],
+        redirects: [projectRedirect(node)],
+        span: span(node),
+      };
+    case "function_definition":
+      return projectFunction(node);
+    case "list":
+      return {
+        kind: "list",
+        statements: node.namedChildren.map(projectStatement),
+        operators: node.children
+          .filter((child) => child.type === "&&" || child.type === "||")
+          .map((child) => child.type as "&&" | "||"),
+        span: span(node),
+      };
+    case "pipeline":
+      return {
+        kind: "pipeline",
+        statements: node.namedChildren.map(projectStatement),
+        negated: node.children.some((child) => child.type === "!"),
+        span: span(node),
+      };
+    case "subshell":
+      return { kind: "subshell", statements: node.namedChildren.map(projectStatement), span: span(node) };
+    case "compound_statement":
+      return projectGroup(node);
+    case "if_statement":
+      return projectIf(node);
+    default:
+      return projectUnsupported(node);
   }
 }
 
-/** Extract a single SimpleCommand from a `command` AST node. */
-function extractCommand(node: SyntaxNode): SimpleCommand | null {
+function projectRedirectedStatement(node: SyntaxNode): BashStatement {
+  const body = node.childForFieldName("body") ?? node.namedChildren.find((child) => child.type !== "file_redirect");
+  if (!body) {
+    return {
+      kind: "command",
+      assignments: [],
+      words: [],
+      redirects: node.childrenForFieldName("redirect").map(projectRedirect),
+      span: span(node),
+    };
+  }
+
+  const statement = projectStatement(body);
+  return withRedirects(statement, node.childrenForFieldName("redirect").map(projectRedirect), span(node));
+}
+
+function projectCommand(node: SyntaxNode, redirects: readonly BashRedirect[]): BashCommand {
   const nameNode = node.childForFieldName("name");
-  if (!nameNode) return null;
-
-  const name = canonicalCommandName(nameNode.text);
-  if (!name) return null;
-
-  // Collect arguments (skip env assignments passed as children of the command).
-  const args: string[] = [];
-  const argNodes = node.childrenForFieldName("argument");
-  for (const arg of argNodes) {
-    args.push(stripQuotes(arg.text));
-  }
-
-  // Collect redirects. Redirects can appear directly on the `command` node, or
-  // the command may be wrapped in a `redirected_statement` one level up.
-  const redirects: Redirect[] = [];
-  collectRedirects(node, redirects);
-  if (node.parent && node.parent.type === "redirected_statement") {
-    collectRedirects(node.parent, redirects);
-  }
-
+  const commandName = nameNode?.namedChildren[0] ?? null;
   return {
-    name,
-    args: args.filter((a) => a !== ""),
+    kind: "command",
+    assignments: node.namedChildren.filter((child) => child.type === "variable_assignment").map(projectAssignment),
+    words: [
+      ...(commandName ? [projectWord(commandName)] : []),
+      ...node.childrenForFieldName("argument").map(projectWord),
+    ],
     redirects,
+    span: span(node),
   };
+}
+
+function projectAssignment(node: SyntaxNode): BashAssignment {
+  const name = node.childForFieldName("name");
+  const value = node.childForFieldName("value");
+  return {
+    name: name?.text ?? "",
+    value: value ? projectWord(value) : null,
+    span: span(node),
+  };
+}
+
+function projectRedirect(node: SyntaxNode): BashRedirect {
+  const words = node.childrenForFieldName("destination").map(projectWord);
+  return {
+    kind: redirectKind(node) ?? "unsupported",
+    target: words[0] ?? null,
+    words,
+    span: span(node),
+  };
+}
+
+function projectFunction(node: SyntaxNode): BashFunction {
+  const name = node.namedChildren.find((child) => child.type === "word");
+  const bodyNode = node.namedChildren.find((child) => child !== name);
+  const body = bodyNode
+    ? projectStatement(bodyNode)
+    : { kind: "unsupported" as const, reason: "Function body is missing", statements: [], span: span(node) };
+  return { kind: "function", name: name?.text ?? "", body, span: span(node) };
+}
+
+function projectGroup(node: SyntaxNode): BashGroup {
+  return { kind: "group", statements: node.namedChildren.map(projectStatement), span: span(node) };
+}
+
+function projectIf(node: SyntaxNode): BashIf {
+  const thenNode = node.children.find((child) => child.type === "then");
+  const elseNode = node.namedChildren.find((child) => child.type === "else_clause");
+  const condition = node.namedChildren
+    .filter((child) => child.type !== "else_clause" && (!thenNode || child.endIndex <= thenNode.startIndex))
+    .map(projectStatement);
+  const consequent = node.namedChildren
+    .filter((child) => child.type !== "else_clause" && (!thenNode || child.startIndex >= thenNode.endIndex))
+    .map(projectStatement);
+  const alternate = elseNode ? elseNode.namedChildren.map(projectStatement) : [];
+  return { kind: "if", condition, consequent, alternate, span: span(node) };
+}
+
+function projectWord(node: SyntaxNode): BashWord {
+  const shared = { text: node.text, span: span(node) };
+  switch (node.type) {
+    case "word":
+    case "raw_string":
+    case "number":
+      return { kind: "word", ...shared };
+    case "string":
+      return node.namedChildren.length === 0
+        ? { kind: "word", ...shared }
+        : { kind: "concatenation", ...shared, parts: node.namedChildren.map(projectWord) };
+    case "simple_expansion":
+    case "expansion":
+      return { kind: "expansion", ...shared, statements: projectNestedStatements(node) };
+    case "command_substitution":
+      return { kind: "command-substitution", ...shared, statements: node.namedChildren.map(projectStatement) };
+    case "concatenation":
+      return { kind: "concatenation", ...shared, parts: node.namedChildren.map(projectWord) };
+    default:
+      return {
+        kind: "unsupported-word",
+        ...shared,
+        reason: `Unsupported Bash word syntax: ${node.type}`,
+        statements: projectNestedStatements(node),
+      };
+  }
+}
+
+function flattenCommands(statements: readonly BashStatement[]): SimpleCommand[] {
+  const commands: SimpleCommand[] = [];
+  for (const statement of statements) flattenStatement(statement, commands);
+  return commands;
+}
+
+function flattenStatement(statement: BashStatement, out: SimpleCommand[]): void {
+  switch (statement.kind) {
+    case "command": {
+      const [name, ...args] = statement.words;
+      if (name) {
+        const canonicalName = canonicalCommandName(name.text);
+        if (canonicalName) {
+          out.push({
+            name: canonicalName,
+            args: args.map((word) => stripQuotes(word.text)).filter((argument) => argument !== ""),
+            redirects: statement.redirects.flatMap((redirect) => {
+              if (!redirect.target || redirect.kind === "unsupported") return [];
+              const target = stripQuotes(redirect.target.text);
+              return target ? [{ kind: redirect.kind, target }] : [];
+            }),
+          });
+        }
+      }
+      flattenWordsInSourceOrder([
+        ...statement.assignments.flatMap((assignment) => assignment.value ? [assignment.value] : []),
+        ...statement.words,
+        ...statement.redirects.flatMap((redirect) => redirect.words),
+      ], out);
+      break;
+    }
+    case "function":
+      flattenStatement(statement.body, out);
+      flattenRedirects(statement.redirects, out);
+      break;
+    case "list":
+    case "pipeline":
+    case "subshell":
+    case "group":
+      for (const child of statement.statements) flattenStatement(child, out);
+      flattenRedirects(statement.redirects, out);
+      break;
+    case "if":
+      for (const child of [...statement.condition, ...statement.consequent, ...statement.alternate]) flattenStatement(child, out);
+      flattenRedirects(statement.redirects, out);
+      break;
+    case "unsupported":
+      for (const child of statement.statements) flattenStatement(child, out);
+      flattenRedirects(statement.redirects, out);
+      break;
+  }
+}
+
+function flattenWord(word: BashWord, out: SimpleCommand[]): void {
+  if (word.kind === "command-substitution") {
+    for (const statement of word.statements) flattenStatement(statement, out);
+  } else if (word.kind === "concatenation") {
+    for (const part of word.parts) flattenWord(part, out);
+  } else if (word.kind === "expansion" || word.kind === "unsupported-word") {
+    for (const statement of word.statements) flattenStatement(statement, out);
+  }
+}
+
+function flattenRedirects(redirects: readonly BashRedirect[] | undefined, out: SimpleCommand[]): void {
+  for (const redirect of redirects ?? []) {
+    flattenWordsInSourceOrder(redirect.words, out);
+  }
+}
+
+function flattenWordsInSourceOrder(words: readonly BashWord[], out: SimpleCommand[]): void {
+  words
+    .map((word, index) => ({ word, index }))
+    .sort((left, right) => left.word.span.start - right.word.span.start || left.index - right.index)
+    .forEach(({ word }) => flattenWord(word, out));
+}
+
+function projectUnsupported(node: SyntaxNode): BashStatement {
+  return {
+    kind: "unsupported",
+    reason: `Unsupported Bash syntax: ${node.type}`,
+    statements: projectNestedStatements(node),
+    span: span(node),
+  };
+}
+
+function projectNestedStatements(node: SyntaxNode): BashStatement[] {
+  const statements: BashStatement[] = [];
+  for (const child of node.namedChildren) {
+    if (isProjectableStatement(child)) {
+      statements.push(projectStatement(child));
+    } else {
+      statements.push(...projectNestedStatements(child));
+    }
+  }
+  return statements;
+}
+
+function isProjectableStatement(node: SyntaxNode): boolean {
+  return [
+    "command",
+    "redirected_statement",
+    "function_definition",
+    "list",
+    "pipeline",
+    "subshell",
+    "compound_statement",
+    "if_statement",
+  ].includes(node.type);
+}
+
+function withRedirects(statement: BashStatement, redirects: readonly BashRedirect[], statementSpan: SourceSpan): BashStatement {
+  switch (statement.kind) {
+    case "command":
+      return { ...statement, redirects, span: statementSpan };
+    case "function":
+    case "list":
+    case "pipeline":
+    case "subshell":
+    case "group":
+    case "if":
+    case "unsupported":
+      return { ...statement, redirects, span: statementSpan };
+  }
+}
+
+function findSyntaxError(node: SyntaxNode): SyntaxNode | null {
+  if (node.isError || node.isMissing) return node;
+  for (const child of node.children) {
+    const error = findSyntaxError(child);
+    if (error) return error;
+  }
+  return null;
+}
+
+function span(node: SyntaxNode): SourceSpan {
+  return { start: node.startIndex, end: node.endIndex };
+}
+
+function freeze<T>(value: T): T {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) freeze(child);
+    Object.freeze(value);
+  }
+  return value;
 }
 
 /** Shell quotes do not alter an executable name (`g''h` still runs `gh`). */
 function canonicalCommandName(text: string): string {
   return basename(stripQuotes(text));
-}
-
-/** Collect file redirect nodes from `node` into `out`. */
-function collectRedirects(node: SyntaxNode, out: Redirect[]): void {
-  const redirectNodes = node.childrenForFieldName("redirect");
-  for (const r of redirectNodes) {
-    if (r.type !== "file_redirect") continue;
-
-    // Determine the kind from the operator text that sits between children.
-    const kind = redirectKind(r);
-    if (!kind) continue;
-
-    const destNodes = r.childrenForFieldName("destination");
-    if (destNodes.length === 0) continue;
-
-    const target = stripQuotes(destNodes[0].text);
-    if (target) {
-      out.push({ kind, target });
-    }
-  }
 }
 
 /** Infer whether a file_redirect is input, output, or append from its text. */

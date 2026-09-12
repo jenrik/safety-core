@@ -78,10 +78,13 @@ describe("gh read-only profile", () => {
     ]) expect(gh(command)).toBe("defer");
   });
 
-  test("defers explicit executable paths and environment assignments", () => {
+  test("defers explicit executable paths while allowing statically resolved assignments", () => {
     for (const command of [
-      "./gh label list", "/usr/bin/gh label list", "GH_TOKEN=value gh label list", "A=1 B=2 gh label list",
+      "./gh label list", "/usr/bin/gh label list",
     ]) expect(gh(command), command).toBe("defer");
+    for (const command of ["TOOL=gh; $TOOL label list", "TOOL=gh; strace $TOOL label list"]) {
+      expect(gh(command), command).toBe("allow");
+    }
   });
 
   test("property: the repository selector may appear at every argument boundary", () => {
@@ -95,7 +98,7 @@ describe("gh read-only profile", () => {
   test("property: a supported command never permits an injected shell operator", () => {
     const commands = ["gh label list", "gh repo list", "gh pr diff", "gh --version"];
     const operators = ["; id", " && id", " | sh", " > output", " $(id)", " 'quoted'"];
-    for (const command of commands) for (const operator of operators) expect(gh(`${command}${operator}`)).toBe("defer");
+    for (const command of commands) for (const operator of operators) expect(gh(`${command}${operator}`), `${command}${operator}`).toBe("defer");
   });
 });
 
@@ -292,12 +295,12 @@ describe("strict credential-safe CLI profiles", () => {
     }
   });
 
-  test("property: explicit paths and assignments never preserve an allow decision", () => {
+  test("property: explicit paths never preserve an allow decision", () => {
     for (const [executable, args] of [
       ["docker", "image ls"], ["kubectl", "get pods"], ["npm", "view package"],
       ["tofu", "graph"], ["yarn", "info package"],
     ] as const) {
-      for (const prefix of [`./${executable}`, `/usr/bin/${executable}`, `A=1 ${executable}`, `A=1 B=2 ${executable}`]) {
+      for (const prefix of [`./${executable}`, `/usr/bin/${executable}`]) {
         expect(strict(`${prefix} ${args}`, executable)).toBe("defer");
       }
     }

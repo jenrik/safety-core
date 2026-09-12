@@ -1,0 +1,37 @@
+import type { NormalizedCommand } from "../expand.js";
+import { BLOCKED_GITHUB_DOMAINS } from "../../patterns.js";
+import { GITHUB_GENERIC_HINT } from "../../messages.js";
+import { buildGithubSuggestion } from "../../github.js";
+
+export type GithubHttpPolicyDecision =
+  | { readonly kind: "allow"; readonly evidence: { readonly name: "github-http"; readonly decision: "allow" } }
+  | { readonly kind: "deny"; readonly evidence: { readonly name: "github-http"; readonly decision: "deny"; readonly reason: string } };
+
+export function analyzeGithubHttpInvocation(invocation: NormalizedCommand): GithubHttpPolicyDecision {
+  for (const argument of invocation.argv) {
+    if (argument.kind !== "known") continue;
+    const domain = detectBlockedGithubDomain(argument.value);
+    if (domain) return deny(buildGithubSuggestion(argument.value));
+  }
+  return Object.freeze({ kind: "allow", evidence: Object.freeze({ name: "github-http", decision: "allow" }) });
+}
+
+export function detectBlockedGithubDomain(raw: string): string | null {
+  for (const domain of BLOCKED_GITHUB_DOMAINS) if (raw.includes(domain)) return domain;
+  return null;
+}
+
+export function buildGithubHttpBlock(domain: string): string {
+  return (
+    `Blocked: direct HTTP request to ${domain} detected.\n\n` +
+    "Use the native gh command where possible.\n\n" +
+    `${GITHUB_GENERIC_HINT}\n\n` +
+    "For raw file content use:\n" +
+    "  gh api repos/<owner>/<repo>/contents/<path>?ref=<ref> | jq -r '.content' | base64 -d\n" +
+    "  git clone --depth=1 https://github.com/<owner>/<repo>.git /tmp/agent/<repo>"
+  );
+}
+
+function deny(reason: string): GithubHttpPolicyDecision {
+  return Object.freeze({ kind: "deny", evidence: Object.freeze({ name: "github-http", decision: "deny", reason }) });
+}

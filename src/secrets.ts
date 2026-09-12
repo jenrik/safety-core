@@ -1,15 +1,14 @@
 // Secret-file detection and bash secret-read scanning.
 
 import {
-  READING_COMMANDS,
   SECRET_EXCEPTIONS,
   SECRET_PATTERNS,
 } from "./patterns.js";
 import {
   basename,
   matchesAnyGlob,
-  parseBash,
 } from "./shell.js";
+import { analyzeBashAuthorization } from "./authorization.js";
 
 /** True iff `name` is treated as a secret file by policy. */
 export function isSecretFileName(name: string): boolean {
@@ -38,28 +37,7 @@ export function isSecretPath(path: string): boolean {
  */
 export function parseBashForSecretRead(command: string): string | null {
   if (!command) return null;
-
-  const commands = parseBash(command);
-
-  for (const cmd of commands) {
-    // Case 1: input redirect (`< secretfile`) — check redirect targets.
-    for (const r of cmd.redirects) {
-      if (r.kind === "input" && isSecretPath(r.target)) {
-        return `bash redirect from '${basename(r.target)}'`;
-      }
-    }
-
-    // Case 2: reading command (cat, head, tail, ...) with a secret file as
-    // a positional argument.
-    if (!READING_COMMANDS.has(cmd.name)) continue;
-
-    for (const arg of cmd.args) {
-      if (arg.startsWith("-")) continue;
-      if (isSecretPath(arg)) {
-        return `bash \`${cmd.name}\` on '${basename(arg)}'`;
-      }
-    }
-  }
-
-  return null;
+  const policy = analyzeBashAuthorization({ source: command }).policies
+    .find((evidence) => evidence.name === "secret-read" && evidence.decision === "deny");
+  return policy?.reason ?? null;
 }
