@@ -6,7 +6,7 @@ app = marimo.App(width="full")
 
 @app.cell
 def _():
-    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     import json
     import marimo
     import os
@@ -14,6 +14,7 @@ def _():
     import subprocess
     from pathlib import Path
 
+    from analysis.replay_batches import isolate_timed_out_items
     import polars as pl
 
     marimo.md("""
@@ -27,7 +28,7 @@ def _():
     records executed tool calls, not native permission prompts denied before a
     tool call was created.
     """)
-    return Path, ThreadPoolExecutor, json, marimo, os, pl, sqlite3, subprocess
+    return Path, ThreadPoolExecutor, as_completed, isolate_timed_out_items, json, marimo, os, pl, sqlite3, subprocess
 
 
 @app.cell
@@ -86,28 +87,52 @@ def _(history):
 
 
 @app.cell
-def _(Path, ThreadPoolExecutor, history, json, pl, subprocess, workers):
+def _(Path, ThreadPoolExecutor, as_completed, history, isolate_timed_out_items, json, marimo, pl, subprocess, workers):
     events = [{"command": command, "nativePermission": "ask"} for command in history.get_column("command").to_list()]
     replay_script = Path(__file__).parents[1] / "analysis/replay-opencode-history.ts"
     replay_rows = []
     if events:
-        worker_count = max(1, min(int(workers.value), len(events), 32))
-        chunk_size = (len(events) + worker_count - 1) // worker_count
-        batches = [events[offset:offset + chunk_size] for offset in range(0, len(events), chunk_size)]
+        indexed_events = list(enumerate(events))
+        batches = [indexed_events[offset:offset + 500] for offset in range(0, len(indexed_events), 500)]
+        worker_count = max(1, min(int(workers.value), len(batches), 32))
 
         def replay_batch(batch):
-            completed = subprocess.run(
-                ["bun", "run", str(replay_script)],
-                input=json.dumps(batch),
-                text=True,
-                check=True,
-                capture_output=True,
-                timeout=600,
-            )
-            return json.loads(completed.stdout)
+            def replay(items):
+                completed = subprocess.run(
+                    ["bun", "run", str(replay_script)],
+                    input=json.dumps([event for _, event in items]),
+                    text=True,
+                    check=True,
+                    capture_output=True,
+                    timeout=30,
+                )
+                return json.loads(completed.stdout)
+
+            return isolate_timed_out_items(batch, replay)
 
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
-            replay_rows = [row for batch in executor.map(replay_batch, batches) for row in batch]
+            futures = {executor.submit(replay_batch, batch): index for index, batch in enumerate(batches)}
+            completed_batches = [None] * len(batches)
+            for future in marimo.status.progress_bar(
+                as_completed(futures),
+                total=len(batches),
+                title="Replaying OpenCode Bash history and isolating slow commands",
+                subtitle=f"{len(events):,} commands in {len(batches)} batches (30-second batch limit)",
+                completion_title="OpenCode Bash replay complete",
+            ):
+                completed_batches[futures[future]] = future.result()
+            resolved = [item for batch, _ in completed_batches for item in batch]
+            timed_out = [item for _, batch in completed_batches for item in batch]
+            replay_by_index = {index: result for ((index, _), result) in resolved}
+            for index, event in timed_out:
+                replay_by_index[index] = {
+                    "command": event["command"],
+                    "policyDecision": "timeout",
+                    "policyAllowed": False,
+                    "policyDenied": False,
+                    "reason": "Policy replay exceeded 30 seconds for this command",
+                }
+            replay_rows = [replay_by_index[index] for index in range(len(events))]
     policy = pl.DataFrame(replay_rows, schema={
         "command": pl.String,
         "policyDecision": pl.String,
@@ -134,10 +159,20 @@ def _(history, pl, policy):
     results = history.with_row_index("replay_index").join(
         policy.with_row_index("replay_index"), on="replay_index", how="left"
     ).with_columns(
-        (pl.col("policy_decision") == pl.col("historical_decision")).alias("decision_matches_history")
+        (pl.col("policy_decision") == pl.col("historical_decision")).alias("decision_matches_history"),
+        (pl.col("policy_decision") == "timeout").alias("policy_timed_out"),
     )
     results
     return (results,)
+
+
+@app.cell
+def _(pl, results):
+    problematic_commands = results.filter(pl.col("policy_timed_out")).select(
+        "part_id", "session_id", "recorded_at", "command", "reason"
+    )
+    problematic_commands
+    return
 
 
 @app.cell

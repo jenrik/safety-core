@@ -95,7 +95,7 @@
 
           command-profile-tests = pkgs.runCommand "safety-core-command-profile-tests"
             {
-              nativeBuildInputs = [ pkgs.bash pkgs.bun ];
+              nativeBuildInputs = [ pkgs.bash pkgs.bun pkgs.python3 ];
             } ''
             set -e
             mkdir test-work
@@ -126,6 +126,7 @@
             bun test ./tests/bash-equivalence.test.ts
             bun test ./tests/bash-performance.test.ts
             bun test ./tests/opencode-history-adapter.test.ts
+            python -m unittest tests/test_replay_batches.py
             touch $out
           '';
 
