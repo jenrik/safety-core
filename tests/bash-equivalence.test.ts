@@ -40,6 +40,31 @@ test("records a command-local assignment overlay under an empty Bash environment
   }]);
 });
 
+test("records inherited and command-local exported variables for generated fixtures", async () => {
+  const random = lcg(0x0bac_1e55);
+
+  for (let index = 0; index < 32; index++) {
+    const inheritedName = `FIXTURE_${index}_${random()}`;
+    const inheritedValue = `inherited-${random()}`;
+    const localValue = `local-${random()}`;
+    const trace = await runBashOracle(`LOCAL=${localValue} record-command stable`, {
+      [inheritedName]: inheritedValue,
+    });
+
+    assertEquivalentOracleTrace(trace, [{
+      argv: ["stable"],
+      environment: { [inheritedName]: inheritedValue, LOCAL: localValue },
+    }]);
+  }
+});
+
+test("records exported variables with additional Bash attributes", async () => {
+  const trace = await runBashOracle("export SHELLOPTS; record-command stable");
+
+  expect(trace).toHaveLength(1);
+  expect(Object.hasOwn(trace[0]?.environment ?? {}, "SHELLOPTS")).toBeTrue();
+});
+
 test("reserves oracle PATH and trace controls after caller test environment", async () => {
   const trace = await runBashOracle('record-command stable', {
     BASH_ORACLE_TRACE: "caller-controlled",

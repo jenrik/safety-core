@@ -93,12 +93,16 @@ async function runOracle(
     writeFileSync(shimPath, `#!${bashPath}
 set -eu
 names=()
-while IFS= read -r name; do
+# compgen is optional in Bash builds, while export -p is always available.
+while IFS= read -r declaration; do
+  case "$declaration" in *=*) ;; *) continue ;; esac
+  name="\${declaration#declare -* }"
+  name="\${name%%=*}"
   case "$name" in
     BASH_ENV|BASH_ORACLE_*|ENV|PATH|PWD|SHLVL|_) continue ;;
   esac
   names+=("$name")
-done < <(compgen -e)
+done < <(export -p)
 {
   printf '%s\\0' '${recordType}' "$#"
   printf '%s\\0' "$@"
