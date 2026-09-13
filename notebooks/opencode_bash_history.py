@@ -97,14 +97,14 @@ def _(Path, ThreadPoolExecutor, as_completed, history, isolate_timed_out_items, 
         worker_count = max(1, min(int(workers.value), len(batches), 32))
 
         def replay_batch(batch):
-            def replay(items):
+            def replay(items, timeout):
                 completed = subprocess.run(
                     ["bun", "run", str(replay_script)],
                     input=json.dumps([event for _, event in items]),
                     text=True,
                     check=True,
                     capture_output=True,
-                    timeout=30,
+                    timeout=timeout,
                 )
                 return json.loads(completed.stdout)
 
@@ -117,7 +117,7 @@ def _(Path, ThreadPoolExecutor, as_completed, history, isolate_timed_out_items, 
                 as_completed(futures),
                 total=len(batches),
                 title="Replaying OpenCode Bash history and isolating slow commands",
-                subtitle=f"{len(events):,} commands in {len(batches)} batches (30-second batch limit)",
+                subtitle=f"{len(events):,} commands in {len(batches)} batches (30s batch, 5s singleton fallback)",
                 completion_title="OpenCode Bash replay complete",
             ):
                 completed_batches[futures[future]] = future.result()
@@ -130,7 +130,7 @@ def _(Path, ThreadPoolExecutor, as_completed, history, isolate_timed_out_items, 
                     "policyDecision": "timeout",
                     "policyAllowed": False,
                     "policyDenied": False,
-                    "reason": "Policy replay exceeded 30 seconds for this command",
+                    "reason": "Policy replay exceeded the 5-second singleton fallback limit",
                 }
             replay_rows = [replay_by_index[index] for index in range(len(events))]
     policy = pl.DataFrame(replay_rows, schema={
