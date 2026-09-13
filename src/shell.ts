@@ -34,7 +34,7 @@ let initPromise: Promise<void> | null = null;
  *
  * Idempotent — subsequent calls return the existing parser.
  */
-export async function initBashParser(wasmDir: string): Promise<void> {
+export async function initBashParser(wasmDir: string, grammarPath = `${wasmDir}/tree-sitter-bash.wasm`): Promise<void> {
   if (bashParser) return;
   if (initPromise) return initPromise;
 
@@ -47,7 +47,7 @@ export async function initBashParser(wasmDir: string): Promise<void> {
     });
 
     const BashLang = await Language.load(
-      `${wasmDir}/tree-sitter-bash.wasm`,
+      grammarPath,
     );
     bashParser = new Parser();
     bashParser.setLanguage(BashLang);

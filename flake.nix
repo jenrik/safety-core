@@ -103,6 +103,7 @@
             cp -r ${builtins.dirOf sc.opencodePluginFile}/data test-work/data
             cp -r ${builtins.dirOf sc.opencodePluginFile}/node_modules test-work/node_modules
             cp -r ${./adapters} test-work/adapters
+            cp -r ${./analysis} test-work/analysis
             cp -r ${./tests} test-work/tests
             cd test-work
             bun test tests/gh-pr-create-hook-parser-failure.test.ts
@@ -124,6 +125,7 @@
             bun test ./tests/bash-adapter.test.ts
             bun test ./tests/bash-equivalence.test.ts
             bun test ./tests/bash-performance.test.ts
+            bun test ./tests/opencode-history-adapter.test.ts
             touch $out
           '';
 
@@ -397,7 +399,13 @@
 
       devShells = forAllSystems (system: {
         default = (pkgsFor system).mkShell {
-          packages = [ (pkgsFor system).nodejs_22 ];
+          packages = [
+            (pkgsFor system).bun
+            (pkgsFor system).nodejs_22
+            (pkgsFor system).python3
+            (pkgsFor system).python3Packages.marimo
+            (pkgsFor system).python3Packages.polars
+          ];
         };
       });
     };
