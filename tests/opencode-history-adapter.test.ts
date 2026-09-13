@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { replayHistoricalBashEvent } from "../analysis/opencode-history-adapter.ts";
-import { isBashParserInitialized } from "../src/index.ts";
+import { replayHistoricalBashEvent, replayHistoricalBashEvents } from "../analysis/opencode-history-adapter.ts";
+import { isBashParserInitialized, setJudgeProvider } from "../src/index.ts";
 
 const configHome = mkdtempSync(join(tmpdir(), "safety-core-opencode-history-profile-"));
 const originalConfigHome = process.env.SAFETY_CORE_CONFIG_HOME;
@@ -46,12 +46,26 @@ describe("OpenCode historical Bash replay adapter", () => {
     expect(result.reason).toContain("credentials.json");
   });
 
+  test("keeps replay offline when a judge provider has already been installed", async () => {
+    writeFileSync(join(configHome, "safety-core", "profiles.json"), "{}");
+    setJudgeProvider(async () => {
+      throw new Error("The historical replay must not invoke the judge");
+    });
+
+    await expect(replayHistoricalBashEvent({ command: "kubectl get Secret example" })).resolves.toMatchObject({
+      policyDecision: "ask",
+    });
+  });
+
   test("property: each replay decision has exactly one matching decision flag", async () => {
     writeFileSync(join(configHome, "safety-core", "profiles.json"), JSON.stringify({ ghReadOnly: true }));
-    const commands = ["gh issue list", "cat credentials.json", "printf x", "gh issue list; id"];
+    const commands = Array.from({ length: 128 }, (_, index) => [
+      "gh issue list", "cat credentials.json", `printf replay-${index}`, "gh issue list; id",
+    ][index % 4]!);
 
-    for (const command of commands) {
-      const result = await replayHistoricalBashEvent({ command });
+    const results = await replayHistoricalBashEvents(commands.map((command) => ({ command })));
+    expect(results.map((result) => result.command)).toEqual(commands);
+    for (const result of results) {
       expect(Number(result.policyAllowed) + Number(result.policyDenied)).toBeLessThanOrEqual(1);
       expect(result.policyAllowed).toBe(result.policyDecision === "allow");
       expect(result.policyDenied).toBe(result.policyDecision === "deny");

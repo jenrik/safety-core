@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { initBashParser } from "../src/index.ts";
+import { initBashParser, setJudgeProvider } from "../src/index.ts";
 
 /**
  * Replay recorded OpenCode Bash calls through the production plugin hooks.
@@ -13,8 +13,6 @@ import { initBashParser } from "../src/index.ts";
 export interface HistoricalBashEvent {
   readonly command: string;
   readonly nativePermission?: "allow" | "ask" | "deny";
-  /** Disabled by default so replay never sends historical commands to an LLM provider. */
-  readonly allowJudge?: boolean;
 }
 
 export interface HistoricalBashPolicyResult {
@@ -28,10 +26,16 @@ export interface HistoricalBashPolicyResult {
 type OpenCodePlugin = Record<string, (input: Record<string, unknown>, output: Record<string, unknown>) => Promise<void>>;
 
 export async function replayHistoricalBashEvent(event: HistoricalBashEvent): Promise<HistoricalBashPolicyResult> {
-  if (typeof event.command !== "string") throw new Error("Historical Bash event command must be a string");
-  if (event.nativePermission && !["allow", "ask", "deny"].includes(event.nativePermission)) {
-    throw new Error(`Invalid native Bash permission status: ${event.nativePermission}`);
-  }
+  const [result] = await replayHistoricalBashEvents([event]);
+  return result!;
+}
+
+/** Replay an offline event batch using one initialized production plugin. */
+export async function replayHistoricalBashEvents(
+  events: readonly HistoricalBashEvent[],
+): Promise<readonly HistoricalBashPolicyResult[]> {
+  if (events.length === 0) return Object.freeze([]);
+  for (const event of events) validateEvent(event);
 
   // Source checkouts keep the grammar under node_modules; packaged adapters
   // keep it at their root. Initialize before importing the production plugin.
@@ -41,11 +45,24 @@ export async function replayHistoricalBashEvent(event: HistoricalBashEvent): Pro
     root,
     existsSync(packagedGrammar) ? packagedGrammar : `${root}/node_modules/tree-sitter-bash/tree-sitter-bash.wasm`,
   );
-  const plugin = await loadPlugin(event.allowJudge === true);
+  const plugin = await loadPlugin();
   const before = plugin["tool.execute.before"];
   const permission = plugin["permission.ask"];
   if (!before || !permission) throw new Error("OpenCode plugin did not register required Bash hooks");
 
+  const results: HistoricalBashPolicyResult[] = [];
+  for (const event of events) results.push(await replayWithPlugin(event, before, permission));
+  return Object.freeze(results);
+}
+
+async function replayWithPlugin(
+  event: HistoricalBashEvent,
+  before: OpenCodePlugin["tool.execute.before"],
+  permission: OpenCodePlugin["permission.ask"],
+): Promise<HistoricalBashPolicyResult> {
+  // The production plugin shares this provider at module scope. Clear it for
+  // every event so a concurrently loaded plugin cannot enable live judging.
+  setJudgeProvider(null);
   try {
     await before({ tool: "bash" }, { args: { command: event.command } });
   } catch (error) {
@@ -61,14 +78,21 @@ export async function replayHistoricalBashEvent(event: HistoricalBashEvent): Pro
   return result(event.command, policyDecision, null);
 }
 
-async function loadPlugin(allowJudge: boolean): Promise<OpenCodePlugin> {
-  if (allowJudge) return (await (await import("../adapters/opencode.ts")).default()) as OpenCodePlugin;
+function validateEvent(event: HistoricalBashEvent): void {
+  if (!event || typeof event.command !== "string") throw new Error("Historical Bash event command must be a string");
+  if (event.nativePermission && !["allow", "ask", "deny"].includes(event.nativePermission)) {
+    throw new Error(`Invalid native Bash permission status: ${event.nativePermission}`);
+  }
+}
 
+async function loadPlugin(): Promise<OpenCodePlugin> {
   const keys = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"] as const;
   const original = new Map(keys.map((key) => [key, process.env[key]]));
   try {
     for (const key of keys) delete process.env[key];
-    return (await (await import("../adapters/opencode.ts")).default()) as OpenCodePlugin;
+    const plugin = (await (await import("../adapters/opencode.ts")).default()) as OpenCodePlugin;
+    setJudgeProvider(null);
+    return plugin;
   } finally {
     for (const key of keys) {
       const value = original.get(key);

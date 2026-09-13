@@ -6,6 +6,7 @@ app = marimo.App(width="full")
 
 @app.cell
 def _():
+    from concurrent.futures import ThreadPoolExecutor
     import json
     import marimo
     import os
@@ -26,7 +27,7 @@ def _():
     records executed tool calls, not native permission prompts denied before a
     tool call was created.
     """)
-    return Path, json, marimo, os, pl, sqlite3, subprocess
+    return Path, ThreadPoolExecutor, json, marimo, os, pl, sqlite3, subprocess
 
 
 @app.cell
@@ -34,8 +35,9 @@ def _(Path, marimo, os):
     default_database = Path(os.environ.get("OPENCODE_DATABASE", Path.home() / ".local/share/opencode/opencode.db"))
     database_path = marimo.ui.text(label="OpenCode SQLite database", value=str(default_database), full_width=True)
     limit = marimo.ui.number(label="Commands to replay (0 = all)", value=500, start=0, step=100)
-    marimo.vstack([database_path, limit])
-    return database_path, limit
+    workers = marimo.ui.number(label="Parallel replay workers (max 32)", value=min(8, os.cpu_count() or 1), start=1, stop=32, step=1)
+    marimo.vstack([database_path, limit, workers])
+    return database_path, limit, workers
 
 
 @app.cell
@@ -84,19 +86,28 @@ def _(history):
 
 
 @app.cell
-def _(Path, history, json, pl, subprocess):
+def _(Path, ThreadPoolExecutor, history, json, pl, subprocess, workers):
     events = [{"command": command, "nativePermission": "ask"} for command in history.get_column("command").to_list()]
     replay_script = Path(__file__).parents[1] / "analysis/replay-opencode-history.ts"
     replay_rows = []
     if events:
-        completed = subprocess.run(
-            ["bun", "run", str(replay_script)],
-            input=json.dumps(events),
-            text=True,
-            check=True,
-            capture_output=True,
-        )
-        replay_rows = json.loads(completed.stdout)
+        worker_count = max(1, min(int(workers.value), len(events), 32))
+        chunk_size = (len(events) + worker_count - 1) // worker_count
+        batches = [events[offset:offset + chunk_size] for offset in range(0, len(events), chunk_size)]
+
+        def replay_batch(batch):
+            completed = subprocess.run(
+                ["bun", "run", str(replay_script)],
+                input=json.dumps(batch),
+                text=True,
+                check=True,
+                capture_output=True,
+                timeout=600,
+            )
+            return json.loads(completed.stdout)
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            replay_rows = [row for batch in executor.map(replay_batch, batches) for row in batch]
     policy = pl.DataFrame(replay_rows, schema={
         "command": pl.String,
         "policyDecision": pl.String,
