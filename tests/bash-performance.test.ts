@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { analyzeBashAuthorization, initBashParser } from "../src/index.ts";
+import { analyzeBashAuthorization, initBashParser, parseBashProgram } from "../src/index.ts";
 import { fromInitialEnvironment } from "../src/bash/environment.ts";
 import { safe } from "../src/bash/outcome.ts";
 import { DEFAULT_BASH_ANALYSIS_LIMITS, runSteps, type DispatchTarget } from "../src/bash/runner.ts";
@@ -49,6 +49,29 @@ test("reports the linear assignment-workload relationship used to calibrate maxS
   }
 });
 
+test.each([
+  ["sequential-conditionals", conditionalSequence(64)],
+  ["conditional-loop", `while condition; do ${conditionalSequence(16)}; done`],
+  ["short-circuit-chain", Array.from({ length: 64 }, (_, index) => `command-${index}`).join(" && ")],
+] as const)("keeps the %s walker workload within the one-second guideline", (name, source) => {
+  const measurement = measure(name, () => analyze(source).outcome);
+
+  console.info(`Branch-heavy ${measurement.name}: ${measurement.milliseconds.toFixed(1)} ms`);
+  expect(measurement.outcome).toMatchObject({ kind: "indeterminate" });
+  expect(measurement.milliseconds).toBeLessThanOrEqual(1_000);
+});
+
+test("projects a long mixed short-circuit chain within the one-second guideline", () => {
+  const source = Array.from({ length: 4_096 }, (_, index) => `command-${index}`)
+    .map((command, index) => index === 0 ? command : `${index % 2 === 0 ? "&&" : "||"} ${command}`)
+    .join(" ");
+  const measurement = measure("mixed-short-circuit-projection", () => parseBashProgram(source));
+
+  console.info(`Branch-heavy ${measurement.name}: ${measurement.milliseconds.toFixed(1)} ms`);
+  expect(measurement.outcome).toMatchObject({ kind: "program" });
+  expect(measurement.milliseconds).toBeLessThanOrEqual(1_000);
+});
+
 function analyze(source: string, limits = DEFAULT_BASH_ANALYSIS_LIMITS) {
   return analyzeBashAuthorization({ source, limits, includeBaseHandlers: false });
 }
@@ -67,6 +90,13 @@ function nestedSh(): string {
 
 function assignmentSequence(length: number): string {
   return Array.from({ length }, (_, index) => `VALUE=${index}`).join("; ");
+}
+
+function conditionalSequence(length: number): string {
+  return Array.from(
+    { length },
+    () => "if condition; then unknown-command; else unknown-command; fi",
+  ).join("; ");
 }
 
 function exhaustWorkItems(length: number) {

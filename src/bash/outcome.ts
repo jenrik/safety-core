@@ -58,12 +58,71 @@ export type AuthorizationVerdict =
   | { readonly kind: "neutral" }
   | { readonly kind: "deny"; readonly span: SourceSpan };
 
+type OutcomeLog =
+  | { readonly kind: "empty" }
+  | { readonly kind: "append"; readonly previous: OutcomeLog; readonly outcome: Outcome }
+  | { readonly kind: "concat"; readonly parts: readonly OutcomeLog[] };
+
+/** Compact walker evidence. Plain safe outcomes are the identity. */
+export interface OutcomeSummary {
+  readonly strongest: Outcome;
+  readonly events: OutcomeLog;
+}
+
 const SAFE: SafeOutcome = Object.freeze({ kind: "safe" });
 const ALLOW: AuthorizationVerdict = Object.freeze({ kind: "allow" });
 const NEUTRAL: AuthorizationVerdict = Object.freeze({ kind: "neutral" });
+const EMPTY_OUTCOME_LOG: OutcomeLog = Object.freeze({ kind: "empty" });
+const EMPTY_OUTCOME_SUMMARY: OutcomeSummary = Object.freeze({ strongest: SAFE, events: EMPTY_OUTCOME_LOG });
 
 export function safe(): SafeOutcome {
   return SAFE;
+}
+
+export function emptyOutcomeSummary(): OutcomeSummary {
+  return EMPTY_OUTCOME_SUMMARY;
+}
+
+/** Add one outcome without retaining ordinary safe observations or copying prior evidence. */
+export function appendOutcomeSummary(summary: OutcomeSummary, outcome: Outcome): OutcomeSummary {
+  if (summary.strongest.kind === "deny") return summary;
+  const candidate = redactOutcome(outcome);
+  const strongest = selectStrongest(summary.strongest, candidate);
+  if (strongest === summary.strongest && (candidate.policies?.length ?? 0) === 0) return summary;
+  return freeze({
+    strongest,
+    events: freeze({ kind: "append", previous: summary.events, outcome: candidate }),
+  });
+}
+
+/** Merge path summaries while retaining shared policy prefixes only once. */
+export function mergeOutcomeSummaries(summaries: Iterable<OutcomeSummary>): OutcomeSummary {
+  let strongest: Outcome = SAFE;
+  const events: OutcomeLog[] = [];
+  for (const summary of summaries) {
+    if (strongest.kind === "deny") break;
+    strongest = selectStrongest(strongest, summary.strongest);
+    if (summary.events.kind !== "empty") events.push(summary.events);
+  }
+  if (strongest === SAFE && events.length === 0) return EMPTY_OUTCOME_SUMMARY;
+  return freeze({
+    strongest,
+    events: events.length === 0
+      ? EMPTY_OUTCOME_LOG
+      : events.length === 1
+        ? events[0]!
+        : freeze({ kind: "concat", parts: Object.freeze(events) }),
+  });
+}
+
+export function outcomeSummaryIsDeny(summary: OutcomeSummary): boolean {
+  return summary.strongest.kind === "deny";
+}
+
+/** Materialize the public outcome once, de-duplicating physically shared log prefixes. */
+export function materializeOutcomeSummary(summary: OutcomeSummary): Outcome {
+  const outcomes = materializeOutcomes(summary.events);
+  return outcomes.length === 0 ? SAFE : strongestOutcome(outcomes);
 }
 
 export function policySafe(policy: PolicyEvidence): SafeOutcome {
@@ -138,6 +197,40 @@ function rank(outcome: Outcome): number {
     case "failure": return 2;
     case "deny": return 3;
   }
+}
+
+function selectStrongest(current: Outcome, candidate: Outcome): Outcome {
+  if (candidate.kind === "deny") return candidate;
+  return rank(candidate) > rank(current)
+    || (rank(candidate) === rank(current) && "policy" in candidate && candidate.policy)
+    ? candidate
+    : current;
+}
+
+function materializeOutcomes(root: OutcomeLog): readonly Outcome[] {
+  const outcomes: Outcome[] = [];
+  const visited = new Set<OutcomeLog>();
+  const agenda: Array<OutcomeLog | { readonly kind: "emit"; readonly outcome: Outcome }> = [root];
+  while (agenda.length > 0) {
+    const item = agenda.pop()!;
+    if (item.kind === "emit") {
+      outcomes.push(item.outcome);
+      continue;
+    }
+    if (visited.has(item)) continue;
+    visited.add(item);
+    switch (item.kind) {
+      case "empty":
+        break;
+      case "append":
+        agenda.push({ kind: "emit", outcome: item.outcome }, item.previous);
+        break;
+      case "concat":
+        for (let index = item.parts.length - 1; index >= 0; index--) agenda.push(item.parts[index]!);
+        break;
+    }
+  }
+  return Object.freeze(outcomes);
 }
 
 function copySpan(span: SourceSpan): SourceSpan {

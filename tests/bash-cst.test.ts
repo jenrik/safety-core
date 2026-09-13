@@ -64,6 +64,25 @@ describe("parseBashProgram", () => {
       operators: ["&&"],
       statements: [{ kind: "command" }, { kind: "command" }],
     });
+    const operators = Array.from({ length: 63 }, () => "&&" as const);
+    const chain = Array.from({ length: 64 }, (_, index) => `command-${index}`)
+      .map((command, index) => index === 0 ? command : `${operators[index - 1]} ${command}`)
+      .join(" ");
+    expect(programFor(chain).statements[0]).toMatchObject({
+      kind: "list",
+      operators,
+      statements: Array.from({ length: 64 }, () => ({ kind: "command" })),
+    });
+    expect(programFor("command-0 && command-1 || command-2").statements[0]).toMatchObject({
+      kind: "list",
+      operators: ["||"],
+      statements: [{ kind: "list", operators: ["&&"] }, { kind: "command" }],
+    });
+    expect(programFor("condition || # retained comment\ncommand").statements[0]).toMatchObject({
+      kind: "list",
+      operators: ["||"],
+      statements: [{ kind: "command" }, { kind: "command" }],
+    });
     expect(programFor("(echo sub)").statements[0]).toMatchObject({
       kind: "subshell",
       statements: [{ kind: "command" }],

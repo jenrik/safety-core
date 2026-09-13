@@ -19,7 +19,20 @@ import {
   type EnvironmentPatch,
 } from "./environment.js";
 import { transitionBuiltin } from "./handlers/builtins.js";
-import { analysisFailure, indeterminate, policyDeny, safe, strongestOutcome, type Outcome } from "./outcome.js";
+import {
+  analysisFailure,
+  appendOutcomeSummary,
+  emptyOutcomeSummary,
+  indeterminate,
+  materializeOutcomeSummary,
+  mergeOutcomeSummaries,
+  outcomeSummaryIsDeny,
+  policyDeny,
+  safe,
+  strongestOutcome,
+  type Outcome,
+  type OutcomeSummary,
+} from "./outcome.js";
 import { analyzeSecretRedirectInvocation } from "./policies/secrets.js";
 import type { DispatchTarget, Step } from "./runner.js";
 
@@ -74,7 +87,7 @@ interface Path {
   readonly functions: ReadonlyMap<string, readonly BashFunction[]>;
   /** Function names whose call can still resolve to an external command on another path. */
   readonly missingFunctions: ReadonlySet<string>;
-  readonly outcomes: readonly Outcome[];
+  readonly outcome: OutcomeSummary;
   readonly writes: ReadonlySet<string>;
   readonly functionDepth: number;
   readonly nestedScriptDepth: number;
@@ -96,7 +109,7 @@ interface Work {
  * injected, so this layer only models Bash statement and binding semantics.
  */
 export function walkProgram(program: BashProgram, context: BashWalkContext): Step {
-  const initial = path(context.environment, new Map(), new Set(), [], new Set(), 0, 0, false, false);
+  const initial = path(context.environment, new Map(), new Set(), emptyOutcomeSummary(), new Set(), 0, 0, false, false);
   const target: DispatchTarget = {
     span: programSpan(program),
     functionDepth: 0,
@@ -152,8 +165,7 @@ function evaluateProgram(program: BashProgram, context: BashWalkContext, initial
       inPipeline: work.inPipeline,
     });
     const completeWithDeny = (next: Path): void => {
-      const outcome = strongestOutcome(next.outcomes);
-      if (outcome.kind === "deny") denied = outcome;
+      if (outcomeSummaryIsDeny(next.outcome)) denied = materializeOutcomeSummary(next.outcome);
       else continueWork(next);
     };
 
@@ -171,9 +183,9 @@ function evaluateProgram(program: BashProgram, context: BashWalkContext, initial
             work.path.environment,
             false,
             work.path.nestedScriptDepth,
-            [...work.path.outcomes, ...finished.outcomes.slice(work.path.outcomes.length)],
+            finished.outcome,
           );
-          if (strongestOutcome(nested.outcomes).kind === "deny") {
+          if (outcomeSummaryIsDeny(nested.outcome)) {
             completeWithDeny(nested);
             return;
           }
@@ -210,7 +222,7 @@ function evaluateProgram(program: BashProgram, context: BashWalkContext, initial
           work.path.environment,
           false,
           work.path.nestedScriptDepth,
-          [...work.path.outcomes, ...finished.outcomes.slice(work.path.outcomes.length)],
+          finished.outcome,
         )), schedule);
         break;
       }
@@ -240,7 +252,9 @@ function evaluateProgram(program: BashProgram, context: BashWalkContext, initial
     }
   }
 
-  const terminal = denied ?? limitFailure ?? strongestOutcome(completed.flatMap((result) => result.outcomes));
+  const terminal = denied ?? limitFailure ?? materializeOutcomeSummary(
+    mergeOutcomeSummaries(completed.map((result) => result.outcome)),
+  );
   const state = completed[0]?.environment ?? initial.environment;
   const finalTarget: DispatchTarget = {
     span: programSpan(program),
@@ -275,9 +289,9 @@ function executeCommand(
           input.environment,
           false,
           input.nestedScriptDepth,
-          [...input.outcomes, ...finished.outcomes.slice(input.outcomes.length)],
+          finished.outcome,
         );
-        if (strongestOutcome(nested.outcomes).kind === "deny") {
+        if (outcomeSummaryIsDeny(nested.outcome)) {
           completeWithDeny(nested);
           return;
         }
@@ -311,7 +325,7 @@ function executeCommand(
       );
       return;
     }
-    complete(withEnvironment(input, normalized.assignmentPatch.environment, false, input.nestedScriptDepth, input.outcomes, appendWrites(input.writes, normalized.assignmentPatch.writes)));
+    complete(withEnvironment(input, normalized.assignmentPatch.environment, false, input.nestedScriptDepth, input.outcome, appendWrites(input.writes, normalized.assignmentPatch.writes)));
     return;
   }
   if (normalized.executable.kind === "unknown") {
@@ -331,8 +345,8 @@ function executeCommand(
   if (builtin.handled) {
     const returnsFromFunction = builtin.returned && input.functionDepth > 0;
     const next = returnsFromFunction
-      ? withEnvironment(input, builtin.environment, true, input.nestedScriptDepth, input.outcomes, appendWrites(input.writes, builtin.writes))
-      : withEnvironment(input, builtin.environment, false, input.nestedScriptDepth, input.outcomes, appendWrites(input.writes, builtin.writes));
+      ? withEnvironment(input, builtin.environment, true, input.nestedScriptDepth, input.outcome, appendWrites(input.writes, builtin.writes))
+      : withEnvironment(input, builtin.environment, false, input.nestedScriptDepth, input.outcome, appendWrites(input.writes, builtin.writes));
     const transitioned = builtin.outcome ? addOutcome(next, builtin.outcome) : next;
     if (builtin.dispatch) {
       dispatchNormalized(normalized, transitioned, context, completeWithDeny, schedule, command.span, transitioned.environment, inPipeline);
@@ -401,7 +415,7 @@ function dispatchNormalized(
   let remaining = result.continuations.length;
   const completed: Array<{ readonly path: Path; readonly isolate: boolean }> = [];
   const finishContinuations = (): void => {
-    const outcomes = completed.flatMap(({ path }) => path.outcomes);
+    const outcome = mergeOutcomeSummaries(completed.map(({ path }) => path.outcome));
     const nonIsolated = completed.filter((item) => !item.isolate);
     const environment = nonIsolated.length === 0
       ? next.environment
@@ -409,7 +423,7 @@ function dispatchNormalized(
         forkCheckpoint(next.environment),
         nonIsolated.map(({ path }) => ({ environment: path.environment, writes: path.writes } satisfies EnvironmentPatch)),
       );
-    complete(withEnvironment(next, environment, false, next.nestedScriptDepth, outcomes));
+    complete(withEnvironment(next, environment, false, next.nestedScriptDepth, outcome));
   };
   for (let index = result.continuations.length - 1; index >= 0; index--) {
     const continuation = result.continuations[index]!;
@@ -505,7 +519,7 @@ function scheduleFunctionCall(
         ? known(argument.value)
         : unknown({ kind: argument.reason.kind, span: argument.reason.span }));
     });
-    const called = withEnvironment(input, frame, false, input.nestedScriptDepth, input.outcomes, input.writes, input.functionDepth + 1);
+    const called = withEnvironment(input, frame, false, input.nestedScriptDepth, input.outcome, input.writes, input.functionDepth + 1);
     if (called.functionDepth > called.environment.budgets.functionDepth) {
       complete(addOutcome(called, analysisFailure("max-function-depth", command.span)));
       continue;
@@ -545,13 +559,19 @@ function schedulePipeline(
     return;
   }
   let remaining = statements.length;
-  const outcomes: Outcome[] = [];
+  const outcomes: OutcomeSummary[] = [];
   for (let index = statements.length - 1; index >= 0; index--) {
     const child = withEnvironment(input, pushSubshellFrame(input.environment), false, input.nestedScriptDepth + 1);
     scheduleNested([statements[index]!], child, (finished) => {
-      outcomes.push(...finished.outcomes.slice(input.outcomes.length));
+      outcomes.push(finished.outcome);
       remaining--;
-      if (remaining === 0) complete(withEnvironment(input, input.environment, false, input.nestedScriptDepth, [...input.outcomes, ...outcomes]));
+      if (remaining === 0) complete(withEnvironment(
+        input,
+        input.environment,
+        false,
+        input.nestedScriptDepth,
+        mergeOutcomeSummaries(outcomes),
+      ));
     }, schedule, true);
   }
 }
@@ -570,7 +590,13 @@ function scheduleUnsupportedLoop(
     branches.push(branch);
     if (branches.length !== 3) return;
     const merged = mergeCheckpoint(checkpoint, branches.map((item) => ({ environment: item.environment, writes: item.writes } satisfies EnvironmentPatch)));
-    complete(withEnvironment(input, merged, false, input.nestedScriptDepth, branches.flatMap((item) => item.outcomes)));
+    complete(withEnvironment(
+      input,
+      merged,
+      false,
+      input.nestedScriptDepth,
+      mergeOutcomeSummaries(branches.map((item) => item.outcome)),
+    ));
   };
   const body = resetWrites(addOutcome(withEnvironment(input, taintFrame(input.environment, { kind: "unsupported-loop", span: statement.span })), indeterminate(statement.span)));
   scheduleNested(statement.statements, body, finish, schedule);
@@ -600,7 +626,13 @@ function scheduleIf(
         finished.push(branch);
         if (finished.length !== branches.length) return;
         const merged = mergeCheckpoint(checkpoint, finished.map((item) => ({ environment: item.environment, writes: item.writes } satisfies EnvironmentPatch)));
-        const joined = withEnvironment(condition, merged, finished.every((item) => item.returned), condition.nestedScriptDepth, finished.flatMap((item) => item.outcomes));
+        const joined = withEnvironment(
+          condition,
+          merged,
+          finished.every((item) => item.returned),
+          condition.nestedScriptDepth,
+          mergeOutcomeSummaries(finished.map((item) => item.outcome)),
+        );
         const functions = mergeFunctions(finished);
         complete(withFunctions(joined, functions.functions, functions.missing));
       }, schedule);
@@ -639,7 +671,7 @@ function path(
   environment: Environment,
   functions: ReadonlyMap<string, readonly BashFunction[]>,
   missingFunctions: ReadonlySet<string>,
-  outcomes: readonly Outcome[],
+  outcome: OutcomeSummary,
   writes: ReadonlySet<string>,
   functionDepth: number,
   nestedScriptDepth: number,
@@ -648,10 +680,10 @@ function path(
 ): Path {
   return freeze({
     environment,
-    functions: new Map(functions),
-    missingFunctions: new Set(missingFunctions),
-    outcomes: Object.freeze([...outcomes]),
-    writes: new Set(writes),
+    functions,
+    missingFunctions,
+    outcome,
+    writes,
     functionDepth,
     nestedScriptDepth,
     returned,
@@ -664,7 +696,7 @@ function withEnvironment(
   environment: Environment,
   returned = input.returned,
   nestedScriptDepth = input.nestedScriptDepth,
-  outcomes = input.outcomes,
+  outcome = input.outcome,
   writes: ReadonlySet<string> = input.writes,
   functionDepth = input.functionDepth,
 ): Path {
@@ -672,7 +704,7 @@ function withEnvironment(
     environment,
     input.functions,
     input.missingFunctions,
-    outcomes,
+    outcome,
     writes,
     functionDepth,
     nestedScriptDepth,
@@ -686,11 +718,11 @@ function withFunction(input: Path, definition: BashFunction): Path {
   const missingFunctions = new Set(input.missingFunctions);
   functions.set(definition.name, Object.freeze([definition]));
   missingFunctions.delete(definition.name);
-  return path(input.environment, functions, missingFunctions, input.outcomes, input.writes, input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding);
+  return path(input.environment, functions, missingFunctions, input.outcome, input.writes, input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding);
 }
 
 function withFunctions(input: Path, functions: ReadonlyMap<string, readonly BashFunction[]>, missingFunctions: ReadonlySet<string>): Path {
-  return path(input.environment, functions, missingFunctions, input.outcomes, input.writes, input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding);
+  return path(input.environment, functions, missingFunctions, input.outcome, input.writes, input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding);
 }
 
 /** Preserves every branch-reachable definition so a later call walks them all. */
@@ -713,7 +745,7 @@ function mergeFunctions(branches: readonly Path[]): { readonly functions: Readon
 }
 
 function resetWrites(input: Path): Path {
-  return path(input.environment, input.functions, input.missingFunctions, input.outcomes, new Set(), input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding);
+  return path(input.environment, input.functions, input.missingFunctions, input.outcome, new Set(), input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding);
 }
 
 function appendWrites(existing: ReadonlySet<string>, next: ReadonlySet<string> | readonly string[]): ReadonlySet<string> {
@@ -721,7 +753,7 @@ function appendWrites(existing: ReadonlySet<string>, next: ReadonlySet<string> |
 }
 
 function addOutcome(input: Path, outcome: Outcome): Path {
-  return path(input.environment, input.functions, input.missingFunctions, [...input.outcomes, outcome], input.writes, input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding);
+  return path(input.environment, input.functions, input.missingFunctions, appendOutcomeSummary(input.outcome, outcome), input.writes, input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding);
 }
 
 function withSourceBindingProvenance(input: Path, sourceDerivedFromBinding: boolean): Path {
@@ -729,7 +761,7 @@ function withSourceBindingProvenance(input: Path, sourceDerivedFromBinding: bool
     input.environment,
     input.functions,
     input.missingFunctions,
-    input.outcomes,
+    input.outcome,
     input.writes,
     input.functionDepth,
     input.nestedScriptDepth,

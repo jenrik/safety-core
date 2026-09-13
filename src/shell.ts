@@ -11,6 +11,7 @@ import type {
   BashFunction,
   BashGroup,
   BashIf,
+  BashList,
   BashParseFailure,
   BashPipeline,
   BashProgram,
@@ -244,14 +245,7 @@ function projectStatement(node: SyntaxNode): BashStatement {
     case "function_definition":
       return projectFunction(node);
     case "list":
-      return {
-        kind: "list",
-        statements: node.namedChildren.map(projectStatement),
-        operators: node.children
-          .filter((child) => child.type === "&&" || child.type === "||")
-          .map((child) => child.type as "&&" | "||"),
-        span: span(node),
-      };
+      return projectList(node);
     case "pipeline":
       return {
         kind: "pipeline",
@@ -268,6 +262,44 @@ function projectStatement(node: SyntaxNode): BashStatement {
     default:
       return projectUnsupported(node);
   }
+}
+
+/** Flatten homogeneous left-recursive lists; mixed operators retain their control-flow tree. */
+function projectList(node: SyntaxNode): BashList {
+  const frames: Array<{
+    readonly operator: "&&" | "||";
+    readonly right: SyntaxNode;
+    readonly span: SourceSpan;
+  }> = [];
+  let current = node;
+  while (current.type === "list") {
+    const operands = current.namedChildren.filter((child) => child.type !== "comment");
+    const left = operands[0];
+    const right = operands.at(-1);
+    const operator = current.children.find((child) => child.type === "&&" || child.type === "||");
+    if (!left || !right || !operator) break;
+    frames.push({ operator: operator.type as "&&" | "||", right, span: span(current) });
+    current = left;
+  }
+  const ordered = frames.reverse();
+  if (ordered.length > 0 && ordered.every((frame) => frame.operator === ordered[0]!.operator)) {
+    return {
+      kind: "list",
+      statements: [projectStatement(current), ...ordered.map((frame) => projectStatement(frame.right))],
+      operators: ordered.map((frame) => frame.operator),
+      span: span(node),
+    };
+  }
+  let projected = projectStatement(current);
+  for (const frame of ordered) {
+    projected = {
+      kind: "list",
+      statements: [projected, projectStatement(frame.right)],
+      operators: [frame.operator],
+      span: frame.span,
+    };
+  }
+  return projected as BashList;
 }
 
 function projectRedirectedStatement(node: SyntaxNode): BashStatement {

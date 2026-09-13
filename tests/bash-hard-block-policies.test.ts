@@ -36,6 +36,14 @@ describe("walker-backed hard-block compatibility policies", () => {
     expect(parseBashForSecretRead("cat README.md; env -i cat credentials.json")).toContain("cat");
   });
 
+  test("retains short-circuit path correlations needed for hard blocks", () => {
+    expect(parseBashForSecretRead('condition && FILE=credentials.json; cat "$FILE"')).toContain("cat");
+    expect(parseBashForSecretRead("condition || # keep the right operand\ncat credentials.json")).toContain("cat");
+    expect(parseBashForSecretRead(
+      'X=credentials.json; Y=README.md; condition && X=README.md || Y=$X; cat "$Y"',
+    )).toContain("cat");
+  });
+
   test("applies env environment operands to its child command", () => {
     const blocked = "https://api.github.com/repos/example/project/issues";
 
@@ -167,6 +175,15 @@ describe("walker-backed hard-block compatibility policies", () => {
       const safePrefix = ["cat README.md", "curl https://example.test", "kubectl get pods"][random() % 3]!;
       expect(analyzeBashAuthorization({ source: `${safePrefix}; unknown-command; ${wrap(command)}` }).verdict.kind)
         .toBe("deny");
+    }
+  });
+
+  test("property: flattened short-circuit chains preserve a reachable secret assignment", () => {
+    for (let length = 1; length <= 32; length++) {
+      const conditions = Array.from({ length }, (_, index) => `condition-${index}`);
+      const source = `${conditions.join(" && ")} && FILE=credentials.json; cat "$FILE"`;
+
+      expect(parseBashForSecretRead(source), source).toContain("cat");
     }
   });
 });

@@ -2,11 +2,17 @@ import { describe, expect, test } from "bun:test";
 
 import {
   analysisFailure,
+  appendOutcomeSummary,
   deny,
+  emptyOutcomeSummary,
   failure,
   finalize,
   indeterminate,
+  materializeOutcomeSummary,
+  mergeOutcomeSummaries,
+  policySafe,
   safe,
+  strongestOutcome,
 } from "../src/bash/outcome.ts";
 import {
   DEFAULT_BASH_ANALYSIS_LIMITS,
@@ -48,6 +54,115 @@ describe("Bash authorization outcomes", () => {
     expect(Object.isFrozen(outcome.span)).toBeTrue();
     expect(outcome).not.toHaveProperty("value");
     expect(() => { (outcome.span as { start: number }).start = 0; }).toThrow();
+  });
+
+  test("does not retain ordinary safe outcomes", () => {
+    const empty = emptyOutcomeSummary();
+    let summary = empty;
+
+    for (let index = 0; index < 10_000; index++) summary = appendOutcomeSummary(summary, safe());
+
+    expect(summary).toBe(empty);
+    expect(materializeOutcomeSummary(summary)).toBe(safe());
+  });
+
+  test("retains a shared policy prefix once when branches rejoin", () => {
+    const prefix = appendOutcomeSummary(emptyOutcomeSummary(), labeledSafe("prefix"));
+    const left = appendOutcomeSummary(prefix, labeledSafe("left"));
+    const right = appendOutcomeSummary(prefix, labeledSafe("right"));
+
+    const summary = mergeOutcomeSummaries([left, right]);
+    expect(left.events.kind).toBe("append");
+    expect(right.events.kind).toBe("append");
+    if (left.events.kind === "append") expect(left.events.previous).toBe(prefix.events);
+    if (right.events.kind === "append") expect(right.events.previous).toBe(prefix.events);
+    const merged = materializeOutcomeSummary(summary);
+
+    expect(merged.policies?.map((policy) => policy.reason)).toEqual(["prefix", "left", "right"]);
+    expect(merged.policy?.reason).toBe("right");
+
+    const descendantThenPrefix = materializeOutcomeSummary(mergeOutcomeSummaries([left, prefix]));
+    expect(descendantThenPrefix.policies?.map((policy) => policy.reason)).toEqual(["prefix", "left"]);
+    expect(descendantThenPrefix.policy?.reason).toBe("left");
+  });
+
+  test("retains physically distinct equal policy observations", () => {
+    const first = appendOutcomeSummary(emptyOutcomeSummary(), labeledSafe("same"));
+    const second = appendOutcomeSummary(emptyOutcomeSummary(), labeledSafe("same"));
+
+    expect(materializeOutcomeSummary(mergeOutcomeSummaries([first, second])).policies).toHaveLength(2);
+  });
+
+  test("property: compact sequential summaries equal the flat outcome reduction", () => {
+    const random = lcg(0x0ca7c0de);
+    for (let iteration = 0; iteration < 128; iteration++) {
+      const outcomes: Outcome[] = [];
+      const length = 1 + (random() % 64);
+      for (let index = 0; index < length; index++) {
+        const candidate = random() % 6;
+        outcomes.push(candidate === 0
+          ? safe()
+          : candidate === 1
+            ? labeledSafe(`${iteration}-${index}`)
+            : candidate === 2
+              ? indeterminate({ start: index, end: index + 1 })
+              : candidate === 3
+                ? failure({ start: index, end: index + 1 })
+                : candidate === 4
+                  ? analysisFailure("max-steps", { start: index, end: index + 1 })
+                  : deny({ start: index, end: index + 1 }));
+      }
+
+      const summary = outcomes.reduce(appendOutcomeSummary, emptyOutcomeSummary());
+      expect(materializeOutcomeSummary(summary)).toEqual(strongestOutcome(outcomes));
+    }
+  });
+
+  test("property: shared policy storage materializes proportional evidence", () => {
+    let prefix = emptyOutcomeSummary();
+    const prefixLength = 1_000;
+    for (let index = 0; index < prefixLength; index++) {
+      prefix = appendOutcomeSummary(prefix, labeledSafe(`prefix-${index}`));
+    }
+    const branchCount = 64;
+    const branches = Array.from({ length: branchCount }, (_, index) =>
+      appendOutcomeSummary(prefix, labeledSafe(`branch-${index}`)));
+    for (const branch of branches) {
+      expect(branch.events.kind).toBe("append");
+      if (branch.events.kind === "append") expect(branch.events.previous).toBe(prefix.events);
+    }
+
+    const policies = materializeOutcomeSummary(mergeOutcomeSummaries(branches)).policies ?? [];
+
+    expect(policies).toHaveLength(prefixLength + branchCount);
+    expect(policies[0]?.reason).toBe("prefix-0");
+    expect(policies.at(-1)?.reason).toBe(`branch-${branchCount - 1}`);
+  });
+
+  test("property: nested shared-prefix merges preserve first-occurrence order", () => {
+    const random = lcg(0x5a4ed109);
+    for (let iteration = 0; iteration < 64; iteration++) {
+      const prefixLength = 1 + (random() % 16);
+      let prefix = emptyOutcomeSummary();
+      const expected: string[] = [];
+      for (let index = 0; index < prefixLength; index++) {
+        const reason = `prefix-${iteration}-${index}`;
+        expected.push(reason);
+        prefix = appendOutcomeSummary(prefix, labeledSafe(reason));
+      }
+      const branchCount = 2 + (random() % 8);
+      const branches = Array.from({ length: branchCount }, (_, index) => {
+        const reason = `branch-${iteration}-${index}`;
+        expected.push(reason);
+        return appendOutcomeSummary(prefix, labeledSafe(reason));
+      });
+      const nested = branches.reduce(
+        (summary, branch) => mergeOutcomeSummaries([summary, branch]),
+        emptyOutcomeSummary(),
+      );
+
+      expect(materializeOutcomeSummary(nested).policies?.map((policy) => policy.reason)).toEqual(expected);
+    }
   });
 });
 
@@ -285,6 +400,10 @@ function fork(targets: readonly DispatchTarget[]): Step {
 
 function result(outcome: ReturnType<typeof safe> | ReturnType<typeof indeterminate> | ReturnType<typeof failure> | ReturnType<typeof deny>): Step {
   return { kind: "result", state: fromInitialEnvironment(), outcome, span };
+}
+
+function labeledSafe(reason: string) {
+  return policySafe({ name: "strict-read-only", decision: "allow", reason, readOnly: { tool: "test" } });
 }
 
 function lcg(seed: number): () => number {
