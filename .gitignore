@@ -1,2 +1,5 @@
 node_modules/
 result
+__marimo__/
+__pycache__/
+*.pyc
