@@ -41,6 +41,7 @@ describe("OpenCode read-only CLI profiles", () => {
     writeFileSync(
       join(configHome, "safety-core", "profiles.json"),
       JSON.stringify({
+        readOnlyBash: true,
         ghReadOnly: true,
         helmReadOnly: true,
         dockerReadOnly: true,
@@ -53,9 +54,13 @@ describe("OpenCode read-only CLI profiles", () => {
     );
 
     expect(await permissionStatus("gh -R acme/widgets label list")).toBe("allow");
+    expect(await permissionStatus("tea --help")).toBe("allow");
+    expect(await permissionStatus("tea pr merge 3 --repo example/project -s merge")).toBe("ask");
+    expect(await permissionStatus("git show --no-ext-diff HEAD | sha256sum && git diff --stat origin/main...origin/feature")).toBe("allow");
     expect(await permissionStatus("helm version")).toBe("allow");
     expect(await permissionStatus("docker image ls")).toBe("allow");
     expect(await permissionStatus("kubectl get pods -n default")).toBe("allow");
+    expect(await permissionStatus("kubectl get pod -n default -o jsonpath='{.status.phase}'")).toBe("allow");
     expect(await permissionStatus("npm ls package --json")).toBe("allow");
     expect(await permissionStatus("podman network list")).toBe("allow");
     expect(await permissionStatus("tofu providers schema -json")).toBe("ask");

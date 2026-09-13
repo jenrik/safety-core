@@ -1,6 +1,6 @@
 import type { BashCommand, BashFunction, BashProgram, BashStatement, BashWord, SourceSpan } from "./cst.js";
 import { parseBashProgram } from "../shell.js";
-import { normalizeCommand, type NormalizedCommand } from "./expand.js";
+import { expandWord, normalizeCommand, type NormalizedCommand } from "./expand.js";
 import {
   assignBinding,
   assignLocalBinding,
@@ -171,12 +171,23 @@ function evaluateProgram(program: BashProgram, context: BashWalkContext, initial
 
     if (statement.kind !== "command" && !work.skipStatementRedirects) {
       const retained = retainedRedirectStatements(statement);
+      const hasRedirect = "redirects" in statement && (statement.redirects?.length ?? 0) > 0;
+      const secretRedirect = analyzeStatementSecretRedirects(statement, work.path.environment);
+      if (secretRedirect?.kind === "deny") {
+        completeWithDeny(addOutcome(work.path, policyDeny(statement.span, secretRedirect.evidence)));
+        continue;
+      }
       if (retained.length > 0) {
         if (work.path.nestedScriptDepth + 1 > work.path.environment.budgets.nestedScriptDepth) {
           completeWithDeny(addOutcome(work.path, analysisFailure("max-nested-script-depth", statement.span)));
           continue;
         }
-        const child = withEnvironment(work.path, pushSubshellFrame(work.path.environment), false, work.path.nestedScriptDepth + 1);
+        const child = hasRedirect
+          ? addOutcome(
+            withEnvironment(work.path, pushSubshellFrame(work.path.environment), false, work.path.nestedScriptDepth + 1),
+            indeterminate(statement.span),
+          )
+          : withEnvironment(work.path, pushSubshellFrame(work.path.environment), false, work.path.nestedScriptDepth + 1);
         scheduleNested(retained, child, (finished) => {
           const nested = withEnvironment(
             work.path,
@@ -197,6 +208,14 @@ function evaluateProgram(program: BashProgram, context: BashWalkContext, initial
             skipStatementRedirects: true,
           });
         }, schedule);
+        continue;
+      }
+      if (hasRedirect) {
+        schedule({
+          ...work,
+          path: addOutcome(work.path, indeterminate(statement.span)),
+          skipStatementRedirects: true,
+        });
         continue;
       }
     }
@@ -827,6 +846,22 @@ function retainedRedirectStatements(statement: Exclude<BashStatement, BashComman
   return ordered
     .sort((left, right) => left.statement.span.start - right.statement.span.start || left.index - right.index)
     .map(({ statement: nested }) => nested);
+}
+
+/** Apply the same secret-input rule to redirects owned by compound statements. */
+function analyzeStatementSecretRedirects(statement: Exclude<BashStatement, BashCommand>, environment: Environment) {
+  if (!("redirects" in statement) || !statement.redirects || statement.redirects.length === 0) return undefined;
+  const invocation: NormalizedCommand = {
+    executable: null,
+    argv: [],
+    redirects: statement.redirects.map((redirect) => ({
+      kind: redirect.kind,
+      target: redirect.target ? expandWord(redirect.target, environment) : null,
+    })),
+    environment,
+    assignmentPatch: { environment, writes: new Set() },
+  };
+  return analyzeSecretRedirectInvocation(invocation);
 }
 
 /**

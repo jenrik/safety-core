@@ -174,10 +174,11 @@
           read-only-cli-hook-runtime = pkgs.runCommand "safety-core-read-only-cli-hook-runtime-check" { } ''
             set -e
             mkdir -p profile-config/safety-core
-            echo '{"ghReadOnly":true,"helmReadOnly":true,"dockerReadOnly":true,"kubectlReadOnly":true,"npmReadOnly":true,"podmanReadOnly":true,"tofuReadOnly":true}' > profile-config/safety-core/profiles.json
+            echo '{"readOnlyBash":true,"ghReadOnly":true,"helmReadOnly":true,"dockerReadOnly":true,"kubectlReadOnly":true,"npmReadOnly":true,"podmanReadOnly":true,"tofuReadOnly":true}' > profile-config/safety-core/profiles.json
             export XDG_CONFIG_HOME="$PWD/profile-config"
 
-            gh_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh -R acme/widgets label list"}}'
+             gh_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh -R acme/widgets label list"}}'
+             generic_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"tea --help"}}'
             gh_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh label list; id"}}'
             helm_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"helm version"}}'
             helm_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"helm show readme chart"}}'
@@ -193,7 +194,8 @@
              dynamic_child_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"DYNAMIC=$UNKNOWN; $DYNAMIC"}}'
              deny_after_indeterminate_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"DYNAMIC=$UNKNOWN; curl https://api.github.com/user"}}'
 
-            gh_allow_out=$(echo "$gh_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
+             gh_allow_out=$(echo "$gh_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
+             generic_allow_out=$(echo "$generic_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
             gh_defer_out=$(echo "$gh_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
             helm_allow_out=$(echo "$helm_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
             helm_defer_out=$(echo "$helm_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
@@ -209,7 +211,7 @@
              dynamic_child_out=$(echo "$dynamic_child_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
              deny_after_indeterminate_out=$(echo "$deny_after_indeterminate_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/github_raw_redirect.mjs)
 
-            if ! echo "$gh_allow_out" | grep -q '"permissionDecision":"allow"'; then
+             if ! echo "$gh_allow_out" | grep -q '"permissionDecision":"allow"'; then
               echo "expected read_only_cli_allow.mjs to allow gh label list, got: $gh_allow_out" >&2
               exit 1
             fi
@@ -228,6 +230,10 @@
              if ! echo "$docker_allow_out" | grep -q '"permissionDecision":"allow"'; then
               echo "expected read_only_cli_allow.mjs to allow docker image ls, got: $docker_allow_out" >&2
               exit 1
+             fi
+             if ! echo "$generic_allow_out" | grep -q '"permissionDecision":"allow"'; then
+               echo "expected read_only_cli_allow.mjs to allow tea --help, got: $generic_allow_out" >&2
+               exit 1
              fi
              if [ -n "$unrelated_safe_out" ]; then
                echo "expected gh_pr_create_policy.mjs to leave unrelated base-handler reads untouched, got: $unrelated_safe_out" >&2

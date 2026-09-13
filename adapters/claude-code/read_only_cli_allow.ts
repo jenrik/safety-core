@@ -2,6 +2,7 @@
 
 import {
   analyzeGhReadOnlyCommand,
+  analyzeGenericReadOnlyCommand,
   analyzeHelmReadOnlyCommand,
   analyzeStrictReadOnlyCommand,
   discoverWasmDir,
@@ -21,13 +22,18 @@ run(async () => {
     ["tofuReadOnly", "tofu"], ["npmReadOnly", "npm"], ["pipReadOnly", "pip"],
     ["uvReadOnly", "uv"], ["yarnReadOnly", "yarn"],
   ] as const;
-  if (!isProfileEnabled("ghReadOnly") && !isProfileEnabled("helmReadOnly") && !strictProfiles.some(([profile]) => isProfileEnabled(profile))) return;
+  if (!isProfileEnabled("readOnlyBash") && !isProfileEnabled("ghReadOnly") && !isProfileEnabled("helmReadOnly") && !strictProfiles.some(([profile]) => isProfileEnabled(profile))) return;
   await initBashParser(discoverWasmDir(import.meta.url));
 
   const event = parseHookEvent(readStdin());
   if (!event || event.tool_name !== "Bash") return;
   const command = (event.tool_input?.command as string | undefined) ?? "";
   const context = bashAuthorizationContext();
+  if (isProfileEnabled("readOnlyBash")) {
+    const decision = analyzeGenericReadOnlyCommand(command, context);
+    if (decision.kind === "allow") { emitAllow(decision.reason); return; }
+    if (decision.kind !== "ignore") return;
+  }
   if (isProfileEnabled("ghReadOnly")) {
     const decision = analyzeGhReadOnlyCommand(command, context);
     if (decision.kind === "allow") { emitAllow(decision.reason); return; }

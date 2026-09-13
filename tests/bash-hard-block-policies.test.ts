@@ -58,7 +58,10 @@ describe("walker-backed hard-block compatibility policies", () => {
   });
 
   test("denies secret input redirects for arbitrary commands and redirect-only commands", () => {
-    for (const command of ["wc < credentials.json", "bash < credentials.json", "< credentials.json"]) {
+    for (const command of [
+      "wc < credentials.json", "bash < credentials.json", "< credentials.json",
+      "(cat) < credentials.json", "{ cat; } < credentials.json",
+    ]) {
       expect(parseBashForSecretRead(command), command).toBe("bash redirect from 'credentials.json'");
     }
   });
@@ -79,6 +82,8 @@ describe("walker-backed hard-block compatibility policies", () => {
   test("detects direct GitHub HTTP invocations", () => {
     expect(checkBashForGithub("curl https://api.github.com/repos/o/r/issues")).toContain("Use the native gh command");
     expect(checkBashForGithub("curl https://example.test; strace curl https://api.github.com/repos/o/r/issues"))
+      .toContain("Use the native gh command");
+    expect(checkBashForGithub("(curl https://api.github.com/repos/o/r/issues) > trace.log"))
       .toContain("Use the native gh command");
   });
 
@@ -175,6 +180,14 @@ describe("walker-backed hard-block compatibility policies", () => {
       const safePrefix = ["cat README.md", "curl https://example.test", "kubectl get pods"][random() % 3]!;
       expect(analyzeBashAuthorization({ source: `${safePrefix}; unknown-command; ${wrap(command)}` }).verdict.kind)
         .toBe("deny");
+    }
+  });
+
+  test("property: compound forms never bypass a secret input redirect", () => {
+    for (const command of ["cat", "wc", "bash"]) {
+      for (const source of [`(${command}) < credentials.json`, `{ ${command}; } < credentials.json`]) {
+        expect(parseBashForSecretRead(source), source).toBe("bash redirect from 'credentials.json'");
+      }
     }
   });
 

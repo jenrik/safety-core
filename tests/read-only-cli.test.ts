@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
   analyzeGhReadOnlyCommand,
+  analyzeGenericReadOnlyCommand,
   analyzeHelmReadOnlyCommand,
   analyzeKubectl,
   analyzeStrictReadOnlyCommand,
@@ -33,6 +34,10 @@ function gh(command: string): string {
 
 function helm(command: string): string {
   return analyzeHelmReadOnlyCommand(command).kind;
+}
+
+function generic(command: string): string {
+  return analyzeGenericReadOnlyCommand(command).kind;
 }
 
 function strict(command: string, executable: string): string {
@@ -133,6 +138,99 @@ describe("helm read-only profile", () => {
   });
 });
 
+describe("generic read-only Bash profile", () => {
+  test("allows the reviewed Tea help and Git inspection commands", () => {
+    for (const command of [
+      "tea --help",
+      "git show --no-ext-diff --format=fuller HEAD",
+      "git show HEAD:credentials.json",
+      "git diff --stat origin/main...origin/feature",
+      "git diff -- .env",
+      "sha256sum README.md",
+      "git show --no-ext-diff HEAD | sha256sum && git diff --stat origin/main...origin/feature",
+    ]) expect(generic(command), command).toBe("allow");
+  });
+
+  test("keeps Tea mutations and Git forms that can explicitly execute, write, or read outside the repository deferred", () => {
+    for (const command of [
+      "tea pr merge 3 --repo example/project -s merge",
+      "tea help",
+      "tea --help --repo example/project",
+      "git status",
+      "git -c alias.show=!id show HEAD",
+      "git show --ext-diff HEAD",
+      "git show --textconv HEAD",
+      "git diff --output patch origin/main...origin/feature",
+      "git diff --output=patch origin/main...origin/feature",
+      "git diff --no-index README.md credentials.json",
+      "sha256sum README.md > digest",
+    ]) expect(generic(command), command).toBe("defer");
+  });
+
+  test("property: strace output forms never preserve a generic read-only allow", () => {
+    const prefixes = ["-o trace.log", "-otrace.log", "--output trace.log", "--output=trace.log"];
+    for (const prefix of prefixes) {
+      for (const flag of ["", "-f ", "-ff "]) {
+        const command = `strace ${flag}${prefix} git diff --stat origin/main...origin/feature`;
+        expect(generic(command), command).toBe("defer");
+      }
+    }
+  });
+
+  test("property: strace output forms defer every parsed read-only profile", () => {
+    const profiles = [
+      { command: "gh label list", analyze: gh },
+      { command: "helm version", analyze: helm },
+      { command: "docker image ls", analyze: (command: string) => strict(command, "docker") },
+    ];
+    for (const profile of profiles) {
+      for (const output of ["-o trace.log", "-otrace.log", "--output trace.log", "--output=trace.log"]) {
+        const command = `strace -f ${output} ${profile.command}`;
+        expect(profile.analyze(command), command).toBe("defer");
+      }
+    }
+  });
+
+  test("property: strace redirects defer every parsed read-only profile", () => {
+    const profiles = [
+      { command: "git diff --stat origin/main...origin/feature", analyze: generic },
+      { command: "gh label list", analyze: gh },
+      { command: "helm version", analyze: helm },
+      { command: "docker image ls", analyze: (command: string) => strict(command, "docker") },
+    ];
+    for (const profile of profiles) {
+      for (const redirect of ["> trace.log", "2> trace.log", ">> trace.log", "2>> trace.log"]) {
+        const command = `strace -f ${profile.command} ${redirect}`;
+        expect(profile.analyze(command), command).toBe("defer");
+      }
+    }
+  });
+
+  test("property: redirects around a strace compound defer every parsed read-only profile", () => {
+    const profiles = [
+      { command: "git diff --stat origin/main...origin/feature", analyze: generic },
+      { command: "gh label list", analyze: gh },
+      { command: "helm version", analyze: helm },
+      { command: "docker image ls", analyze: (command: string) => strict(command, "docker") },
+    ];
+    for (const profile of profiles) {
+      for (const redirect of ["> trace.log", "2> trace.log", ">> trace.log", "2>> trace.log"]) {
+        const command = `(strace -f ${profile.command}) ${redirect}`;
+        expect(profile.analyze(command), command).toBe("defer");
+      }
+    }
+  });
+
+  test("property: Git inspection options and revisions may appear in every order", () => {
+    const blocks = [["--no-ext-diff"], ["--stat"], ["origin/main...origin/feature"]];
+    for (const args of [
+      ...insertBlock([blocks[1]!, blocks[2]!], blocks[0]!),
+      ...insertBlock([blocks[0]!, blocks[2]!], blocks[1]!),
+      ...insertBlock([blocks[0]!, blocks[1]!], blocks[2]!),
+    ]) expect(generic(`git diff ${args.join(" ")}`), args.join(" ")).toBe("allow");
+  });
+});
+
 describe("strict credential-safe CLI profiles", () => {
   test("allows the reviewed read-only subcommands", () => {
     for (const [executable, command] of [
@@ -190,7 +288,7 @@ describe("strict credential-safe CLI profiles", () => {
       ["docker", "docker image ls"], ["kubectl", "kubectl get pods"], ["nix", "nix store ping"],
       ["npm", "npm list"], ["uv", "uv tree"], ["yarn", "yarn info package"],
     ] as const;
-    const suffixes = ["; id", " && id", " | sh", " > output", " $(id)", " --token value", " --output=result"];
+    const suffixes = ["; id", " && id", " | sh", " > output", " $(id)", " --token value"];
     for (const [executable, command] of commands) {
       for (const suffix of suffixes) expect(strict(`${command}${suffix}`, executable)).toBe("defer");
     }
@@ -199,16 +297,19 @@ describe("strict credential-safe CLI profiles", () => {
   test("property: kubectl safe flags may appear in any order and protected resource spellings always defer", () => {
     const namespaceFlags = [["-n", "default"], ["-ndefault"], ["--namespace=default"]] as const;
     const contextFlags = [["--context", "dev"], ["--context=dev"]] as const;
+    const outputFlags = [["-o", "jsonpath='{.status.phase}'"], ["-ojsonpath='{.status.phase}'"], ["--output=jsonpath='{.status.phase}'"]] as const;
     for (const namespace of namespaceFlags) {
       for (const context of contextFlags) {
-        for (const args of [
-          [...namespace, ...context, "get", "pods"],
-          ["get", ...namespace, ...context, "pods"],
-          ["get", "pods", ...namespace, ...context],
-          [...context, "get", "pods", ...namespace],
-          [...namespace, "get", "pods", ...context],
-        ]) {
-          expect(strict(["kubectl", ...args].join(" "), "kubectl")).toBe("allow");
+        for (const output of outputFlags) {
+          for (const args of [
+            [...namespace, ...context, ...output, "get", "pods"],
+            ["get", ...namespace, ...context, ...output, "pods"],
+            ["get", "pods", ...namespace, ...context, ...output],
+            [...context, "get", ...output, "pods", ...namespace],
+            [...namespace, "get", "pods", ...output, ...context],
+          ]) {
+            expect(strict(["kubectl", ...args].join(" "), "kubectl")).toBe("allow");
+          }
         }
       }
     }

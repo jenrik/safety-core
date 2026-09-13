@@ -10,6 +10,7 @@ import {
   SECRET_COMMAND_REMINDER,
   SECRET_PATTERNS,
   analyzeGhApiCommand,
+  analyzeGenericReadOnlyCommand,
   analyzeGhPrCreateAuthorization,
   analyzeGhReadOnlyCommand,
   analyzeHelmReadOnlyCommand,
@@ -120,6 +121,12 @@ export default (async () => {
         const ghPrCreateAnalysis = analyzeGhPrCreateAuthorization(command, ghPrCreatePolicy, bashContext);
         output.status = mapOpenCodeBashStatus(output.status, ghPrCreateAnalysis.verdict);
         if (ghPrCreateAnalysis.verdict.kind !== "neutral") return;
+      }
+
+      if (isProfileEnabled("readOnlyBash")) {
+        const decision = analyzeGenericReadOnlyCommand(command, bashContext);
+        output.status = mapOpenCodeBashStatus(output.status, decision);
+        if (decision.kind !== "ignore") return;
       }
 
       if (isProfileEnabled("ghReadOnly")) {

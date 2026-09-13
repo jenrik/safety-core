@@ -3,7 +3,7 @@ import { basename, matchesAnyGlob } from "../../shell.js";
 import type { PolicyEvidence } from "../outcome.js";
 
 export interface AllowedFlag { readonly long?: string; readonly short?: string; readonly takesValue: boolean }
-export type ReadOnlyPolicyName = "gh-read-only" | "helm-read-only" | "strict-read-only";
+export type ReadOnlyPolicyName = "generic-read-only" | "gh-read-only" | "helm-read-only" | "strict-read-only";
 export type ReadOnlyInvocationDecision =
   | { readonly kind: "allow"; readonly reason: string; readonly evidence: PolicyEvidence }
   | { readonly kind: "defer"; readonly evidence: PolicyEvidence };
@@ -27,8 +27,16 @@ export const STRICT_READ_ONLY_COMMANDS: Readonly<Record<string, ReadonlySet<stri
 };
 export const GH_ALLOWED_FLAGS: readonly AllowedFlag[] = [{ long: "--repo", short: "-R", takesValue: true }];
 export const STRICT_ALLOWED_FLAGS: Readonly<Record<string, readonly AllowedFlag[]>> = {
-  kubectl: [{ long: "--namespace", short: "-n", takesValue: true }, { long: "--context", takesValue: true }],
-  oc: [{ long: "--namespace", short: "-n", takesValue: true }, { long: "--context", takesValue: true }],
+  // The user explicitly treats every non-protected kubectl/oc resource as safe
+  // to read, regardless of its selected rendering format.
+  kubectl: [
+    { long: "--namespace", short: "-n", takesValue: true }, { long: "--context", takesValue: true },
+    { long: "--output", short: "-o", takesValue: true },
+  ],
+  oc: [
+    { long: "--namespace", short: "-n", takesValue: true }, { long: "--context", takesValue: true },
+    { long: "--output", short: "-o", takesValue: true },
+  ],
   npm: [{ long: "--json", takesValue: false }],
 };
 export const GH_GLOBAL_FLAGS_WITH_VALUE = new Set(["-R", "--repo", "--hostname"]);

@@ -12,8 +12,7 @@
 # wiring is untouched here, since adapters/opencode.ts's gh-api check ships
 # as part of the existing, already-wired safety-core plugin file.
 #
-# Static profiles (readOnlyBash) are gated purely in Nix: their allow-list
-# entries are present or absent depending on the option. Dynamic profiles
+# readOnlyBash combines static Nix rules with parsed safe command forms. Dynamic profiles
 # (ghApiReadOnly, ghReadOnly, helmReadOnly, ghPrCreate) can't be expressed as static allow-list data, so their
 # hook/plugin code is wired in unconditionally once this module is imported,
 # and their actual enabled/disabled state lives in one shared runtime file
@@ -28,7 +27,7 @@ let
 in
 {
   options.programs.safetyCorePermissions.profiles = {
-    readOnlyBash.enable = mkEnableOption "auto-allow generic metadata-only bash commands (ls, pwd, stat, ...)";
+    readOnlyBash.enable = mkEnableOption "auto-allow generic read-only Bash commands, including parsed Tea help and Git inspection forms";
     ghApiReadOnly.enable = mkEnableOption "auto-allow verifiably read-only `gh api` calls";
     ghReadOnly.enable = mkEnableOption "auto-allow documented read-only `gh` subcommands through parsed command policy";
     helmReadOnly.enable = mkEnableOption "auto-allow documented read-only `helm` subcommands through parsed command policy";

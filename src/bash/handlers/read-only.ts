@@ -1,6 +1,6 @@
 import type { CommandHandler, InvocationCursor } from "../dispatch.js";
 import { lookupBinding } from "../environment.js";
-import { indeterminate, policyIndeterminate, policySafe } from "../outcome.js";
+import { indeterminate, policyIndeterminate, policySafe, safe } from "../outcome.js";
 import { kubectlResourceOperandsRequireReview } from "../policies/kubectl.js";
 import {
   GH_ALLOWED_FLAGS,
@@ -24,7 +24,7 @@ const CREDENTIAL_CONFIGURATION_BINDINGS: Readonly<Record<string, readonly string
   oc: ["KUBECONFIG"],
 });
 
-const ghReadOnlyHandler: CommandHandler = handler("gh", (args) => {
+const ghReadOnlyHandler: CommandHandler = handler("gh", "gh-read-only", (args) => {
   if (firstGhSubcommand(args) === "api") return { kind: "ignore" };
   if (hasSecretOperand(args)) return defer("gh-read-only", "gh");
   if (args.length === 1 && ["--help", "--version"].includes(args[0]!)) return allow("gh-read-only", "gh");
@@ -36,7 +36,7 @@ const ghReadOnlyHandler: CommandHandler = handler("gh", (args) => {
     ? allow("gh-read-only", "gh") : defer("gh-read-only", "gh");
 });
 
-const helmReadOnlyHandler: CommandHandler = handler("helm", (args) => {
+const helmReadOnlyHandler: CommandHandler = handler("helm", "helm-read-only", (args) => {
   if (hasSecretOperand(args)) return defer("helm-read-only", "helm");
   if (args.length === 1 && ["--help", "--version"].includes(args[0]!)) return allow("helm-read-only", "helm");
   if (args.some((argument) => argument.startsWith("-"))) return defer("helm-read-only", "helm");
@@ -51,7 +51,7 @@ const helmReadOnlyHandler: CommandHandler = handler("helm", (args) => {
 });
 
 function strictReadOnlyHandler(executable: string): CommandHandler {
-  return handler(executable, (args) => {
+  return handler(executable, "strict-read-only", (args) => {
     if (hasSecretOperand(args)) return defer("strict-read-only", executable);
     if (args.length === 1 && ["--help", "--version", "version"].includes(args[0]!)) return allow("strict-read-only", executable);
     const positionals = parseAllowedFlags(args, STRICT_ALLOWED_FLAGS[executable] ?? []);
@@ -67,21 +67,58 @@ function strictReadOnlyHandler(executable: string): CommandHandler {
   });
 }
 
-function handler(name: string, analyze: (args: readonly string[]) => ReadOnlyInvocationDecision | { readonly kind: "ignore" }): CommandHandler {
+const teaReadOnlyHandler: CommandHandler = handler("tea", "generic-read-only", (args) =>
+  args.length === 1 && args[0] === "--help"
+    ? allow("generic-read-only", "tea")
+    : defer("generic-read-only", "tea"),
+);
+
+// The user treats committed Git data and the repository's configured diff
+// pipeline as trusted. Keep this narrow to built-in inspection commands and
+// reject options that can write, inspect arbitrary filesystem paths, or force
+// external conversion where it is not otherwise the default.
+const gitReadOnlyHandler: CommandHandler = handler("git", "generic-read-only", (args) => {
+  const subcommand = args[0];
+  if (!subcommand || !["show", "diff"].includes(subcommand) || hasUnsafeGitArgument(args.slice(1))) {
+    return defer("generic-read-only", "git");
+  }
+  return allow("generic-read-only", "git");
+});
+
+const sha256sumReadOnlyHandler: CommandHandler = handler("sha256sum", "generic-read-only", () =>
+  allow("generic-read-only", "sha256sum"),
+);
+
+/** strace is transparent unless its trace-output options would create a file. */
+const straceReadOnlyHandler: CommandHandler = Object.freeze({
+  name: "strace",
+  handle(cursor, context) {
+    const args = knownArguments(cursor);
+    return !args || cursor.invocation.redirects.length > 0 || args.some(isStraceOutputArgument)
+      ? policyIndeterminate(context.span, defer("generic-read-only", "strace").evidence)
+      : safe();
+  },
+});
+
+function handler(
+  name: string,
+  policy: "generic-read-only" | "gh-read-only" | "helm-read-only" | "strict-read-only",
+  analyze: (args: readonly string[]) => ReadOnlyInvocationDecision | { readonly kind: "ignore" },
+): CommandHandler {
   return Object.freeze({
     name,
     handle(cursor, context) {
       const args = knownArguments(cursor);
-      if (!args) return policyIndeterminate(context.span, defer(policyName(name), name).evidence);
+      if (!args) return policyIndeterminate(context.span, defer(policy, name).evidence);
       const executable = cursor.invocation.executable;
       if (executable?.kind === "known" && executable.value.includes("/")) {
-        return policyIndeterminate(context.span, defer(policyName(name), name).evidence);
+        return policyIndeterminate(context.span, defer(policy, name).evidence);
       }
       if (cursor.invocation.assignmentPatch.writes.size > 0 || cursor.invocation.redirects.length > 0) {
-        return policyIndeterminate(context.span, defer(policyName(name), name).evidence);
+        return policyIndeterminate(context.span, defer(policy, name).evidence);
       }
       if (hasCredentialConfigurationBinding(cursor, name)) {
-        return policyIndeterminate(context.span, defer(policyName(name), name).evidence);
+        return policyIndeterminate(context.span, defer(policy, name).evidence);
       }
       const decision = analyze(args);
       if (decision.kind === "ignore") return indeterminate(context.span);
@@ -90,8 +127,16 @@ function handler(name: string, analyze: (args: readonly string[]) => ReadOnlyInv
   });
 }
 
-function policyName(name: string): "gh-read-only" | "helm-read-only" | "strict-read-only" {
-  return name === "gh" ? "gh-read-only" : name === "helm" ? "helm-read-only" : "strict-read-only";
+function hasUnsafeGitArgument(args: readonly string[]): boolean {
+  return args.some((argument) => argument === "--ext-diff"
+    || argument === "--textconv"
+    || argument === "--no-index"
+    || argument === "--output"
+    || argument.startsWith("--output="));
+}
+
+function isStraceOutputArgument(argument: string): boolean {
+  return argument === "-o" || argument.startsWith("-o") || argument === "--output" || argument.startsWith("--output=");
 }
 
 function knownArguments(cursor: InvocationCursor): string[] | undefined {
@@ -112,11 +157,11 @@ function hasCredentialConfigurationBinding(cursor: InvocationCursor, executable:
   });
 }
 
-function allow(name: "gh-read-only" | "helm-read-only" | "strict-read-only", tool: string): ReadOnlyInvocationDecision {
+function allow(name: "generic-read-only" | "gh-read-only" | "helm-read-only" | "strict-read-only", tool: string): ReadOnlyInvocationDecision {
   return readOnlyAllow(name, tool);
 }
 
-function defer(name: "gh-read-only" | "helm-read-only" | "strict-read-only", tool: string): ReadOnlyInvocationDecision {
+function defer(name: "generic-read-only" | "gh-read-only" | "helm-read-only" | "strict-read-only", tool: string): ReadOnlyInvocationDecision {
   return readOnlyDefer(name, tool);
 }
 
@@ -187,13 +232,25 @@ function strictPath(args: readonly string[], allowed: ReadonlySet<string>): stri
 }
 
 export const readOnlyHandlers: readonly CommandHandler[] = Object.freeze([
+  straceReadOnlyHandler,
+  teaReadOnlyHandler,
+  gitReadOnlyHandler,
+  sha256sumReadOnlyHandler,
   ghReadOnlyHandler,
   helmReadOnlyHandler,
   ...Object.keys(STRICT_READ_ONLY_COMMANDS).map(strictReadOnlyHandler),
 ]);
 
-export const ghReadOnlyHandlers: readonly CommandHandler[] = Object.freeze([ghReadOnlyHandler]);
-export const helmReadOnlyHandlers: readonly CommandHandler[] = Object.freeze([helmReadOnlyHandler]);
+export const ghReadOnlyHandlers: readonly CommandHandler[] = Object.freeze([straceReadOnlyHandler, ghReadOnlyHandler]);
+export const helmReadOnlyHandlers: readonly CommandHandler[] = Object.freeze([straceReadOnlyHandler, helmReadOnlyHandler]);
+export const genericReadOnlyHandlers: readonly CommandHandler[] = Object.freeze([
+  straceReadOnlyHandler,
+  teaReadOnlyHandler,
+  gitReadOnlyHandler,
+  sha256sumReadOnlyHandler,
+]);
 export function strictReadOnlyHandlers(executable: string): readonly CommandHandler[] {
-  return STRICT_READ_ONLY_COMMANDS[executable] ? Object.freeze([strictReadOnlyHandler(executable)]) : Object.freeze([]);
+  return STRICT_READ_ONLY_COMMANDS[executable]
+    ? Object.freeze([straceReadOnlyHandler, strictReadOnlyHandler(executable)])
+    : Object.freeze([]);
 }

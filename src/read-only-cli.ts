@@ -1,7 +1,7 @@
 // Credential-safe CLI compatibility adapters backed by the stateful Bash walker.
 
 import { analyzeBashAuthorization, type BashAuthorizationContext } from "./authorization.js";
-import { ghReadOnlyHandlers, helmReadOnlyHandlers, strictReadOnlyHandlers } from "./bash/handlers/read-only.js";
+import { genericReadOnlyHandlers, ghReadOnlyHandlers, helmReadOnlyHandlers, strictReadOnlyHandlers } from "./bash/handlers/read-only.js";
 import type { CommandHandler } from "./bash/dispatch.js";
 
 export type ReadOnlyCliDecision =
@@ -21,8 +21,23 @@ export function analyzeHelmReadOnlyCommand(command: string, context: BashAuthori
   return analyze(command, "helm-read-only", "helm", helmReadOnlyHandlers, context);
 }
 
+/** Parsed additions to the static readOnlyBash profile. */
+export function analyzeGenericReadOnlyCommand(command: string, context: BashAuthorizationContext = {}): ReadOnlyCliDecision {
+  const analysis = analyzeBashAuthorization({ source: command, handlers: genericReadOnlyHandlers, includeBaseHandlers: false, ...context });
+  const policies = analysis.policies.filter((evidence) => evidence.name === "generic-read-only");
+  const policy = policies[0];
+  if (!policy) return { kind: "ignore" };
+  if (policies.every((evidence) => evidence.decision === "allow") && analysis.verdict.kind === "allow") {
+    return { kind: "allow", reason: policy.reason ?? "command auto-allowed by the read-only profile" };
+  }
+  return { kind: "defer" };
+}
+
 function analyze(command: string, name: "strict-read-only" | "gh-read-only" | "helm-read-only", executable: string, handlers: readonly CommandHandler[], context: BashAuthorizationContext): ReadOnlyCliDecision {
   const analysis = analyzeBashAuthorization({ source: command, handlers, includeBaseHandlers: false, ...context });
+  if (analysis.policies.some((evidence) => evidence.name === "generic-read-only" && evidence.decision === "defer")) {
+    return { kind: "defer" };
+  }
   const policies = analysis.policies.filter((evidence) => evidence.name === name && evidence.readOnly?.tool === executable);
   const policy = policies[0];
   if (!policy) return { kind: "ignore" };
