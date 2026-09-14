@@ -82,6 +82,7 @@ describe("named Bash command dispatch", () => {
   test.each([
     ["env -i MODE=test gh pr create", "gh", ["pr", "create"]],
     ["command -p gh pr create", "gh", ["pr", "create"]],
+    ["doas -n -u root gh pr create", "gh", ["pr", "create"]],
     ["exec -a check gh pr create", "gh", ["pr", "create"]],
     ["nice -n 5 gh pr create", "gh", ["pr", "create"]],
     ["nice -n5 gh pr create", "gh", ["pr", "create"]],
@@ -96,6 +97,33 @@ describe("named Bash command dispatch", () => {
 
     expect(result.completed.verdict).toEqual({ kind: "allow" });
     expect(invocations.map(renderInvocation)).toEqual([[executable, ...argv]]);
+  });
+
+  test("does not treat doas shell mode as a transparent child invocation", () => {
+    const invocations: InvocationCursor[] = [];
+    const result = analyze("doas -s gh pr create", [recordingHandler("gh", invocations)]);
+
+    expect(result.completed.verdict).toEqual({ kind: "neutral" });
+    expect(invocations).toHaveLength(0);
+  });
+
+  test("property: doas configuration checks never expose a child invocation", () => {
+    const random = lcg(0x4fca_7e12);
+    for (let iteration = 0; iteration < 64; iteration++) {
+      const invocations: InvocationCursor[] = [];
+      const flags = shuffle(["-n", "-u root"], random).join(" ");
+      const result = analyze(`doas ${flags} -C config-${random()} gh pr create`, [recordingHandler("gh", invocations)]);
+
+      expect(result.completed.verdict).toEqual({ kind: "allow" });
+      expect(invocations).toHaveLength(0);
+    }
+  });
+
+  test("keeps a doas configuration check with no config path neutral", () => {
+    const result = directWrapperDispatch("doas", ["-C"]);
+
+    expect(dispatchOutcome(result.result)).toMatchObject({ kind: "indeterminate" });
+    expect(result.scheduled).toHaveLength(0);
   });
 
   test("walks a statically known sh -c script only through continueWith", () => {
@@ -193,6 +221,7 @@ describe("named Bash command dispatch", () => {
     const wrappers = [
       { name: "env", prefix: "env", flags: ["-i", "MODE=test"], child: "gh pr create" },
       { name: "command", prefix: "command", flags: ["-p"], child: "gh pr create" },
+      { name: "doas", prefix: "doas", flags: ["-n", "-u root"], child: "gh pr create" },
       { name: "exec", prefix: "exec", flags: ["-c", "-l", "-a name"], child: "gh pr create" },
       { name: "nice", prefix: "nice", flags: ["-n 5"], child: "gh pr create" },
       { name: "nohup", prefix: "nohup", flags: ["--"], child: "gh pr create" },
@@ -220,6 +249,7 @@ describe("named Bash command dispatch", () => {
     const wrappers = [
       (child: string) => `env -i ${child}`,
       (child: string) => `command -p ${child}`,
+      (child: string) => `doas -n -u root ${child}`,
       (child: string) => `exec -a name ${child}`,
       (child: string) => `nice -n 5 ${child}`,
       (child: string) => `nohup -- ${child}`,
@@ -247,6 +277,7 @@ describe("named Bash command dispatch", () => {
       ["env", ["-i", "MODE=test", "gh"]],
       ["env", ["-u", "NAME", "gh"]],
       ["command", ["-p", "gh"]],
+      ["doas", ["-n", "-u", "root", "gh"]],
       ["exec", ["-a", "name", "gh"]],
       ["nice", ["-n", "5", "gh"]],
       ["nohup", ["--", "gh"]],
@@ -277,7 +308,7 @@ describe("named Bash command dispatch", () => {
   });
 
   test("routes every registered executable name only to its matching caller handler", () => {
-    const names = ["env", "command", "exec", "nice", "nohup", "setsid", "stdbuf", "timeout", "strace", "xargs", "find", "sh"];
+    const names = ["env", "command", "doas", "exec", "nice", "nohup", "setsid", "stdbuf", "timeout", "strace", "xargs", "find", "sh"];
     const invocations: InvocationCursor[] = [];
     const handlers = names.map((name) => recordingHandler(name, invocations));
 
