@@ -1,7 +1,7 @@
 // gh-api compatibility adapter backed by the stateful Bash authorization walker.
 
 import { analyzeBashAuthorization, type BashAuthorizationContext } from "./authorization.js";
-import { ghApiHandler } from "./bash/handlers/gh.js";
+import { ghApiHandler } from "./bash/handlers/command-gh-api.js";
 
 export type GhApiDecision =
   | { kind: "allow"; reason: string }

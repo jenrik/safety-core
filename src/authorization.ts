@@ -4,7 +4,7 @@ import { indeterminate, type AuthorizationVerdict, type PolicyEvidence } from ".
 import { DEFAULT_BASH_ANALYSIS_LIMITS, runSteps, type BashAnalysisLimits, type RunStepsResult } from "./bash/runner.js";
 import { walkProgram } from "./bash/walker.js";
 import { httpHandlers } from "./bash/handlers/http.js";
-import { kubectlHandler } from "./bash/handlers/kubectl.js";
+import { kubectlHandler } from "./bash/handlers/command-kubectl.js";
 import { readerHandlers } from "./bash/handlers/readers.js";
 import { parseBashProgram } from "./shell.js";
 

@@ -2,7 +2,8 @@
 
 import { loadProfileConfig, type GhPrCreateProfileConfig } from "./config.js";
 import { analyzeBashAuthorization, type BashAuthorizationAnalysis, type BashAuthorizationContext } from "./authorization.js";
-import { ghPrCreateHandler, ghPrCreateShellHandlers } from "./bash/handlers/gh.js";
+import { ghPrCreateHandler } from "./bash/handlers/command-gh-pr-create.js";
+import { ghPrCreateShellHandlers } from "./bash/handlers/command-gh-pr-shell.js";
 import { isBashParserInitialized } from "./shell.js";
 
 export interface GhPrCreatePolicy {
