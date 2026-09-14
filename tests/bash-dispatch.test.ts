@@ -11,8 +11,12 @@ import {
   type InvocationCursor,
 } from "../src/bash/dispatch.ts";
 import { fromInitialEnvironment, unknown } from "../src/bash/environment.ts";
+import { httpHandlers } from "../src/bash/handlers/http.ts";
+import { readerHandlers } from "../src/bash/handlers/readers.ts";
 import { safe } from "../src/bash/outcome.ts";
 import { runSteps } from "../src/bash/runner.ts";
+import { structuralHandlers } from "../src/bash/handlers/registry.ts";
+import { HTTP_TOOLS, READING_COMMANDS } from "../src/patterns.ts";
 import { type BashDispatchRequest, type BashDispatchResult, walkProgram } from "../src/bash/walker.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-bash-dispatch-"));
@@ -65,6 +69,28 @@ describe("named Bash command dispatch", () => {
     expect(Object.isFrozen(cursor)).toBeTrue();
     expect(Object.isFrozen(cursor?.invocation)).toBeTrue();
     expect(Object.isFrozen(cursor?.options)).toBeTrue();
+  });
+
+  test("registers only structural handlers by default", () => {
+    const registry = createCommandRegistry();
+
+    expect(registry.resolve("env").name).toBe("env");
+    expect(registry.resolve("sh").name).toBe("sh");
+    expect(registry.resolve("cat").name).toBe("unknown-command");
+    expect(registry.resolve("curl").name).toBe("unknown-command");
+    expect(registry.resolve("gh").name).toBe("unknown-command");
+  });
+
+  test("property: every structural handler is resolved by the default registry", () => {
+    const registry = createCommandRegistry();
+    for (const handler of structuralHandlers) {
+      expect(registry.resolve(handler.name).name).toBe(handler.name);
+    }
+  });
+
+  test("property: command-policy facades cover exactly their configured command sets", () => {
+    expect(new Set(readerHandlers.map((handler) => handler.name))).toEqual(READING_COMMANDS);
+    expect(new Set(httpHandlers.map((handler) => handler.name))).toEqual(HTTP_TOOLS);
   });
 
   test("composes a caller policy handler with mandatory wrapper recursion", () => {

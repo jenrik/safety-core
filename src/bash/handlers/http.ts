@@ -1,16 +1,16 @@
 import type { CommandHandler } from "../dispatch.js";
-import { policyDeny, policySafe } from "../outcome.js";
-import { analyzeGithubHttpInvocation } from "../policies/github.js";
-import { HTTP_TOOLS } from "../../patterns.js";
+import { curlHandler } from "./command-curl.js";
+import { fetchHandler } from "./command-fetch.js";
+import { httpHandler } from "./command-http.js";
+import { httpieHandler } from "./command-httpie.js";
+import { httpxHandler } from "./command-httpx.js";
+import { wgetHandler } from "./command-wget.js";
 
-export const httpHandlers: readonly CommandHandler[] = Object.freeze(
-  [...HTTP_TOOLS].map((name) => Object.freeze({
-    name,
-    handle(cursor, context) {
-      const decision = analyzeGithubHttpInvocation(cursor.invocation);
-      return decision.kind === "deny"
-        ? policyDeny(context.span, decision.evidence)
-        : policySafe(decision.evidence);
-    },
-  })),
-);
+export const httpHandlers: readonly CommandHandler[] = Object.freeze([
+  curlHandler,
+  wgetHandler,
+  httpHandler,
+  httpieHandler,
+  fetchHandler,
+  httpxHandler,
+]);

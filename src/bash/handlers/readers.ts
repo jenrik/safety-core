@@ -1,16 +1,30 @@
 import type { CommandHandler } from "../dispatch.js";
-import { policyDeny, policySafe } from "../outcome.js";
-import { analyzeSecretReadInvocation } from "../policies/secrets.js";
-import { READING_COMMANDS } from "../../patterns.js";
+import { batHandler } from "./command-bat.js";
+import { catHandler } from "./command-cat.js";
+import { dotHandler } from "./command-dot.js";
+import { headHandler } from "./command-head.js";
+import { hexdumpHandler } from "./command-hexdump.js";
+import { lessHandler } from "./command-less.js";
+import { moreHandler } from "./command-more.js";
+import { odHandler } from "./command-od.js";
+import { sourceHandler } from "./command-source.js";
+import { stringsHandler } from "./command-strings.js";
+import { tailHandler } from "./command-tail.js";
+import { viewHandler } from "./command-view.js";
+import { xxdHandler } from "./command-xxd.js";
 
-export const readerHandlers: readonly CommandHandler[] = Object.freeze(
-  [...READING_COMMANDS].map((name) => Object.freeze({
-    name,
-    handle(cursor, context) {
-      const decision = analyzeSecretReadInvocation(cursor.invocation);
-      return decision.kind === "deny"
-        ? policyDeny(context.span, decision.evidence)
-        : policySafe(decision.evidence);
-    },
-  })),
-);
+export const readerHandlers: readonly CommandHandler[] = Object.freeze([
+  catHandler,
+  headHandler,
+  tailHandler,
+  lessHandler,
+  batHandler,
+  moreHandler,
+  viewHandler,
+  xxdHandler,
+  odHandler,
+  hexdumpHandler,
+  stringsHandler,
+  sourceHandler,
+  dotHandler,
+]);

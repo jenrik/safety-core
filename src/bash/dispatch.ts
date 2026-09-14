@@ -3,8 +3,7 @@ import type { NormalizedCommand } from "./expand.js";
 import { indeterminate, strongestOutcome, type Outcome } from "./outcome.js";
 import { policyDeny, safe } from "./outcome.js";
 import type { BashDispatchContinuation, BashDispatchRequest, BashDispatchResult } from "./walker.js";
-import { shellHandlers } from "./handlers/sh.js";
-import { wrapperHandlers } from "./handlers/wrappers.js";
+import { structuralHandlers } from "./handlers/registry.js";
 import { unknownCommandHandler } from "./handlers/unknown.js";
 import { analyzeSecretRedirectInvocation } from "./policies/secrets.js";
 import { basename } from "../shell.js";
@@ -34,18 +33,13 @@ export interface CommandRegistry {
   resolve(executable: string): CommandHandler;
 }
 
-const DEFAULT_HANDLERS = Object.freeze([
-  ...wrapperHandlers,
-  ...shellHandlers,
-]);
-
 /**
  * Builds a name-based registry. Caller policy handlers compose with built-in
  * structural handlers, so policy evidence cannot suppress nested recursion.
  */
 export function createCommandRegistry(handlers: readonly CommandHandler[] = []): CommandRegistry {
   const registered = new Map<string, CommandHandler[]>();
-  for (const handler of [...handlers, ...DEFAULT_HANDLERS]) {
+  for (const handler of [...handlers, ...structuralHandlers]) {
     registered.set(handler.name, [...(registered.get(handler.name) ?? []), handler]);
   }
   return Object.freeze({
