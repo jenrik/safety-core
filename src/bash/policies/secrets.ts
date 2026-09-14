@@ -1,4 +1,4 @@
-import type { NormalizedCommand } from "../expand.js";
+import { isBindingResolvedWord, type NormalizedCommand } from "../expand.js";
 import { SECRET_EXCEPTIONS, SECRET_PATTERNS } from "../../patterns.js";
 import { basename, matchesAnyGlob } from "../../shell.js";
 
@@ -11,7 +11,9 @@ export function analyzeSecretReadInvocation(invocation: NormalizedCommand): Secr
   if (redirect.kind === "deny") return redirect;
   for (const argument of invocation.argv) {
     if (argument.kind !== "known" || argument.value.startsWith("-")) continue;
-    if (isSecretPath(argument.value)) return deny(`bash \`${executableName(invocation)}\` on '${basename(argument.value)}'`);
+    if (isSecretPath(argument.value)) return deny(isBindingResolvedWord(argument)
+      ? `bash \`${executableName(invocation)}\` on a protected secret file`
+      : `bash \`${executableName(invocation)}\` on '${basename(argument.value)}'`);
   }
   return Object.freeze({ kind: "allow", evidence: Object.freeze({ name: "secret-read", decision: "allow" }) });
 }
@@ -20,7 +22,9 @@ export function analyzeSecretReadInvocation(invocation: NormalizedCommand): Secr
 export function analyzeSecretRedirectInvocation(invocation: NormalizedCommand): SecretReadPolicyDecision {
   for (const redirect of invocation.redirects) {
     if (redirect.kind !== "input" || redirect.target?.kind !== "known") continue;
-    if (isSecretPath(redirect.target.value)) return deny(`bash redirect from '${basename(redirect.target.value)}'`);
+    if (isSecretPath(redirect.target.value)) return deny(isBindingResolvedWord(redirect.target)
+      ? "bash redirect from a protected secret file"
+      : `bash redirect from '${basename(redirect.target.value)}'`);
   }
   return Object.freeze({ kind: "allow", evidence: Object.freeze({ name: "secret-read", decision: "allow" }) });
 }

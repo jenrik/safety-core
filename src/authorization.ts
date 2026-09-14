@@ -41,6 +41,33 @@ export interface BashAuthorizationAnalysis {
   readonly policies: readonly PolicyEvidence[];
 }
 
+export type BashGuardPolicyName = "secret-read" | "github-http" | "kubectl";
+
+export type BashGuardAnalysisStatus = "complete" | "indeterminate" | "failure";
+
+export type BashGuardDenyEvidence = PolicyEvidence & {
+  readonly name: BashGuardPolicyName;
+  readonly decision: "deny";
+};
+
+export type BashGuardEvaluation =
+  | {
+    readonly kind: "block";
+    readonly reason: string;
+    readonly policy: BashGuardDenyEvidence;
+    readonly policies: readonly PolicyEvidence[];
+  }
+  | {
+    readonly kind: "pass";
+    readonly status: BashGuardAnalysisStatus;
+    readonly policies: readonly PolicyEvidence[];
+  };
+
+export type BashGuardOptions = Pick<
+  BashAuthorizationOptions,
+  "source" | "limits" | "initialEnvironment"
+>;
+
 const baseHandlers = Object.freeze([...readerHandlers, ...httpHandlers, kubectlHandler]);
 
 /**
@@ -71,6 +98,29 @@ export function analyzeBashAuthorization(options: BashAuthorizationOptions): Bas
     evidence: Object.freeze([...completed.evidence]),
     policy: policyFrom(completed),
     policies: policiesFrom(completed),
+  });
+}
+
+/**
+ * Evaluate the always-on Bash guards in one walk. This API deliberately cannot
+ * grant permission: anything other than a proven baseline-policy denial passes
+ * through to the harness's existing permission and judge handling.
+ */
+export function evaluateBashGuards(options: BashGuardOptions): BashGuardEvaluation {
+  const analysis = analyzeBashAuthorization(options);
+  const blocked = analysis.policies.find(isBashGuardDenyEvidence);
+  if (blocked) {
+    return freeze({
+      kind: "block",
+      reason: blocked.reason ?? defaultGuardReason(blocked.name),
+      policy: blocked,
+      policies: analysis.policies,
+    });
+  }
+  return freeze({
+    kind: "pass",
+    status: guardAnalysisStatus(analysis.outcome.kind),
+    policies: analysis.policies,
   });
 }
 
@@ -146,6 +196,24 @@ function initialEnvironment(initial: BashInitialEnvironment | undefined, budgets
   return initial?.kind === "verified"
     ? fromVerifiedInitialEnvironment(initial.values, budgets)
     : fromInitialEnvironment({}, budgets);
+}
+
+function isBashGuardDenyEvidence(policy: PolicyEvidence): policy is BashGuardDenyEvidence {
+  return policy.decision === "deny"
+    && (policy.name === "secret-read" || policy.name === "github-http" || policy.name === "kubectl");
+}
+
+function guardAnalysisStatus(kind: RunStepsResult["outcome"]["kind"]): BashGuardAnalysisStatus {
+  if (kind === "safe") return "complete";
+  return kind === "failure" ? "failure" : "indeterminate";
+}
+
+function defaultGuardReason(name: BashGuardPolicyName): string {
+  switch (name) {
+    case "secret-read": return "Bash command reads a protected secret file";
+    case "github-http": return "Direct GitHub HTTP requests are blocked";
+    case "kubectl": return "kubectl command is blocked";
+  }
 }
 
 

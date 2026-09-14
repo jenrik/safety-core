@@ -1,4 +1,4 @@
-import type { NormalizedCommand, ResolvedWord } from "../expand.js";
+import { isBindingResolvedWord, type NormalizedCommand, type ResolvedWord } from "../expand.js";
 import {
   KUBECTL_ALWAYS_ALLOW,
   KUBECTL_AUTH_ALLOW,
@@ -19,41 +19,54 @@ export function analyzeKubectlInvocation(invocation: NormalizedCommand): Kubectl
   if (!args) return defer(null, null, false);
   if (args.length === 0) return Object.freeze({ kind: "ignore" });
   const subcommandIndex = findSubcommandIndex(args);
-  const sub = subcommandIndex === undefined ? null : args[subcommandIndex] ?? null;
+  if (subcommandIndex === undefined) return defer(null, null, false);
+  const sub = args[subcommandIndex];
   if (!sub) return defer(null, null, false);
+  const evidenceSubcommand = isBindingResolvedWord(invocation.argv[subcommandIndex]!) ? null : sub;
   const mentionsSecret = args.some(mentionsSecretResource);
   const operands = positionalArgs(args, subcommandIndex + 1);
-  const auditResource = operands[0] ? resourceType(operands[0]) : null;
+  const firstOperand = operands[0];
+  const auditResource = !firstOperand || isBindingResolvedWord(invocation.argv[firstOperand.index]!)
+    ? null
+    : resourceType(firstOperand.value);
   if (sub === "view-secret") return deny(
     "kubectl view-secret is blocked: it decodes and displays Secret values in plaintext.",
-    sub,
+    evidenceSubcommand,
     auditResource,
     mentionsSecret,
   );
-  if (KUBECTL_ALWAYS_ALLOW.has(sub)) return allow(`kubectl ${sub} auto-allowed (read-only)`, sub, auditResource, mentionsSecret);
+  if (KUBECTL_ALWAYS_ALLOW.has(sub)) return allow(
+    evidenceSubcommand ? `kubectl ${sub} auto-allowed (read-only)` : "kubectl command auto-allowed (read-only)",
+    evidenceSubcommand,
+    auditResource,
+    mentionsSecret,
+  );
   if (sub === "get") {
-    const resources = operands;
-    if (resources.length === 0) return defer(sub, null, false);
+    const resources = operands.map((operand) => operand.value);
+    if (resources.length === 0) return defer(evidenceSubcommand, null, false);
     const requiresReview = kubectlResourceOperandsRequireReview(resources);
-    const resource = resourceType(resources[0]!);
-    return requiresReview ? defer(sub, resource, true, mentionsSecret) : allow("kubectl get auto-allowed", sub, resource, mentionsSecret);
+    const resource = auditResource;
+    return requiresReview ? defer(evidenceSubcommand, resource, true, mentionsSecret) : allow("kubectl get auto-allowed", evidenceSubcommand, resource, mentionsSecret);
   }
   if (sub === "rollout") {
-    const sub2 = operands[0];
+    const sub2 = operands[0]?.value;
+    const literalPath = evidenceSubcommand !== null && operandIsLiteral(invocation, operands[0]);
     return sub2 && KUBECTL_ROLLOUT_ALLOW.has(sub2)
-      ? allow(`kubectl rollout ${sub2} auto-allowed (read-only)`, sub, auditResource, mentionsSecret)
-      : defer(sub, auditResource, false, mentionsSecret);
+      ? allow(literalPath ? `kubectl rollout ${sub2} auto-allowed (read-only)` : "kubectl rollout command auto-allowed (read-only)", evidenceSubcommand, auditResource, mentionsSecret)
+      : defer(evidenceSubcommand, auditResource, false, mentionsSecret);
   }
-  if (sub === "config") return operands[0] === "get-contexts"
-    ? allow("kubectl config get-contexts auto-allowed (read-only, no credentials)", sub, auditResource, mentionsSecret)
-    : defer(sub, auditResource, false, mentionsSecret);
-  if (sub === "auth") return operands[0] && KUBECTL_AUTH_ALLOW.has(operands[0])
-    ? allow(`kubectl auth ${operands[0]} auto-allowed (read-only)`, sub, auditResource, mentionsSecret)
-    : defer(sub, auditResource, false, mentionsSecret);
-  if (sub === "plugin") return operands[0] === "list"
-    ? allow("kubectl plugin list auto-allowed (read-only)", sub, auditResource, mentionsSecret)
-    : defer(sub, auditResource, false, mentionsSecret);
-  return defer(sub, auditResource, false, mentionsSecret);
+  if (sub === "config") return operands[0]?.value === "get-contexts"
+    ? allow("kubectl config get-contexts auto-allowed (read-only, no credentials)", evidenceSubcommand, auditResource, mentionsSecret)
+    : defer(evidenceSubcommand, auditResource, false, mentionsSecret);
+  if (sub === "auth") return operands[0] && KUBECTL_AUTH_ALLOW.has(operands[0].value)
+    ? allow(operandIsLiteral(invocation, operands[0]) && evidenceSubcommand !== null
+      ? `kubectl auth ${operands[0].value} auto-allowed (read-only)`
+      : "kubectl auth command auto-allowed (read-only)", evidenceSubcommand, auditResource, mentionsSecret)
+    : defer(evidenceSubcommand, auditResource, false, mentionsSecret);
+  if (sub === "plugin") return operands[0]?.value === "list"
+    ? allow("kubectl plugin list auto-allowed (read-only)", evidenceSubcommand, auditResource, mentionsSecret)
+    : defer(evidenceSubcommand, auditResource, false, mentionsSecret);
+  return defer(evidenceSubcommand, auditResource, false, mentionsSecret);
 }
 
 export function kubectlResourceType(resource: string): string {
@@ -78,18 +91,27 @@ function knownArguments(arguments_: readonly ResolvedWord[]): readonly string[] 
     : undefined;
 }
 
-function positionalArgs(args: readonly string[], start: number): string[] {
-  const positionals: string[] = [];
+interface PositionalArgument {
+  readonly value: string;
+  readonly index: number;
+}
+
+function positionalArgs(args: readonly string[], start: number): PositionalArgument[] {
+  const positionals: PositionalArgument[] = [];
   for (let index = start; index < args.length;) {
     const argument = args[index]!;
     if (!argument.startsWith("-")) {
-      positionals.push(argument);
+      positionals.push({ value: argument, index });
       index++;
     } else if (!argument.includes("=") && KUBECTL_FLAGS_WITH_VALUES.has(argument)) {
       index += 2;
     } else index++;
   }
   return positionals;
+}
+
+function operandIsLiteral(invocation: NormalizedCommand, operand: PositionalArgument | undefined): boolean {
+  return operand !== undefined && !isBindingResolvedWord(invocation.argv[operand.index]!);
 }
 
 /** Finds the first non-flag token after consuming global flags in any order. */

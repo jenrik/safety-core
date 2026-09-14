@@ -16,24 +16,25 @@ import {
   analyzeHelmReadOnlyCommand,
   analyzeStrictReadOnlyCommand,
   appendAuditRecord,
-  checkBashForGithub,
-  checkBashForKubectlSecret,
   checkWebfetchUrl,
   defaultAuditPath,
   discoverWasmDir,
+  evaluateBashGuards,
   initBashParser,
   isProfileEnabled,
   loadBashAnalysisLimits,
   loadGhPrCreatePolicy,
   mapOpenCodeBashStatus,
   isSecretPath,
-  parseBashForSecretRead,
   summariseKubectlSecret,
   setJudgeProvider,
   invokeJudge,
   shouldInvokeJudge,
   createAnthropicJudge,
   createOpenAIJudge,
+  type BashAuthorizationContext,
+  type BashGuardEvaluation,
+  type BashGuardOptions,
   type JudgeProvider,
 } from "../src/index.js";
 
@@ -42,8 +43,13 @@ import {
 // Initialise the bash parser eagerly (plugin factory can be async).
 const initPromise = initBashParser(discoverWasmDir(import.meta.url)).catch(() => {});
 
-export default (async () => {
+export interface OpenCodePluginDependencies {
+  readonly evaluateBashGuards?: BashGuardEvaluator;
+}
+
+export async function createOpenCodePlugin(dependencies: OpenCodePluginDependencies = {}) {
   await initPromise;
+  const guardEvaluator = dependencies.evaluateBashGuards ?? evaluateBashGuards;
 
   // TODO: Integrate with OpenCode's native model runtime so the judge can use
   // every configured provider instead of selecting raw Anthropic/OpenAI keys.
@@ -71,15 +77,8 @@ export default (async () => {
       const bashContext = bashAuthorizationContext();
 
       // ── Rule-based checks: hard-block clear violations ────────────
-      const secretReason = parseBashForSecretRead(command, bashContext);
-      if (secretReason) {
-        throw new Error(`Blocked by OpenCode safety policy: ${secretReason}`);
-      }
-
-      const githubReason = checkBashForGithub(command, bashContext);
-      if (githubReason) {
-        throw new Error(githubReason);
-      }
+      const guardReason = openCodeBashGuardBlockReason(command, bashContext, guardEvaluator);
+      if (guardReason) throw new Error(guardReason);
 
       const ghPrCreatePolicy = loadGhPrCreatePolicy();
       const ghPrCreateAnalysis = ghPrCreatePolicy.enabled
@@ -89,11 +88,6 @@ export default (async () => {
         const reason = ghPrCreateAnalysis.policies.find((policy) => policy.decision === "deny")?.reason
           ?? "Pull-request creation is blocked";
         throw new Error(`Blocked by OpenCode safety policy: ${reason}`);
-      }
-
-      const kubectlDecision = checkBashForKubectlSecret(command, bashContext);
-      if (kubectlDecision && !kubectlDecision.startsWith("kubectl get Secret")) {
-        throw new Error(`Blocked by OpenCode safety policy: ${kubectlDecision}`);
       }
 
       // ── LLM Judge: second pass for secret-adjacent commands ──────────
@@ -183,7 +177,9 @@ export default (async () => {
       }
     },
   } satisfies Plugin;
-});
+}
+
+export default async () => createOpenCodePlugin();
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -217,4 +213,19 @@ function bashAuthorizationContext() {
     limits: loadBashAnalysisLimits(),
     initialEnvironment: { kind: "unavailable" as const },
   });
+}
+
+type BashGuardEvaluator = (options: BashGuardOptions) => BashGuardEvaluation;
+
+/** Map one deny-only core guard evaluation to OpenCode's existing messages. */
+export function openCodeBashGuardBlockReason(
+  command: string,
+  context: BashAuthorizationContext,
+  evaluate: BashGuardEvaluator = evaluateBashGuards,
+): string | null {
+  const result = evaluate({ source: command, ...context });
+  if (result.kind === "pass") return null;
+  return result.policy.name === "github-http"
+    ? result.reason
+    : `Blocked by OpenCode safety policy: ${result.reason}`;
 }

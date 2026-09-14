@@ -121,8 +121,10 @@
             bun test ./tests/bash-walker.test.ts
             bun test ./tests/bash-dispatch.test.ts
             bun test ./tests/bash-hard-block-policies.test.ts
+            bun test ./tests/bash-guards.test.ts
             bun test ./tests/bash-gh-policies.test.ts
             bun test ./tests/bash-adapter.test.ts
+            bun test ./tests/opencode-bash-guards.test.ts
             bun test ./tests/bash-equivalence.test.ts
             bun test ./tests/bash-performance.test.ts
             bun test ./tests/opencode-history-adapter.test.ts
