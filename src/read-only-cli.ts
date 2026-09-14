@@ -1,4 +1,6 @@
 // Credential-safe CLI compatibility adapters backed by the stateful Bash walker.
+// TODO: Remove these profile-specific whole-command wrappers after the
+// configured core evaluator selects every enabled read-only policy in one pass.
 
 import { analyzeBashAuthorization, type BashAuthorizationContext } from "./authorization.js";
 import { genericReadOnlyHandlers, ghReadOnlyHandlers, helmReadOnlyHandlers, strictReadOnlyHandlers } from "./bash/handlers/read-only.js";

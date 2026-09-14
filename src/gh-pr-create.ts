@@ -1,4 +1,6 @@
 // gh pull-request creation compatibility adapter backed by the stateful walker.
+// TODO: Fold profile loading and these compatibility results into the
+// configured, single-pass core Bash evaluator.
 
 import { loadProfileConfig, type GhPrCreateProfileConfig } from "./config.js";
 import { analyzeBashAuthorization, type BashAuthorizationAnalysis, type BashAuthorizationContext } from "./authorization.js";

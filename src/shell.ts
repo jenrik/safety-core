@@ -1,7 +1,7 @@
 // Shell parsing for the LLM safety hook.
 //
-// Uses tree-sitter-bash for accurate shell parsing. Falls back to a simple
-// regex tokenizer if the parser hasn't been initialised (e.g. in tests).
+// Uses tree-sitter-bash for accurate shell parsing. Callers must initialize
+// it before policy evaluation; an unavailable parser yields a parse failure.
 
 import { statSync } from "node:fs";
 import { Language, Node as SyntaxNode, Parser } from "web-tree-sitter";
@@ -108,6 +108,9 @@ export function discoverWasmDir(moduleUrl: string): string {
 }
 
 // ─── Public types ───────────────────────────────────────────────────────────
+
+// TODO: Remove the legacy flattened SimpleCommand/Redirect API and its
+// projection helpers; CST programs and configured evaluation are the API.
 
 export interface SimpleCommand {
   /** The command name (e.g. "cat", "kubectl", "curl"). */

@@ -53,6 +53,8 @@ export interface PolicyEvidence {
   };
 }
 
+// TODO: Rename `neutral` to make its expected harness-policy deferral clear,
+// and add a distinct analysis-failure verdict with configurable disposition.
 export type AuthorizationVerdict =
   | { readonly kind: "allow" }
   | { readonly kind: "neutral" }

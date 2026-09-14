@@ -36,6 +36,8 @@ export interface CommandRegistry {
 /**
  * Builds a name-based registry. Caller policy handlers compose with built-in
  * structural handlers, so policy evidence cannot suppress nested recursion.
+ * TODO: Separate structural recursion from policy observation so only one
+ * handler can schedule each nested script and no handler reparses its child.
  */
 export function createCommandRegistry(handlers: readonly CommandHandler[] = []): CommandRegistry {
   const registered = new Map<string, CommandHandler[]>();

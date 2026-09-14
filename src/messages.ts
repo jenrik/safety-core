@@ -1,4 +1,6 @@
 // Canonical operator-facing messages used by every harness adapter.
+// TODO: Keep only cross-harness policy text here; move the Claude-only secret
+// fallback and GitHub-specific fallback hints next to their emitting handlers.
 
 export const SECRET_BLOCK_MESSAGE = `Blocked by secrets-policy safety hook.
 

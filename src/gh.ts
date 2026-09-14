@@ -1,4 +1,6 @@
 // gh-api compatibility adapter backed by the stateful Bash authorization walker.
+// TODO: Fold this repeated whole-command compatibility evaluation into the
+// configured, single-pass core Bash evaluator.
 
 import { analyzeBashAuthorization, type BashAuthorizationContext } from "./authorization.js";
 import { ghApiHandler } from "./bash/handlers/command-gh-api.js";

@@ -99,6 +99,8 @@ export function mapBashPermissionStatus<T extends string>(status: T, verdict: { 
 }
 
 /** OpenCode's native permission mapping: only definitive walker verdicts override it. */
+// TODO: Move all harness permission mapping out of the core; adapters should
+// translate a harness-neutral configured evaluator result.
 export function mapOpenCodeBashStatus<T extends string>(status: T, verdict: { readonly kind: string }): T | "allow" | "deny" {
   return mapBashPermissionStatus(status, verdict);
 }

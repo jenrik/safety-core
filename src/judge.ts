@@ -11,6 +11,8 @@
 // Harness adapters inject a JudgeProvider — a function that knows how to
 // call a model using that harness's native provider configuration.
 // Claude Code uses its native `type: "prompt"` hook instead of this module.
+// TODO: Keep only triggering, prompt construction, and strict result handling
+// here; adapters must inject native judge execution instead of core HTTP clients.
 //
 // Harness adapters store a verdict per tool call in the `tool_call` /
 // `PreToolUse` event handler, and the TUI reads it back in `renderCall`.

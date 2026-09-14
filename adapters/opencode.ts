@@ -37,13 +37,16 @@ import {
   type JudgeProvider,
 } from "../src/index.js";
 
+// TODO: Fail OpenCode plugin initialization catastrophically when parser
+// initialization fails; never defer this deployment failure to tool runtime.
 // Initialise the bash parser eagerly (plugin factory can be async).
 const initPromise = initBashParser(discoverWasmDir(import.meta.url)).catch(() => {});
 
 export default (async () => {
   await initPromise;
 
-  // Wire up LLM judge using OpenCode's provider configuration.
+  // TODO: Integrate with OpenCode's native model runtime so the judge can use
+  // every configured provider instead of selecting raw Anthropic/OpenAI keys.
   // OpenCode sets ANTHROPIC_API_KEY / OPENAI_API_KEY from its provider config.
   setJudgeProvider(buildJudgeProvider());
 
@@ -141,6 +144,8 @@ export default (async () => {
         if (decision.kind !== "ignore") return;
       }
 
+      // TODO: Replace adapter-owned profile loading, command selection, and
+      // repeated parsing with one configuration-driven core Bash evaluation.
       const strictProfiles = [
         ["argocdReadOnly", "argocd"], ["cosignReadOnly", "cosign"], ["craneReadOnly", "crane"],
         ["dockerReadOnly", "docker"], ["jfrogReadOnly", "jf"], ["jfrogReadOnly", "jfrog"],

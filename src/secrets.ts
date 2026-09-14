@@ -1,4 +1,7 @@
 // Secret-file detection and bash secret-read scanning.
+// TODO: Revisit secret-read detection around the Bash CST walker and remove
+// this repeated whole-command compatibility evaluation in favor of its
+// structured secret-read evidence.
 
 import {
   SECRET_EXCEPTIONS,

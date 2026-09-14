@@ -5,6 +5,8 @@
 //   - exit 2 + stderr           → hard block; stderr is shown to the model
 //   - stdout JSON with hookSpecificOutput → permissionDecision override
 //   - stdout plain text (SessionStart) → additional context for the model
+// TODO: Replace the separate Bash policy hook scripts with one adapter entry
+// that delegates configured, single-pass Bash evaluation to the shared core.
 
 import { readFileSync } from "node:fs";
 
@@ -79,7 +81,11 @@ export function hardBlock(message: string): never {
   process.exit(2);
 }
 
-/** Wrap an async main() so any uncaught exception exits 0 (fail-open). */
+/**
+ * TODO: Surface Bash parser initialization failures as fatal hook deployment
+ * errors rather than converting them to exit 0 and disabling enforcement.
+ * Wrap an async main() so other uncaught exceptions exit 0 (fail-open).
+ */
 export function run(main: () => Promise<void> | void): void {
   Promise.resolve()
     .then(main)

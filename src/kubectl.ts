@@ -1,4 +1,6 @@
 // kubectl-specific policy compatibility adapters backed by the Bash walker.
+// TODO: Remove these repeated whole-command compatibility evaluations once the
+// configured core evaluator exposes structured kubectl verdict and audit data.
 
 import { analyzeBashAuthorization, type BashAuthorizationContext } from "./authorization.js";
 import {

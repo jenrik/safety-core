@@ -1,5 +1,7 @@
 // Public entrypoint of the LLM safety-hook shared core. Adapters should
 // import from here rather than reaching into individual modules.
+// TODO: Expose one configuration-driven Bash evaluation API so adapters do
+// not select profiles or command analyzers and the core parses only once.
 
 export * from "./patterns.js";
 export * from "./messages.js";

@@ -83,8 +83,8 @@ export default function (pi: ExtensionAPI) {
       const wasmDir = discoverWasmDir(import.meta.url);
       await initBashParser(wasmDir);
     } catch {
-      // If WASM loading fails, the parser stays null and consumers fall
-      // back to safe defaults (no commands parsed → no blocks).
+      // TODO: Fail Pi extension startup catastrophically here; never defer
+      // this deployment failure to tool runtime or disable enforcement.
     }
 
     // Use Pi's model runtime so every authenticated provider/model available
@@ -173,6 +173,8 @@ export default function (pi: ExtensionAPI) {
       const command = (event.input as { command?: string })?.command ?? "";
       const bashContext = bashAuthorizationContext();
 
+      // TODO: Replace adapter-owned policy orchestration with one
+      // configuration-driven core Bash evaluation and its structured result.
       // ── Rule-based checks: hard-block clear violations ────────────
       const secretReason = parseBashForSecretRead(command, bashContext);
       if (secretReason) {

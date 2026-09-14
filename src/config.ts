@@ -3,6 +3,8 @@
 // file; read by every adapter that needs to decide whether a dynamic profile
 // is currently enabled, instead of plumbing the toggle through each harness's
 // own (differently-shaped) settings format.
+// TODO: Load, validate, and retain one immutable configuration snapshot during
+// core initialization; make configuration reload an explicit lifecycle action.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

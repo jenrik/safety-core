@@ -1,4 +1,6 @@
 // Filesystem audit log helper shared by opencode + claude-code adapters.
+// TODO: Replace kubectl-specific filesystem logging with policy-neutral audit
+// events from the configured evaluator and adapter-provided persistence sinks.
 
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
