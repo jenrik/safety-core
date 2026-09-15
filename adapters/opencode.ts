@@ -3,28 +3,21 @@
 // Delegates all policy decisions to ../src/*. This file only knows how
 // to translate between OpenCode's plugin API and core decision functions.
 
-import type { Plugin } from "@opencode-ai/plugin";
+import type { Plugin, PluginInput } from "@opencode-ai/plugin";
 
 import {
   SECRET_BLOCK_MESSAGE,
   SECRET_COMMAND_REMINDER,
   SECRET_PATTERNS,
-  analyzeGhApiCommand,
-  analyzeGenericReadOnlyCommand,
-  analyzeGhPrCreateAuthorization,
-  analyzeGhReadOnlyCommand,
-  analyzeHelmReadOnlyCommand,
-  analyzeStrictReadOnlyCommand,
   appendAuditRecord,
   checkWebfetchUrl,
   defaultAuditPath,
   discoverWasmDir,
+  evaluateConfiguredBash,
   evaluateBashGuards,
   initBashParser,
-  isProfileEnabled,
   loadBashAnalysisLimits,
   loadGhPrCreatePolicy,
-  mapOpenCodeBashStatus,
   isSecretPath,
   summariseKubectlSecret,
   setJudgeProvider,
@@ -33,6 +26,8 @@ import {
   createAnthropicJudge,
   createOpenAIJudge,
   type BashAuthorizationContext,
+  type BashConfiguredEvaluation,
+  type BashConfiguredOptions,
   type BashGuardEvaluation,
   type BashGuardOptions,
   type JudgeProvider,
@@ -40,11 +35,17 @@ import {
 
 export interface OpenCodePluginDependencies {
   readonly evaluateBashGuards?: BashGuardEvaluator;
+  readonly evaluateConfiguredBash?: BashConfiguredEvaluator;
 }
 
-export async function createOpenCodePlugin(dependencies: OpenCodePluginDependencies = {}) {
+export async function createOpenCodePlugin(
+  dependencies: OpenCodePluginDependencies = {},
+  client?: PluginInput["client"],
+  directory?: string,
+) {
   await initBashParser(discoverWasmDir(import.meta.url));
   const guardEvaluator = dependencies.evaluateBashGuards ?? evaluateBashGuards;
+  const permissionEvaluator = dependencies.evaluateConfiguredBash ?? evaluateConfiguredBash;
 
   // TODO: Integrate with OpenCode's native model runtime so the judge can use
   // every configured provider instead of selecting raw Anthropic/OpenAI keys.
@@ -85,65 +86,29 @@ export async function createOpenCodePlugin(dependencies: OpenCodePluginDependenc
       }
     },
 
-    // `tool.execute.before` can only throw to hard-block; it has no channel
-    // to auto-approve. `permission.ask` is the actual override point: it
-    // fires when OpenCode's native permission gate is about to ask, and a
-    // plugin can set `output.status` to "allow"/"deny"/"ask" to decide the
-    // outcome instead. `input.pattern` carries the full command text for a
-    // bash permission request (populated from the parsed shell command by
-    // OpenCode's own shell tool -- see packages/opencode/src/tool/shell.ts).
+    // Older OpenCode releases invoke permission.ask with the parsed command.
+    // Current releases use permission.asked below; retain this compatibility
+    // route while they transition their plugin API.
     "permission.ask": async (input, output) => {
       if (input.type !== "bash") return;
 
       const command = Array.isArray(input.pattern) ? input.pattern.join(" && ") : input.pattern;
       if (!command) return;
-      const bashContext = bashAuthorizationContext();
+      const decision = configuredPermission(command, permissionEvaluator);
+      if (decision.kind === "allow" || decision.kind === "deny") output.status = decision.kind;
+    },
 
-      const ghPrCreatePolicy = loadGhPrCreatePolicy();
-      if (ghPrCreatePolicy.enabled) {
-        const ghPrCreateAnalysis = analyzeGhPrCreateAuthorization(command, ghPrCreatePolicy, bashContext);
-        output.status = mapOpenCodeBashStatus(output.status, ghPrCreateAnalysis.verdict);
-        if (ghPrCreateAnalysis.verdict.kind !== "neutral") return;
+    // Current OpenCode versions publish this event instead of invoking
+    // permission.ask. Replying once resolves the pending native request.
+    event: async ({ event }) => {
+      if (!client || event.type !== "permission.asked" || event.properties.permission !== "bash") return;
+      const command = event.properties.patterns.join(" && ");
+      const decision = configuredPermission(command, permissionEvaluator);
+      if (decision.kind === "allow") {
+        await client.permission.reply({ directory, requestID: event.properties.id, reply: "once" });
+      } else if (decision.kind === "deny") {
+        await client.permission.reply({ directory, requestID: event.properties.id, reply: "reject", message: decision.reason });
       }
-
-      if (isProfileEnabled("readOnlyBash")) {
-        const decision = analyzeGenericReadOnlyCommand(command, bashContext);
-        output.status = mapOpenCodeBashStatus(output.status, decision);
-        if (decision.kind !== "ignore") return;
-      }
-
-      if (isProfileEnabled("ghReadOnly")) {
-        const decision = analyzeGhReadOnlyCommand(command, bashContext);
-        output.status = mapOpenCodeBashStatus(output.status, decision);
-        if (decision.kind !== "ignore") return;
-      }
-
-      if (isProfileEnabled("helmReadOnly")) {
-        const decision = analyzeHelmReadOnlyCommand(command, bashContext);
-        output.status = mapOpenCodeBashStatus(output.status, decision);
-        if (decision.kind !== "ignore") return;
-      }
-
-      // TODO: Replace adapter-owned profile loading, command selection, and
-      // repeated parsing with one configuration-driven core Bash evaluation.
-      const strictProfiles = [
-        ["argocdReadOnly", "argocd"], ["cosignReadOnly", "cosign"], ["craneReadOnly", "crane"],
-        ["dockerReadOnly", "docker"], ["jfrogReadOnly", "jf"], ["jfrogReadOnly", "jfrog"],
-        ["kubectlReadOnly", "kubectl"], ["nixReadOnly", "nix"],
-        ["nixEnvReadOnly", "nix-env"], ["nixStoreReadOnly", "nix-store"], ["ocReadOnly", "oc"],
-        ["podmanReadOnly", "podman"], ["podmanComposeReadOnly", "podman-compose"], ["skopeoReadOnly", "skopeo"],
-        ["tofuReadOnly", "tofu"], ["npmReadOnly", "npm"], ["pipReadOnly", "pip"],
-        ["uvReadOnly", "uv"], ["yarnReadOnly", "yarn"],
-      ] as const;
-      for (const [profile, executable] of strictProfiles) {
-        if (!isProfileEnabled(profile)) continue;
-        const decision = analyzeStrictReadOnlyCommand(command, executable, bashContext);
-        output.status = mapOpenCodeBashStatus(output.status, decision);
-        if (decision.kind !== "ignore") return;
-      }
-
-      if (!isProfileEnabled("ghApiReadOnly")) return;
-      output.status = mapOpenCodeBashStatus(output.status, analyzeGhApiCommand(command, bashContext));
     },
 
     "tool.execute.after": async (input, output) => {
@@ -165,7 +130,7 @@ export async function createOpenCodePlugin(dependencies: OpenCodePluginDependenc
   } satisfies Plugin;
 }
 
-export default async () => createOpenCodePlugin();
+export default async (input?: PluginInput) => createOpenCodePlugin({}, input?.client, input?.directory);
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -202,6 +167,11 @@ function bashAuthorizationContext() {
 }
 
 type BashGuardEvaluator = (options: BashGuardOptions) => BashGuardEvaluation;
+type BashConfiguredEvaluator = (options: BashConfiguredOptions) => BashConfiguredEvaluation;
+
+function configuredPermission(command: string, evaluate: BashConfiguredEvaluator) {
+  return evaluate({ source: command, initialEnvironment: { kind: "unavailable" } }).permission;
+}
 
 /** Map one deny-only core guard evaluation to OpenCode's existing messages. */
 export function openCodeBashGuardBlockReason(

@@ -1,6 +1,6 @@
 import type { SourceSpan } from "./cst.js";
 import type { NormalizedCommand } from "./expand.js";
-import { indeterminate, strongestOutcome, type Outcome } from "./outcome.js";
+import { indeterminate, strongestOutcome, withPolicySpan, type Outcome } from "./outcome.js";
 import { policyDeny, safe } from "./outcome.js";
 import type { BashDispatchRequest, BashDispatchResult } from "./walker.js";
 import { structuralHandlers, unknownStructuralHandler } from "./handlers/registry.js";
@@ -158,7 +158,7 @@ function observe(
 ): Outcome[] {
   for (const observer of observers) {
     const observation = observer.observe(cursor, context);
-    if (observation.kind === "outcome") outcomes.push(observation.outcome);
+    if (observation.kind === "outcome") outcomes.push(withPolicySpan(observation.outcome, context.span));
   }
   return outcomes;
 }

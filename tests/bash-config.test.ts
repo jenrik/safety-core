@@ -59,6 +59,29 @@ test("bash analysis configuration falls back to every safe default when absent o
   expect(loadBashAnalysisLimits!(writeProfile({}))).toEqual(defaults);
 });
 
+test("configured Bash snapshots are immutable and never enable malformed profiles", () => {
+  const loadBashProfileSnapshot = (config as Record<string, unknown>).loadBashProfileSnapshot as
+    | ((path: string) => Record<string, unknown>)
+    | undefined;
+  expect(loadBashProfileSnapshot).toBeFunction();
+
+  const snapshot = loadBashProfileSnapshot!(writeProfile({
+    readOnlyBash: true,
+    ghReadOnly: "true",
+    dockerReadOnly: true,
+    ghPrCreate: { enabled: true, allowedRepositories: ["acme/widgets", 4], allowedOrganizations: "acme" },
+  }));
+  expect(snapshot).toMatchObject({
+    readOnlyBash: true,
+    ghReadOnly: false,
+    ghPrCreate: { enabled: true, allowedRepositories: ["acme/widgets"], allowedOrganizations: [] },
+    strictProfiles: { dockerReadOnly: true },
+  });
+  expect(Object.isFrozen(snapshot)).toBe(true);
+  expect(Object.isFrozen(snapshot.strictProfiles)).toBe(true);
+  expect(Object.isFrozen(snapshot.ghPrCreate)).toBe(true);
+});
+
 nixEvaluationTest("Nix renders all configured Bash analysis limits into the shared profile", () => {
   const root = process.cwd();
   const profile = JSON.parse(execFileSync("nix", [
@@ -146,5 +169,16 @@ test("property: limit loading accepts exactly generated positive safe integers",
     expect(limits.maxNestedScriptDepth).toBe(valid ? value : defaults.maxNestedScriptDepth);
     expect(limits.maxSteps).toBe(valid ? value : defaults.maxSteps);
     expect(limits.maxWorkItems).toBe(valid ? value : defaults.maxWorkItems);
+  }
+});
+
+test("property: only literal true enables generated profile values", () => {
+  const loadBashProfileSnapshot = (config as Record<string, unknown>).loadBashProfileSnapshot as
+    | ((path: string) => { readonly ghReadOnly: boolean })
+    | undefined;
+  expect(loadBashProfileSnapshot).toBeFunction();
+  const values: unknown[] = [true, false, 1, 0, "true", null, [], {}, undefined];
+  for (const value of values) {
+    expect(loadBashProfileSnapshot!(writeProfile({ ghReadOnly: value })).ghReadOnly, String(value)).toBe(value === true);
   }
 });

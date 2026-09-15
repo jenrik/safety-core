@@ -3,8 +3,8 @@
 // file; read by every adapter that needs to decide whether a dynamic profile
 // is currently enabled, instead of plumbing the toggle through each harness's
 // own (differently-shaped) settings format.
-// TODO: Load, validate, and retain one immutable configuration snapshot during
-// core initialization; make configuration reload an explicit lifecycle action.
+// The configured Bash evaluator loads one validated immutable snapshot per
+// event. A process-lifetime snapshot remains a later lifecycle concern.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -52,6 +52,32 @@ export interface GhPrCreateProfileConfig {
   allowedOrganizations?: string[];
 }
 
+export const STRICT_BASH_PROFILE_EXECUTABLES = Object.freeze([
+  ["argocdReadOnly", "argocd"], ["cosignReadOnly", "cosign"], ["craneReadOnly", "crane"],
+  ["dockerReadOnly", "docker"], ["jfrogReadOnly", "jf"], ["jfrogReadOnly", "jfrog"],
+  ["kubectlReadOnly", "kubectl"], ["nixReadOnly", "nix"], ["nixEnvReadOnly", "nix-env"],
+  ["nixStoreReadOnly", "nix-store"], ["ocReadOnly", "oc"], ["podmanReadOnly", "podman"],
+  ["podmanComposeReadOnly", "podman-compose"], ["skopeoReadOnly", "skopeo"],
+  ["tofuReadOnly", "tofu"], ["npmReadOnly", "npm"], ["pipReadOnly", "pip"],
+  ["uvReadOnly", "uv"], ["yarnReadOnly", "yarn"],
+] as const);
+
+export type StrictBashProfile = (typeof STRICT_BASH_PROFILE_EXECUTABLES)[number][0];
+
+export interface BashProfileSnapshot {
+  readonly readOnlyBash: boolean;
+  readonly ghApiReadOnly: boolean;
+  readonly ghReadOnly: boolean;
+  readonly helmReadOnly: boolean;
+  readonly strictProfiles: Readonly<Record<StrictBashProfile, boolean>>;
+  readonly ghPrCreate: {
+    readonly enabled: boolean;
+    readonly allowedRepositories: readonly string[];
+    readonly allowedOrganizations: readonly string[];
+  };
+  readonly limits: BashAnalysisLimits;
+}
+
 /**
  * Default profile-config path under $SAFETY_CORE_CONFIG_HOME, falling back
  * to $XDG_CONFIG_HOME, then ~/.config. SAFETY_CORE_CONFIG_HOME lets a
@@ -84,6 +110,34 @@ export function loadProfileConfig(path: string = defaultProfileConfigPath()): Sa
 }
 
 /**
+ * Parse one immutable, event-local configuration snapshot for the configured
+ * Bash evaluator. Invalid data can never enable an auto-allow profile.
+ */
+export function loadBashProfileSnapshot(path?: string): BashProfileSnapshot {
+  const configured = loadProfileConfig(path);
+  const ghPrCreate = configured.ghPrCreate;
+  const strictProfiles = Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, configured[profile] === true])) as Record<StrictBashProfile, boolean>;
+  return Object.freeze({
+    readOnlyBash: configured.readOnlyBash === true,
+    ghApiReadOnly: configured.ghApiReadOnly === true,
+    ghReadOnly: configured.ghReadOnly === true,
+    helmReadOnly: configured.helmReadOnly === true,
+    strictProfiles: Object.freeze(strictProfiles),
+    ghPrCreate: Object.freeze({
+      enabled: isRecord(ghPrCreate) && ghPrCreate.enabled === true,
+      allowedRepositories: Object.freeze(stringArray(ghPrCreate?.allowedRepositories)),
+      allowedOrganizations: Object.freeze(stringArray(ghPrCreate?.allowedOrganizations)),
+    }),
+    limits: Object.freeze({
+      maxFunctionDepth: positiveSafeInteger(configured.bashAnalysis?.maxFunctionDepth, DEFAULT_BASH_ANALYSIS_LIMITS.maxFunctionDepth),
+      maxNestedScriptDepth: positiveSafeInteger(configured.bashAnalysis?.maxNestedScriptDepth, DEFAULT_BASH_ANALYSIS_LIMITS.maxNestedScriptDepth),
+      maxSteps: positiveSafeInteger(configured.bashAnalysis?.maxSteps, DEFAULT_BASH_ANALYSIS_LIMITS.maxSteps),
+      maxWorkItems: positiveSafeInteger(configured.bashAnalysis?.maxWorkItems, DEFAULT_BASH_ANALYSIS_LIMITS.maxWorkItems),
+    }),
+  });
+}
+
+/**
  * Load only validated structural analysis limits. Invalid or absent values use
  * the conservative, finite defaults rather than widening an analysis budget.
  */
@@ -109,4 +163,12 @@ function positiveSafeInteger(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0
     ? value
     : fallback;
+}
+
+function isRecord(value: unknown): value is GhPrCreateProfileConfig {
+  return typeof value === "object" && value !== null;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }

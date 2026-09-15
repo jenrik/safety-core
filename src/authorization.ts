@@ -7,6 +7,13 @@ import { httpHandlers } from "./bash/handlers/http.js";
 import { kubectlHandler } from "./bash/handlers/command-kubectl.js";
 import { readerHandlers } from "./bash/handlers/readers.js";
 import { ghPrCreateHandler, ghPrCreateInterpreterObservers } from "./bash/handlers/command-gh-pr-create.js";
+import { ghReadOnlyHandler } from "./bash/handlers/command-gh-read-only.js";
+import { straceReadOnlyHandler } from "./bash/handlers/command-strace-read-only.js";
+import { findSubcommand, isPrCreate, knownArguments } from "./bash/handlers/gh-utils.js";
+import { genericReadOnlyHandlers, helmReadOnlyHandlers, strictReadOnlyHandlers } from "./bash/handlers/read-only.js";
+import { ghApiHandler } from "./bash/handlers/command-gh-api.js";
+import { ignorePolicy } from "./bash/dispatch.js";
+import { STRICT_BASH_PROFILE_EXECUTABLES, loadBashProfileSnapshot, type BashProfileSnapshot, type StrictBashProfile } from "./config.js";
 import type { GhPrCreatePolicy } from "./gh-pr-create.js";
 import { parseBashProgram } from "./shell.js";
 
@@ -68,6 +75,32 @@ export type BashGuardEvaluation =
 export interface BashGuardOptions extends Pick<BashAuthorizationOptions, "source" | "limits" | "initialEnvironment"> {
   /** Explicit adapter-loaded restrictive profile; the core never loads config. */
   readonly ghPrCreatePolicy?: GhPrCreatePolicy;
+}
+
+export type BashPermissionProfile = "readOnlyBash" | "ghApiReadOnly" | "ghReadOnly" | "helmReadOnly" | StrictBashProfile | "ghPrCreate";
+
+export type BashConfiguredPermissionDecision =
+  | { readonly kind: "allow"; readonly profile: BashPermissionProfile; readonly reason: string }
+  | { readonly kind: "deny"; readonly profile: BashPermissionProfile; readonly reason: string }
+  | { readonly kind: "defer" }
+  | { readonly kind: "ignore" };
+
+export interface BashConfiguredEvaluation {
+  readonly guards: BashGuardEvaluation;
+  readonly permission: BashConfiguredPermissionDecision;
+  readonly profiles: Readonly<Record<BashPermissionProfile, BashConfiguredPermissionDecision>>;
+  readonly analysis: {
+    readonly status: BashGuardAnalysisStatus;
+    readonly evidence: readonly PolicyEvidence[];
+  };
+  readonly audit: {
+    readonly policies: readonly PolicyEvidence[];
+  };
+}
+
+export interface BashConfiguredOptions extends Pick<BashAuthorizationOptions, "source" | "limits" | "initialEnvironment"> {
+  readonly configPath?: string;
+  readonly profileSnapshot?: BashProfileSnapshot;
 }
 
 const baseHandlers = Object.freeze([...readerHandlers, ...httpHandlers, kubectlHandler]);
@@ -133,6 +166,33 @@ export function evaluateBashGuards(options: BashGuardOptions): BashGuardEvaluati
     kind: "pass",
     status: guardAnalysisStatus(analysis.outcome.kind),
     policies: analysis.policies,
+  });
+}
+
+/**
+ * Evaluate every enabled Bash permission profile in one walk. The result keeps
+ * guard, permission, analysis, and audit information separate so guard-safe
+ * observations cannot authorize a command.
+ */
+export function evaluateConfiguredBash(options: BashConfiguredOptions): BashConfiguredEvaluation {
+  const snapshot = options.profileSnapshot ?? loadBashProfileSnapshot(options.configPath);
+  const limits = options.limits ?? snapshot.limits;
+  const handlers = configuredHandlers(snapshot);
+  const analysis = analyzeBashAuthorization({
+    source: options.source,
+    limits,
+    initialEnvironment: options.initialEnvironment,
+    handlers,
+    includeBaseHandlers: false,
+  });
+  const guards = guardEvaluation(analysis);
+  const profiles = profileDecisions(snapshot, analysis);
+  return freeze({
+    guards,
+    permission: selectPermission(snapshot, profiles),
+    profiles,
+    analysis: freeze({ status: guardAnalysisStatus(analysis.outcome.kind), evidence: analysis.policies }),
+    audit: freeze({ policies: Object.freeze(analysis.policies.filter((policy) => policy.kubectl?.secretReview === true)) }),
   });
 }
 
@@ -213,6 +273,98 @@ function initialEnvironment(initial: BashInitialEnvironment | undefined, budgets
 function isBashGuardDenyEvidence(policy: PolicyEvidence): policy is BashGuardDenyEvidence {
   return policy.decision === "deny"
     && (policy.name === "secret-read" || policy.name === "github-http" || policy.name === "kubectl" || policy.name === "gh-pr-create");
+}
+
+function guardEvaluation(analysis: BashAuthorizationAnalysis): BashGuardEvaluation {
+  const blocked = analysis.policies.find(isBashGuardDenyEvidence);
+  return blocked
+    ? freeze({ kind: "block", reason: blocked.reason ?? defaultGuardReason(blocked.name), policy: blocked, policies: analysis.policies })
+    : freeze({ kind: "pass", status: guardAnalysisStatus(analysis.outcome.kind), policies: analysis.policies });
+}
+
+function configuredHandlers(snapshot: BashProfileSnapshot): readonly PolicyObserver[] {
+  const handlers: PolicyObserver[] = [...baseHandlers];
+  if (snapshot.readOnlyBash) handlers.push(...genericReadOnlyHandlers);
+  if (snapshot.ghReadOnly) handlers.push(straceReadOnlyHandler, snapshot.ghPrCreate.enabled ? configuredGhReadOnlyHandler : ghReadOnlyHandler);
+  if (snapshot.helmReadOnly) handlers.push(...helmReadOnlyHandlers);
+  for (const [profile, executable] of STRICT_BASH_PROFILE_EXECUTABLES) {
+    if (snapshot.strictProfiles[profile]) handlers.push(...strictReadOnlyHandlers(executable));
+  }
+  if (snapshot.ghApiReadOnly) handlers.push(ghApiHandler);
+  if (snapshot.ghPrCreate.enabled) handlers.push(ghPrCreateHandler(snapshot.ghPrCreate), ...ghPrCreateInterpreterObservers);
+  return Object.freeze([...new Set(handlers)]);
+}
+
+/** The PR overlay owns native `gh pr create`; lower-priority gh reads must not taint it. */
+const configuredGhReadOnlyHandler: PolicyObserver = Object.freeze({
+  name: "gh",
+  observe(cursor, context) {
+    const args = knownArguments(cursor);
+    const subcommand = args && findSubcommand(args);
+    if (subcommand?.name === "pr" && isPrCreate(args.slice(subcommand.index + 1))) return ignorePolicy();
+    return ghReadOnlyHandler.observe(cursor, context);
+  },
+});
+
+function profileDecisions(snapshot: BashProfileSnapshot, analysis: BashAuthorizationAnalysis): Readonly<Record<BashPermissionProfile, BashConfiguredPermissionDecision>> {
+  const enabled = enabledProfiles(snapshot);
+  const result = {} as Record<BashPermissionProfile, BashConfiguredPermissionDecision>;
+  for (const profile of enabled) result[profile] = profileDecision(profile, analysis);
+  return Object.freeze(result);
+}
+
+function profileDecision(profile: BashPermissionProfile, analysis: BashAuthorizationAnalysis): BashConfiguredPermissionDecision {
+  const own = analysis.policies.filter((policy) => belongsToProfile(policy, profile));
+  const sharedDefer = analysis.policies.some((policy) => policy.name === "generic-read-only" && policy.decision === "defer" && policy.readOnly?.tool === "strace");
+  if (own.length === 0) return sharedDefer ? freeze({ kind: "defer" }) : freeze({ kind: "ignore" });
+  const denied = own.find((policy) => policy.decision === "deny");
+  if (denied) return freeze({ kind: "deny", profile, reason: denied.reason ?? `${profile} denied the Bash command` });
+  const ownSpans = new Set(own.map(policySpan));
+  const foreign = analysis.policies.some((policy) => !belongsToProfile(policy, profile)
+    && (!isBaselineEvidence(policy) || !ownSpans.has(policySpan(policy))));
+  if (sharedDefer || foreign || own.some((policy) => policy.decision !== "allow") || analysis.verdict.kind !== "allow") return freeze({ kind: "defer" });
+  const policy = own[0]!;
+  return freeze({ kind: "allow", profile, reason: policy.reason ?? `${profile} auto-allowed the Bash command` });
+}
+
+function enabledProfiles(snapshot: BashProfileSnapshot): BashPermissionProfile[] {
+  const profiles: BashPermissionProfile[] = [];
+  if (snapshot.ghPrCreate.enabled) profiles.push("ghPrCreate");
+  if (snapshot.ghApiReadOnly) profiles.push("ghApiReadOnly");
+  if (snapshot.ghReadOnly) profiles.push("ghReadOnly");
+  if (snapshot.readOnlyBash) profiles.push("readOnlyBash");
+  if (snapshot.helmReadOnly) profiles.push("helmReadOnly");
+  for (const [profile] of STRICT_BASH_PROFILE_EXECUTABLES) if (snapshot.strictProfiles[profile]) profiles.push(profile);
+  return profiles;
+}
+
+function selectPermission(snapshot: BashProfileSnapshot, profiles: Readonly<Record<BashPermissionProfile, BashConfiguredPermissionDecision>>): BashConfiguredPermissionDecision {
+  for (const profile of enabledProfiles(snapshot)) {
+    const decision = profiles[profile];
+    if (decision && decision.kind !== "ignore") return decision;
+  }
+  return freeze({ kind: "ignore" });
+}
+
+function belongsToProfile(policy: PolicyEvidence, profile: BashPermissionProfile): boolean {
+  if (profile === "ghPrCreate") return policy.name === "gh-pr-create";
+  if (profile === "ghApiReadOnly") return policy.name === "gh-api";
+  if (profile === "ghReadOnly") return policy.name === "gh-read-only";
+  if (profile === "helmReadOnly") return policy.name === "helm-read-only";
+  if (profile === "readOnlyBash") return policy.name === "generic-read-only";
+  return policy.name === "strict-read-only" && strictExecutables(profile).includes(policy.readOnly?.tool ?? "");
+}
+
+function strictExecutables(profile: StrictBashProfile): readonly string[] {
+  return STRICT_BASH_PROFILE_EXECUTABLES.filter(([name]) => name === profile).map(([, executable]) => executable);
+}
+
+function isBaselineEvidence(policy: PolicyEvidence): boolean {
+  return policy.name === "secret-read" || policy.name === "github-http" || policy.name === "kubectl";
+}
+
+function policySpan(policy: PolicyEvidence): string {
+  return policy.span ? `${policy.span.start}:${policy.span.end}` : "unproven";
 }
 
 function guardAnalysisStatus(kind: RunStepsResult["outcome"]["kind"]): BashGuardAnalysisStatus {

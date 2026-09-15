@@ -42,6 +42,8 @@ export interface PolicyEvidence {
   readonly name: "secret-read" | "github-http" | "kubectl" | "gh-api" | "gh-pr-create" | "generic-read-only" | "gh-read-only" | "helm-read-only" | "strict-read-only";
   readonly decision: "allow" | "deny" | "defer";
   readonly reason?: string;
+  /** Redacted source coordinates identify the observed invocation, never its text. */
+  readonly span?: SourceSpan;
   readonly kubectl?: {
     readonly subcommand: string | null;
     readonly resource: string | null;
@@ -158,6 +160,18 @@ export function policyDeny(span: SourceSpan, policy: PolicyEvidence): DenyOutcom
   return freeze({ kind: "deny", span: copySpan(span), policy: redacted, policies: Object.freeze([redacted]) });
 }
 
+/** Associate policy evidence with its invocation without retaining source text. */
+export function withPolicySpan(outcome: Outcome, span: SourceSpan): Outcome {
+  const policies = outcome.policies ?? (outcome.policy ? [outcome.policy] : []);
+  if (policies.length === 0) return outcome;
+  const annotated = Object.freeze(policies.map((policy) => freeze({ ...policy, span: copySpan(span) })));
+  return freeze({
+    ...outcome,
+    ...(outcome.policy ? { policy: annotated[0]! } : {}),
+    policies: annotated,
+  }) as Outcome;
+}
+
 /** Drops caller-owned fields before evidence leaves the analysis boundary. */
 export function redactOutcome(outcome: Outcome): Outcome {
   const policies = redactPolicies(outcome);
@@ -244,6 +258,7 @@ function redactPolicy(policy: PolicyEvidence): PolicyEvidence {
     name: policy.name,
     decision: policy.decision,
     ...(policy.reason ? { reason: policy.reason } : {}),
+    ...(policy.span ? { span: copySpan(policy.span) } : {}),
     ...(policy.kubectl ? {
       kubectl: freeze({
         subcommand: policy.kubectl.subcommand,

@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { initBashParser } from "../src/index.ts";
+import { evaluateConfiguredBash, initBashParser, type BashConfiguredOptions } from "../src/index.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-opencode-read-only-cli-"));
 const configHome = mkdtempSync(join(tmpdir(), "safety-core-opencode-profile-"));
@@ -87,5 +87,40 @@ describe("OpenCode read-only CLI profiles", () => {
       ghPrCreate: { enabled: true, allowedRepositories: ["acme/widgets"], allowedOrganizations: [] },
     }));
     expect(await permissionStatus("cat README.md")).toBe("ask");
+  });
+
+  test("uses one configured evaluator per Bash permission callback", async () => {
+    writeFileSync(join(configHome, "safety-core", "profiles.json"), JSON.stringify({ ghReadOnly: true }));
+    const { createOpenCodePlugin } = await import("../adapters/opencode.ts");
+    let calls = 0;
+    const plugin = await createOpenCodePlugin({
+      evaluateConfiguredBash(options: BashConfiguredOptions) {
+        calls++;
+        expect(options).toMatchObject({ source: "gh label list", initialEnvironment: { kind: "unavailable" } });
+        return evaluateConfiguredBash(options);
+      },
+    });
+    const output = { status: "ask" };
+    await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "gh label list" }, output);
+    expect(output.status).toBe("allow");
+    expect(calls).toBe(1);
+  });
+
+  test("resolves current OpenCode permission events through the client", async () => {
+    writeFileSync(join(configHome, "safety-core", "profiles.json"), JSON.stringify({ ghReadOnly: true }));
+    const { createOpenCodePlugin } = await import("../adapters/opencode.ts");
+    const replies: unknown[] = [];
+    const plugin = await createOpenCodePlugin({}, {
+      permission: {
+        reply: async (input: unknown) => { replies.push(input); },
+      },
+    } as never, "/workspace");
+    await (plugin.event as Function)({
+      event: {
+        type: "permission.asked",
+        properties: { id: "request-1", permission: "bash", patterns: ["gh label list"] },
+      },
+    });
+    expect(replies).toEqual([{ directory: "/workspace", requestID: "request-1", reply: "once" }]);
   });
 });

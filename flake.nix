@@ -109,8 +109,9 @@
             bun test tests/gh-pr-create-hook-parser-failure.test.ts
             cp ${builtins.dirOf sc.opencodePluginFile}/tree-sitter-bash.wasm ./
             bun test tests/gh-pr-create-parser-failure.test.ts
-            bun test tests/gh-pr-create.test.ts
-            bun test tests/read-only-cli.test.ts
+             bun test tests/gh-pr-create.test.ts
+             bun test ./tests/bash-configured.test.ts
+             bun test tests/read-only-cli.test.ts
             bun test tests/opencode-read-only-cli.test.ts
             bun test tests/pi-adapter.test.ts
             bun test ./tests/bash-cst.test.ts
