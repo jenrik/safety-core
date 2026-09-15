@@ -4,6 +4,7 @@
 // to translate between OpenCode's plugin API and core decision functions.
 
 import type { Plugin, PluginInput } from "@opencode-ai/plugin";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 import {
@@ -70,7 +71,7 @@ export async function createOpenCodePlugin(
 
       // ── Rule-based checks: hard-block clear violations ────────────
       const snapshot = profileSnapshots.reloadIfChanged();
-      const evaluation = evaluateConfigured(command, permissionEvaluator, snapshot);
+      const evaluation = await evaluateForOpenCode(command, permissionEvaluator, snapshot, client, () => bashResults.shouldNotifyAnalysisFailure(input, command, bashResults.sessionID(input)));
       const guardReason = openCodeBashGuardBlockReason(evaluation);
       if (guardReason) throw new Error(guardReason);
 
@@ -82,6 +83,7 @@ export async function createOpenCodePlugin(
         }
       }
       bashResults.store(input, command, evaluation, snapshot.generation);
+      bashResults.linkLegacyAnalysisFailure(input, command, bashResults.sessionID(input));
     },
 
     // Older OpenCode releases invoke permission.ask with the parsed command.
@@ -93,7 +95,13 @@ export async function createOpenCodePlugin(
       const command = Array.isArray(input.pattern) ? input.pattern.join(" && ") : input.pattern;
       if (!command) return;
       // Permission callbacks must observe their own event-local config snapshot.
-      const decision = evaluateConfigured(command, permissionEvaluator, profileSnapshots.reloadIfChanged()).permission;
+      const decision = (await evaluateForOpenCode(
+        command,
+        permissionEvaluator,
+        profileSnapshots.reloadIfChanged(),
+        client,
+        () => bashResults.shouldNotifyAnalysisFailure(bashResults.permissionIdentity(input), command, bashResults.sessionID(input)),
+      )).permission;
       if (decision.kind === "allow" || decision.kind === "deny") output.status = decision.kind;
     },
 
@@ -111,12 +119,13 @@ export async function createOpenCodePlugin(
       }
       if (!client || event.type !== "permission.asked" || event.properties.permission !== "bash") return;
       const command = event.properties.patterns.join(" && ");
-      const cached = bashResults.lookup(bashResults.permissionIdentity(event.properties), command);
+      const identity = bashResults.permissionIdentity(event.properties);
+      const cached = bashResults.lookup(identity, command);
       if (cached.key) bashResults.bindRequest(event.properties.id, cached.key);
       const snapshot = profileSnapshots.reloadIfChanged();
       const decision = cached.evaluation && cached.generation === snapshot.generation
         ? cached.evaluation.permission
-        : evaluateConfigured(command, permissionEvaluator, snapshot).permission;
+        : (await evaluateForOpenCode(command, permissionEvaluator, snapshot, client, () => bashResults.shouldNotifyAnalysisFailure(identity, command, bashResults.sessionID(event.properties)))).permission;
       if (decision.kind === "allow") {
         await client.permission.reply({ directory, requestID: event.properties.id, reply: "once" });
       } else if (decision.kind === "deny") {
@@ -129,7 +138,8 @@ export async function createOpenCodePlugin(
       const command = String((input.args as Record<string, unknown>).command ?? "");
 
       const cached = bashResults.take(input, command);
-      const summary = kubectlSecretAudit((cached ?? evaluateConfigured(command, permissionEvaluator, profileSnapshots.reloadIfChanged())).audit.events);
+      const evaluation = cached ?? await evaluateForOpenCode(command, permissionEvaluator, profileSnapshots.reloadIfChanged(), client, () => bashResults.shouldNotifyAnalysisFailure(input, command, bashResults.sessionID(input)));
+      const summary = kubectlSecretAudit(evaluation.audit.events);
       if (summary) {
         await appendAuditRecord(defaultAuditPath("opencode"), {
           timestamp: new Date().toISOString(),
@@ -179,6 +189,41 @@ function evaluateConfigured(command: string, evaluate: BashConfiguredEvaluator, 
   return evaluate({ source: command, initialEnvironment: { kind: "unavailable" }, profileSnapshot: version.snapshot });
 }
 
+async function evaluateForOpenCode(
+  command: string,
+  evaluate: BashConfiguredEvaluator,
+  version: BashProfileSnapshotVersion,
+  client: PluginInput["client"] | undefined,
+  shouldNotify: () => boolean = () => true,
+): Promise<BashConfiguredEvaluation> {
+  try {
+    const evaluation = evaluateConfigured(command, evaluate, version);
+    if (evaluation.analysis.failure && shouldNotify()) {
+      await showAnalysisNotification(client, evaluation.analysis.failure.budget
+        ? "Safety analysis reached its complexity limit. OpenCode will use its normal permission policy."
+        : "Safety analysis could not be completed. OpenCode will use its normal permission policy.");
+    }
+    return evaluation;
+  } catch (error) {
+    if (shouldNotify()) {
+      await showAnalysisNotification(client, "Safety analysis could not be completed. OpenCode will use its normal permission policy.");
+    }
+    throw error;
+  }
+}
+
+/** Notifications are advisory; inability to display one must not alter permission handling. */
+async function showAnalysisNotification(client: PluginInput["client"] | undefined, message: string): Promise<void> {
+  if (!client) return;
+  try {
+    await client.tui.showToast({
+      body: { title: "Safety analysis incomplete", message, variant: "warning" },
+    });
+  } catch {
+    // A notification failure must not change the permission result.
+  }
+}
+
 function kubectlSecretAudit(events: BashConfiguredEvaluation["audit"]["events"]): BashConfiguredEvaluation["audit"]["events"][number]["fields"] | null {
   return events.find((event) => event.kind === "kubectl-secret")?.fields ?? null;
 }
@@ -222,6 +267,8 @@ const MAX_CACHED_BASH_RESULTS = 128;
 function createBashResultCache() {
   const entries = new Map<string, CachedBashEvaluation>();
   const requests = new Map<string, string>();
+  const notifiedFailures = new Map<string, FailureNotification>();
+  const legacyFailureNotifications = new Map<string, FailureNotification[]>();
 
   function key(value: BashLifecycleInput): string | null {
     return typeof value.sessionID === "string" && value.sessionID.length > 0
@@ -239,6 +286,12 @@ function createBashResultCache() {
     const direct = identity({ sessionID: value.sessionID, callID: value.callID });
     if (direct || !isRecord(value.tool)) return direct;
     return identity({ sessionID: value.sessionID, callID: value.tool.callID });
+  }
+
+  function sessionID(value: unknown): string | null {
+    return isRecord(value) && typeof value.sessionID === "string" && value.sessionID.length > 0
+      ? value.sessionID
+      : null;
   }
 
   function lookup(value: BashLifecycleInput | null, source: string): CachedLookup {
@@ -282,19 +335,80 @@ function createBashResultCache() {
   function dropSession(sessionID: unknown): void {
     if (typeof sessionID !== "string") return;
     for (const resultKey of entries.keys()) if (resultKey.startsWith(`${sessionID}\u0000`)) drop(resultKey);
+    for (const [resultKey, notification] of notifiedFailures) {
+      if (resultKey.startsWith(`${sessionID}\u0000`)) dropFailureNotification(notification);
+    }
+  }
+
+  function shouldNotifyAnalysisFailure(
+    value: BashLifecycleInput | null,
+    source: string,
+    sessionID: string | null,
+  ): boolean {
+    prune();
+    const resultKey = value ? key(value) : null;
+    // Older permission.ask events may not carry lifecycle IDs. Retain only a
+    // digest so their paired before hook cannot produce a second toast.
+    const legacyKey = `legacy:${sessionID ?? ""}:${createHash("sha256").update(source).digest("base64url")}`;
+    if (!resultKey) return consumeLegacyFailureNotification(legacyKey);
+    if (notifiedFailures.has(resultKey)) return false;
+    const notification: FailureNotification = Object.freeze({ resultKey, legacyKey, createdAt: Date.now() });
+    notifiedFailures.set(resultKey, notification);
+    while (notifiedFailures.size > MAX_CACHED_BASH_RESULTS) dropFailureNotification(notifiedFailures.values().next().value!);
+    return true;
+  }
+
+  /** Pair a successful before hook with the legacy permission callback. */
+  function linkLegacyAnalysisFailure(value: BashLifecycleInput, source: string, sessionID: string | null): void {
+    const resultKey = key(value);
+    if (!resultKey) return;
+    const notification = notifiedFailures.get(resultKey);
+    if (!notification) return;
+    const legacyKey = `legacy:${sessionID ?? ""}:${createHash("sha256").update(source).digest("base64url")}`;
+    if (notification.legacyKey !== legacyKey) return;
+    const legacy = legacyFailureNotifications.get(legacyKey) ?? [];
+    if (!legacy.includes(notification)) legacy.push(notification);
+    legacyFailureNotifications.set(legacyKey, legacy);
+  }
+
+  function consumeLegacyFailureNotification(legacyKey: string): boolean {
+    const notifications = legacyFailureNotifications.get(legacyKey);
+    const notification = notifications?.shift();
+    if (!notifications || notifications.length === 0) legacyFailureNotifications.delete(legacyKey);
+    return !notification;
+  }
+
+  function dropFailureNotification(notification: FailureNotification): void {
+    if (notifiedFailures.get(notification.resultKey) === notification) notifiedFailures.delete(notification.resultKey);
+    const legacy = legacyFailureNotifications.get(notification.legacyKey);
+    if (!legacy) return;
+    const index = legacy.indexOf(notification);
+    if (index >= 0) legacy.splice(index, 1);
+    if (legacy.length === 0) legacyFailureNotifications.delete(notification.legacyKey);
   }
 
   function drop(resultKey: string): void {
     entries.delete(resultKey);
+    const notification = notifiedFailures.get(resultKey);
+    if (notification) dropFailureNotification(notification);
     for (const [requestID, mapped] of requests) if (mapped === resultKey) requests.delete(requestID);
   }
 
   function prune(): void {
     const cutoff = Date.now() - BASH_RESULT_TTL_MS;
     for (const [resultKey, entry] of entries) if (entry.createdAt < cutoff) drop(resultKey);
+    for (const notification of new Set(notifiedFailures.values())) {
+      if (notification.createdAt < cutoff) dropFailureNotification(notification);
+    }
   }
 
-  return Object.freeze({ identity, permissionIdentity, lookup, store, take, bindRequest, dropRequest, dropSession });
+  return Object.freeze({ identity, permissionIdentity, sessionID, lookup, store, take, bindRequest, dropRequest, dropSession, shouldNotifyAnalysisFailure, linkLegacyAnalysisFailure });
+}
+
+interface FailureNotification {
+  readonly resultKey: string;
+  readonly legacyKey: string;
+  readonly createdAt: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

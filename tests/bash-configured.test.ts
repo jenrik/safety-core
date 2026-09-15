@@ -124,6 +124,7 @@ describe("configured Bash permissions", () => {
       limits: Object.freeze({ ...limits, maxSteps: 0 }),
     }));
     expect(exhausted.analysis.status).toBe("failure");
+    expect(exhausted.analysis.failure).toEqual({ budget: "max-steps" });
     expect(exhausted.permission.kind).not.toBe("allow");
   });
 

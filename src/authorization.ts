@@ -1,6 +1,6 @@
 import { createCommandRegistry, dispatchCommand, type PolicyObserver } from "./bash/dispatch.js";
 import { fromInitialEnvironment, fromVerifiedInitialEnvironment } from "./bash/environment.js";
-import { indeterminate, type AuthorizationVerdict, type PolicyEvidence } from "./bash/outcome.js";
+import { indeterminate, type AnalysisBudget, type AuthorizationVerdict, type PolicyEvidence } from "./bash/outcome.js";
 import { DEFAULT_BASH_ANALYSIS_LIMITS, runSteps, type BashAnalysisLimits, type RunStepsResult } from "./bash/runner.js";
 import { walkProgram } from "./bash/walker.js";
 import { httpHandlers } from "./bash/handlers/http.js";
@@ -91,6 +91,8 @@ export interface BashConfiguredEvaluation {
   readonly profiles: Readonly<Record<BashPermissionProfile, BashConfiguredPermissionDecision>>;
   readonly analysis: {
     readonly status: BashGuardAnalysisStatus;
+    /** Present only when analysis stopped because of a redacted internal failure. */
+    readonly failure: { readonly budget: AnalysisBudget | null } | null;
     readonly evidence: readonly PolicyEvidence[];
   };
   readonly audit: {
@@ -201,7 +203,11 @@ export function evaluateConfiguredBash(options: BashConfiguredOptions): BashConf
     guards,
     permission: selectPermission(snapshot, profiles),
     profiles,
-    analysis: freeze({ status: guardAnalysisStatus(analysis.outcome.kind), evidence: analysis.policies }),
+    analysis: freeze({
+      status: guardAnalysisStatus(analysis.outcome.kind),
+      failure: analysis.outcome.kind === "failure" ? freeze({ budget: analysis.outcome.budget ?? null }) : null,
+      evidence: analysis.policies,
+    }),
     audit: freeze({
       events: kubectlAuditEvents(options.source, analysis.policies),
     }),

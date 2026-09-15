@@ -59,6 +59,86 @@ describe("OpenCode single-pass Bash guards", () => {
     expect(calls).toBe(1);
   });
 
+  test("notifies when analysis exhausts its budget but not for completed decisions", async () => {
+    const notifications: unknown[] = [];
+    const client = {
+      tui: { showToast: async (notification: unknown) => { notifications.push(notification); } },
+    } as never;
+    const plugin = await createOpenCodePlugin({
+      evaluateConfiguredBash(options: BashConfiguredOptions) {
+        return evaluateConfiguredBash({
+          ...options,
+          limits: { maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 0, maxWorkItems: 10_000 },
+        });
+      },
+    }, client);
+    const before = plugin["tool.execute.before"] as Function;
+
+    await expect(before(bashInput("session-1", "budget"), bashOutput("gh label list"))).resolves.toBeUndefined();
+    expect(notifications).toEqual([{
+      body: {
+        title: "Safety analysis incomplete",
+        message: "Safety analysis reached its complexity limit. OpenCode will use its normal permission policy.",
+        variant: "warning",
+      },
+    }]);
+
+    notifications.length = 0;
+    const completed = await createOpenCodePlugin({}, client);
+    const completedBefore = completed["tool.execute.before"] as Function;
+    await expect(completedBefore(bashInput("session-1", "allow"), bashOutput("gh label list"))).resolves.toBeUndefined();
+    await expect(completedBefore(bashInput("session-1", "deny"), bashOutput("cat credentials.json"))).rejects.toThrow("Blocked by OpenCode safety policy");
+    expect(notifications).toEqual([]);
+  });
+
+  test("notifies when evaluation throws without replacing the analysis error", async () => {
+    const notifications: unknown[] = [];
+    const plugin = await createOpenCodePlugin({
+      evaluateConfiguredBash() {
+        throw new Error("parser unavailable");
+      },
+    }, {
+      tui: { showToast: async (notification: unknown) => { notifications.push(notification); } },
+    } as never);
+    const before = plugin["tool.execute.before"] as Function;
+
+    await expect(before(bashInput("session-1", "error"), bashOutput("gh label list"))).rejects.toThrow("parser unavailable");
+    expect(notifications).toEqual([{
+      body: {
+        title: "Safety analysis incomplete",
+        message: "Safety analysis could not be completed. OpenCode will use its normal permission policy.",
+        variant: "warning",
+      },
+    }]);
+  });
+
+  test("notifies generic analysis failures and preserves errors when toast delivery fails", async () => {
+    const failure = evaluateConfiguredBash({ source: "gh label list", initialEnvironment: { kind: "unavailable" }, profileSnapshot: defaultSnapshot });
+    const plugin = await createOpenCodePlugin({
+      evaluateConfiguredBash() {
+        return {
+          ...failure,
+          analysis: { ...failure.analysis, status: "failure", failure: { budget: null } },
+        };
+      },
+    }, {
+      tui: { showToast() { throw new Error("toast unavailable"); } },
+    } as never);
+    const before = plugin["tool.execute.before"] as Function;
+
+    await expect(before(bashInput("session-1", "failure"), bashOutput("gh label list"))).resolves.toBeUndefined();
+
+    const errorPlugin = await createOpenCodePlugin({
+      evaluateConfiguredBash() {
+        throw new Error("parser unavailable");
+      },
+    }, {
+      tui: { showToast() { throw new Error("toast unavailable"); } },
+    } as never);
+    await expect((errorPlugin["tool.execute.before"] as Function)(bashInput("session-1", "error-toast"), bashOutput("gh label list")))
+      .rejects.toThrow("parser unavailable");
+  });
+
   test("the real before-execution callback preserves blocks and kubectl judge review", async () => {
     const plugin = await createOpenCodePlugin();
     const before = plugin["tool.execute.before"] as Function;
@@ -183,6 +263,124 @@ describe("OpenCode single-pass Bash guards", () => {
     }
   });
 
+  test("notifies an analysis failure once when a profile reload requires permission re-analysis", async () => {
+    const configHome = mkdtempSync(join(tmpdir(), "safety-core-opencode-analysis-notification-"));
+    const previousConfigHome = process.env.SAFETY_CORE_CONFIG_HOME;
+    const notifications: unknown[] = [];
+    try {
+      mkdirSync(join(configHome, "safety-core"));
+      process.env.SAFETY_CORE_CONFIG_HOME = configHome;
+      writeFileSync(join(configHome, "safety-core", "profiles.json"), JSON.stringify({ bashAnalysis: { maxSteps: 1 } }));
+      const plugin = await createOpenCodePlugin({}, {
+        permission: { reply: async () => {} },
+        tui: { showToast: async (notification: unknown) => { notifications.push(notification); } },
+      } as never, "/workspace");
+      const before = plugin["tool.execute.before"] as Function;
+      const event = plugin.event as Function;
+      const command = "gh label list";
+
+      await before(bashInput("session-1", "call-1"), bashOutput(command));
+      writeFileSync(join(configHome, "safety-core", "profiles.json"), JSON.stringify({ bashAnalysis: { maxSteps: 1 }, ghReadOnly: true }));
+      await event({ event: {
+        type: "permission.asked",
+        properties: { id: "request-1", sessionID: "session-1", permission: "bash", patterns: [command], tool: { callID: "call-1" } },
+      } });
+
+      expect(notifications).toHaveLength(1);
+    } finally {
+      if (previousConfigHome === undefined) delete process.env.SAFETY_CORE_CONFIG_HOME;
+      else process.env.SAFETY_CORE_CONFIG_HOME = previousConfigHome;
+      rmSync(configHome, { force: true, recursive: true });
+    }
+  });
+
+  test("notifies an analysis failure once across legacy before and permission callbacks", async () => {
+    const notifications: unknown[] = [];
+    const plugin = await createOpenCodePlugin({
+      evaluateConfiguredBash(options: BashConfiguredOptions) {
+        return evaluateConfiguredBash({
+          ...options,
+          limits: { maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 0, maxWorkItems: 10_000 },
+        });
+      },
+    }, {
+      tui: { showToast: async (notification: unknown) => { notifications.push(notification); } },
+    } as never);
+    const before = plugin["tool.execute.before"] as Function;
+    const permission = plugin["permission.ask"] as Function;
+    const command = "gh label list";
+
+    await before(bashInput("session-1", "call-1"), bashOutput(command));
+    await permission({ type: "bash", sessionID: "session-1", pattern: command }, { status: "ask" });
+
+    expect(notifications).toHaveLength(1);
+  });
+
+  test("does not suppress a later legacy notification after before aborts", async () => {
+    const notifications: unknown[] = [];
+    const plugin = await createOpenCodePlugin({
+      evaluateConfiguredBash() {
+        throw new Error("parser unavailable");
+      },
+    }, {
+      tui: { showToast: async (notification: unknown) => { notifications.push(notification); } },
+    } as never);
+    const before = plugin["tool.execute.before"] as Function;
+    const permission = plugin["permission.ask"] as Function;
+    const command = "gh label list";
+
+    await expect(before(bashInput("session-1", "aborted"), bashOutput(command))).rejects.toThrow("parser unavailable");
+    await expect(permission({ type: "bash", sessionID: "session-1", pattern: command }, { status: "ask" })).rejects.toThrow("parser unavailable");
+
+    expect(notifications).toHaveLength(2);
+  });
+
+  test("clears the legacy notification association after a completed lifecycle", async () => {
+    const notifications: unknown[] = [];
+    const plugin = await createOpenCodePlugin({
+      evaluateConfiguredBash(options: BashConfiguredOptions) {
+        return evaluateConfiguredBash({
+          ...options,
+          limits: { maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 0, maxWorkItems: 10_000 },
+        });
+      },
+    }, {
+      tui: { showToast: async (notification: unknown) => { notifications.push(notification); } },
+    } as never);
+    const before = plugin["tool.execute.before"] as Function;
+    const after = plugin["tool.execute.after"] as Function;
+    const permission = plugin["permission.ask"] as Function;
+    const command = "gh label list";
+
+    await before(bashInput("session-1", "completed"), bashOutput(command));
+    await after(afterInput("session-1", "completed", command), { output: "" });
+    await permission({ type: "bash", sessionID: "session-1", pattern: command }, { status: "ask" });
+
+    expect(notifications).toHaveLength(2);
+  });
+
+  test("bounds analysis-failure notification tracking", async () => {
+    const notifications: unknown[] = [];
+    const plugin = await createOpenCodePlugin({
+      evaluateConfiguredBash(options: BashConfiguredOptions) {
+        return evaluateConfiguredBash({
+          ...options,
+          limits: { maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 0, maxWorkItems: 10_000 },
+        });
+      },
+    }, {
+      tui: { showToast: async (notification: unknown) => { notifications.push(notification); } },
+    } as never);
+    const before = plugin["tool.execute.before"] as Function;
+
+    for (let index = 0; index <= 128; index++) {
+      await before(bashInput("session-1", `call-${index}`), bashOutput("gh label list"));
+    }
+    await before(bashInput("session-1", "call-0"), bashOutput("gh label list"));
+
+    expect(notifications).toHaveLength(130);
+  });
+
   test("property: audit cache reuse requires matching session, call, and source", async () => {
     let calls = 0;
     const plugin = await createOpenCodePlugin({
@@ -203,6 +401,19 @@ describe("OpenCode single-pass Bash guards", () => {
     await before(bashInput("session-a", "call-a"), bashOutput(command));
     await after(afterInput("session-a", "call-a", command), { output: "" });
     expect(calls).toBe(7);
+  });
+
+  test("property: completed allow, deny, and neutral analyses never notify", async () => {
+    for (const source of ["gh label list", "cat credentials.json", "UNKNOWN=$COMMAND; $UNKNOWN"]) {
+      const notifications: unknown[] = [];
+      const plugin = await createOpenCodePlugin({}, {
+        tui: { showToast: async (notification: unknown) => { notifications.push(notification); } },
+      } as never);
+      const before = plugin["tool.execute.before"] as Function;
+
+      await before(bashInput("session-1", source), bashOutput(source)).catch(() => {});
+      expect(notifications).toEqual([]);
+    }
   });
 });
 
