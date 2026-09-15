@@ -1,6 +1,7 @@
 import {
   createBashProfileSnapshotSource,
   evaluateConfiguredBash,
+  gitPolicyInitialEnvironment,
   type BashConfiguredEvaluation,
   type BashConfiguredOptions,
   type BashProfileSnapshotSource,
@@ -38,7 +39,7 @@ export function evaluateClaudeBashPolicy(
   const command = event.tool_input!.command as string;
   const evaluation = active.evaluateConfiguredBash({
     source: command,
-    initialEnvironment: { kind: "unavailable" },
+    initialEnvironment: gitPolicyInitialEnvironment(process.env),
     profileSnapshot: active.profileSnapshotSource.reloadIfChanged().snapshot,
   });
   if (evaluation.guards.kind === "block") return freeze({ kind: "deny", reason: evaluation.guards.reason });

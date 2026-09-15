@@ -5,9 +5,10 @@ import { isSecretPath, readOnlyAllow, readOnlyDefer, type AllowedFlag, type Read
 
 export type ReadOnlyPolicy = "generic-read-only" | "gh-read-only" | "helm-read-only" | "strict-read-only";
 
-const CREDENTIAL_CONFIGURATION_BINDINGS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+const UNSAFE_CONFIGURATION_BINDINGS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   gh: ["GH_CONFIG_DIR"],
   docker: ["DOCKER_CONFIG"],
+  git: ["GIT_CONFIG_COUNT", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_SYSTEM", "GIT_EXTERNAL_DIFF", "GIT_PAGER", "PAGER"],
   kubectl: ["KUBECONFIG"],
   oc: ["KUBECONFIG"],
 });
@@ -29,7 +30,7 @@ export function readOnlyHandler(
       if (cursor.invocation.assignmentPatch.writes.size > 0 || cursor.invocation.redirects.length > 0) {
         return observePolicy(policyIndeterminate(context.span, defer(policy, name).evidence));
       }
-      if (hasCredentialConfigurationBinding(cursor, name)) {
+      if (hasUnsafeConfigurationBinding(cursor, name)) {
         return observePolicy(policyIndeterminate(context.span, defer(policy, name).evidence));
       }
       const decision = analyze(args);
@@ -91,14 +92,6 @@ export function commandTokens(args: readonly string[], valueFlags: ReadonlySet<s
   return tokens;
 }
 
-export function hasUnsafeGitArgument(args: readonly string[]): boolean {
-  return args.some((argument) => argument === "--ext-diff"
-    || argument === "--textconv"
-    || argument === "--no-index"
-    || argument === "--output"
-    || argument.startsWith("--output="));
-}
-
 export function isStraceOutputArgument(argument: string): boolean {
   return argument === "-o" || argument.startsWith("-o") || argument === "--output" || argument.startsWith("--output=");
 }
@@ -110,8 +103,8 @@ export function readOnlyStraceObservation(cursor: InvocationCursor, span: Parame
     : safe());
 }
 
-function hasCredentialConfigurationBinding(cursor: InvocationCursor, executable: string): boolean {
-  return (CREDENTIAL_CONFIGURATION_BINDINGS[executable] ?? []).some((name) => {
+function hasUnsafeConfigurationBinding(cursor: InvocationCursor, executable: string): boolean {
+  return (UNSAFE_CONFIGURATION_BINDINGS[executable] ?? []).some((name) => {
     const value = lookupBinding(cursor.invocation.environment, name).value;
     return value.kind === "unknown" || (value.kind === "known" && value.value.length > 0);
   });

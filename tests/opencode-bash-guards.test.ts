@@ -48,7 +48,7 @@ describe("OpenCode single-pass Bash guards", () => {
       calls++;
       expect(options).toMatchObject({
         source: "cat README.md",
-        initialEnvironment: { kind: "unavailable" },
+        initialEnvironment: { kind: "verified" },
       });
       return evaluateConfiguredBash(options);
     };

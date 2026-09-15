@@ -74,7 +74,7 @@ describe("Claude configured Bash policy", () => {
   test("evaluates valid Bash callbacks once with an unavailable environment", () => {
     const result = evaluate("gh api user", snapshot({ ghApiReadOnly: true }));
     expect(result.calls).toBe(1);
-    expect(result.options).toMatchObject({ source: "gh api user", initialEnvironment: { kind: "unavailable" }, profileSnapshot: expect.anything() });
+    expect(result.options).toMatchObject({ source: "gh api user", initialEnvironment: { kind: "verified" }, profileSnapshot: expect.anything() });
     expect(result.decision).toMatchObject({ kind: "allow" });
     expect(isBashPreToolUse(event("id"))).toBe(true);
     expect(isBashPreToolUse({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "id" } })).toBe(false);

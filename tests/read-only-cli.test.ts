@@ -54,6 +54,14 @@ function generic(command: string): string {
   return configured(command, snapshot({ readOnlyBash: true })).permission.kind;
 }
 
+function genericWithEnvironment(command: string, values: Readonly<Record<string, string>>): string {
+  return evaluateConfiguredBash({
+    source: command,
+    initialEnvironment: { kind: "verified", values },
+    profileSnapshot: snapshot({ readOnlyBash: true }),
+  }).permission.kind;
+}
+
 function strict(command: string, executable: string): string {
   const profile = STRICT_BASH_PROFILE_EXECUTABLES.find(([, candidate]) => candidate === executable)?.[0];
   if (!profile) throw new Error(`No strict profile for ${executable}`);
@@ -164,6 +172,10 @@ describe("generic read-only Bash profile", () => {
       "git show HEAD:credentials.json",
       "git diff --stat origin/main...origin/feature",
       "git diff -- .env",
+      "git log --oneline origin/main..HEAD",
+      "git ls-files --cached",
+      "git branch --show-current",
+      "git worktree list",
       "sha256sum README.md",
       "git show --no-ext-diff HEAD | sha256sum && git diff --stat origin/main...origin/feature",
     ]) expect(generic(command), command).toBe("allow");
@@ -183,6 +195,18 @@ describe("generic read-only Bash profile", () => {
       "git diff --no-index README.md credentials.json",
       "sha256sum README.md > digest",
     ]) expect(generic(command), command).toBe("defer");
+  });
+
+  test("defers Git reads when an external diff helper is configured by the environment", () => {
+    for (const command of [
+      "GIT_EXTERNAL_DIFF=/tmp/diff-helper git diff --stat origin/main...origin/feature",
+      "export GIT_EXTERNAL_DIFF=/tmp/diff-helper; git diff --stat origin/main...origin/feature",
+      "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.external GIT_CONFIG_VALUE_0=/tmp/diff-helper; git diff --stat origin/main...origin/feature",
+      "export GIT_PAGER='sh -c false'; git log --oneline HEAD",
+    ]) expect(generic(command), command).toBe("defer");
+    expect(genericWithEnvironment("git diff --stat origin/main...origin/feature", {
+      GIT_EXTERNAL_DIFF: "/tmp/diff-helper",
+    })).toBe("defer");
   });
 
   test("property: strace output forms never preserve a generic read-only allow", () => {

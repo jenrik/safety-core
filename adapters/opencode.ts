@@ -16,6 +16,7 @@ import {
   createBashProfileSnapshotSource,
   discoverWasmDir,
   evaluateConfiguredBash,
+  gitPolicyInitialEnvironment,
   initBashParser,
   isSecretPath,
   setJudgeProvider,
@@ -186,7 +187,7 @@ function matchesSecretKeyword(command: string): boolean {
 type BashConfiguredEvaluator = (options: BashConfiguredOptions) => BashConfiguredEvaluation;
 
 function evaluateConfigured(command: string, evaluate: BashConfiguredEvaluator, version: BashProfileSnapshotVersion): BashConfiguredEvaluation {
-  return evaluate({ source: command, initialEnvironment: { kind: "unavailable" }, profileSnapshot: version.snapshot });
+  return evaluate({ source: command, initialEnvironment: gitPolicyInitialEnvironment(process.env), profileSnapshot: version.snapshot });
 }
 
 async function evaluateForOpenCode(
