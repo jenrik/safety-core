@@ -1,7 +1,7 @@
 // Block direct HTTP requests to raw.githubusercontent.com and api.github.com,
 // steering agents toward `gh` CLI equivalents.
-// TODO: Move Bash evaluation into the configured, single-pass core evaluator
-// and relocate the Claude Code malformed-event fallback to that adapter.
+// The Bash compatibility facade remains until Slice 6; Claude Code uses the
+// configured evaluator and keeps malformed-event fallback handling in its adapter.
 
 import { BLOCKED_GITHUB_DOMAINS } from "./patterns.js";
 import { GITHUB_GENERIC_HINT } from "./messages.js";

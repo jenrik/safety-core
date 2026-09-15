@@ -3,8 +3,8 @@
 # rules that gets rendered into (or consulted at runtime by) the harnesses
 # it targets -- currently Claude Code and OpenCode.
 #
-# This module only appends a PreToolUse hook entry pointing at the
-# conventional `$HOME/.claude/hooks/gh_api_read_allow.mjs` path -- it relies
+# This module appends one PreToolUse Bash hook pointing at the conventional
+# `$HOME/.claude/hooks/bash_policy.mjs` path. It relies
 # on the consumer's existing Claude Code module to have already symlinked
 # `pkgs.safety-core.claudeCodeHooks` (which now includes this hook
 # automatically, since it's built from every non-underscore file under
@@ -12,10 +12,10 @@
 # wiring is untouched here, since adapters/opencode.ts's gh-api check ships
 # as part of the existing, already-wired safety-core plugin file.
 #
-# readOnlyBash combines static Nix rules with parsed safe command forms. Dynamic profiles
-# (ghApiReadOnly, ghReadOnly, helmReadOnly, ghPrCreate) can't be expressed as static allow-list data, so their
-# hook/plugin code is wired in unconditionally once this module is imported,
-# and their actual enabled/disabled state lives in one shared runtime file
+# readOnlyBash combines static Nix rules with parsed safe command forms. Dynamic
+# profiles cannot be expressed as static allow-list data, so the single Bash
+# hook is wired unconditionally once this module is imported. Its actual
+# enabled/disabled state lives in one shared runtime file
 # (~/.config/safety-core/profiles.json, see src/config.ts) that every
 # harness adapter consults -- avoiding two independent Nix-rendered sources
 # of truth for the same toggle.
@@ -130,35 +130,15 @@ in
         };
       };
 
-      # ghApiReadOnly's Claude Code hook entry: wired in unconditionally
-      # (see module comment above); its behaviour is controlled by
-      # profiles.json, read by adapters/claude-code/gh_api_read_allow.ts at
-      # invocation time.
+      # One Claude Code Bash decision hook owns baseline guards and every
+      # configured profile. It reads one event-local profiles.json snapshot.
       programs.claude-code.settings.hooks.PreToolUse = mkAfter [
         {
           matcher = "Bash";
           hooks = [
             {
               type = "command";
-              command = "$HOME/.claude/hooks/gh_api_read_allow.mjs";
-            }
-          ];
-        }
-        {
-          matcher = "Bash";
-          hooks = [
-            {
-              type = "command";
-              command = "$HOME/.claude/hooks/read_only_cli_allow.mjs";
-            }
-          ];
-        }
-        {
-          matcher = "Bash";
-          hooks = [
-            {
-              type = "command";
-              command = "$HOME/.claude/hooks/gh_pr_create_policy.mjs";
+              command = "$HOME/.claude/hooks/bash_policy.mjs";
             }
           ];
         }

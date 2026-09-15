@@ -26,15 +26,47 @@
         in {
           hooks-runtime = pkgs.runCommand "safety-core-hooks-runtime-check" { } ''
             set -e
-            payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"cat /etc/kubernetes/secret.pem"}}'
+            payload='{"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"credentials.json"}}'
 
             set +e
-            echo "$payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/secrets_policy.mjs
+            echo "$payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/secrets_policy.mjs > read.stdout 2> read.stderr
             code=$?
             set -e
 
             if [ "$code" -ne 2 ]; then
-              echo "expected secrets_policy.mjs to exit 2 (block) for a dangerous command, got $code" >&2
+              echo "expected secrets_policy.mjs to exit 2 for a protected Read, got $code" >&2
+              exit 1
+            fi
+            if [ -s read.stdout ] || ! grep -q "credentials.json" read.stderr; then
+              echo "expected direct Read block reason only on stderr" >&2
+              exit 1
+            fi
+            test -f ${sc.claudeCodeHooks}/bash_policy.mjs
+            test ! -e ${sc.claudeCodeHooks}/gh_api_read_allow.mjs
+            test ! -e ${sc.claudeCodeHooks}/read_only_cli_allow.mjs
+            test ! -e ${sc.claudeCodeHooks}/gh_pr_create_policy.mjs
+            test ! -e ${sc.claudeCodeHooks}/kubectl_get_allow.mjs
+
+            webfetch_payload='{"hook_event_name":"PreToolUse","tool_name":"WebFetch","tool_input":{"url":"https://api.github.com/user"}}'
+            webfetch_out=$(echo "$webfetch_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/github_raw_redirect.mjs)
+            if ! echo "$webfetch_out" | grep -q '"permissionDecision":"deny"'; then
+              echo "expected github_raw_redirect.mjs to deny blocked WebFetch, got: $webfetch_out" >&2
+              exit 1
+            fi
+
+            malformed_out=$(printf '%s' 'not-json https://raw.githubusercontent.com/acme/widgets/main/README.md' | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/github_raw_redirect.mjs)
+            if ! echo "$malformed_out" | grep -q '"permissionDecision":"deny"'; then
+              echo "expected github_raw_redirect.mjs to deny malformed blocked WebFetch input, got: $malformed_out" >&2
+              exit 1
+            fi
+
+            mkdir -p audit-home
+            export HOME="$PWD/audit-home"
+            audit_payload='{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"kubectl get Secret CANARY_VALUE"},"session_id":"test","cwd":"/tmp"}'
+            audit_out=$(echo "$audit_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/kubectl_secret_audit_log.mjs)
+            audit_log="$HOME/.claude/logs/kubectl-secret-audit.jsonl"
+            if [ -n "$audit_out" ] || ! grep -q '"resource":"secret"' "$audit_log" || grep -q 'CANARY_VALUE' "$audit_log"; then
+              echo "expected redacted PostToolUse kubectl Secret audit record" >&2
               exit 1
             fi
 
@@ -49,20 +81,32 @@
 
             allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh api user"}}'
             deny_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh api -f title=x repos/o/r/issues"}}'
+            guard_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"curl https://api.github.com/user"}}'
+            review_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"kubectl get Secret application"}}'
 
-            # gh_api_read_allow.mjs uses emitAllow/emitDeny (PreToolUse
-            # override), which both exit 0 and write a permissionDecision
-            # JSON to stdout -- unlike secrets_policy.mjs's hardBlock (exit
-            # 2). Assert on stdout content, not exit code.
-            allow_out=$(echo "$allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_api_read_allow.mjs)
-            deny_out=$(echo "$deny_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_api_read_allow.mjs)
+            allow_out=$(echo "$allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+            deny_out=$(echo "$deny_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
 
             if ! echo "$allow_out" | grep -q '"permissionDecision":"allow"'; then
-              echo "expected gh_api_read_allow.mjs to allow a read-only call, got: $allow_out" >&2
+              echo "expected bash_policy.mjs to allow a read-only gh api call, got: $allow_out" >&2
               exit 1
             fi
             if ! echo "$deny_out" | grep -q '"permissionDecision":"deny"'; then
-              echo "expected gh_api_read_allow.mjs to deny a -f-parameterised call with no explicit --method, got: $deny_out" >&2
+              echo "expected bash_policy.mjs to deny a -f-parameterised call with no explicit --method, got: $deny_out" >&2
+              exit 1
+            fi
+
+            set +e
+            echo "$guard_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs > guard.stdout 2> guard.stderr
+            guard_code=$?
+            set -e
+            if [ "$guard_code" -ne 0 ] || ! grep -q '"permissionDecision":"deny"' guard.stdout || [ -s guard.stderr ]; then
+              echo "expected Bash guard denial as an exit-0 native override" >&2
+              exit 1
+            fi
+            review_out=$(echo "$review_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+            if [ -n "$review_out" ]; then
+              echo "expected kubectl Secret review to defer, got: $review_out" >&2
               exit 1
             fi
 
@@ -83,7 +127,7 @@
             export XDG_CONFIG_HOME="$PWD/decoy-config"
 
             allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh api user"}}'
-            allow_out=$(echo "$allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_api_read_allow.mjs)
+            allow_out=$(echo "$allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
 
             if ! echo "$allow_out" | grep -q '"permissionDecision":"allow"'; then
               echo "expected SAFETY_CORE_CONFIG_HOME to take precedence over XDG_CONFIG_HOME, got: $allow_out" >&2
@@ -103,12 +147,13 @@
             cp -r ${builtins.dirOf sc.opencodePluginFile}/data test-work/data
             cp -r ${builtins.dirOf sc.opencodePluginFile}/node_modules test-work/node_modules
             cp -r ${./adapters} test-work/adapters
-            cp -r ${./analysis} test-work/analysis
-            cp -r ${./tests} test-work/tests
-            cd test-work
-            bun test tests/gh-pr-create-hook-parser-failure.test.ts
-            cp ${builtins.dirOf sc.opencodePluginFile}/tree-sitter-bash.wasm ./
-            bun test tests/gh-pr-create-parser-failure.test.ts
+             cp -r ${./analysis} test-work/analysis
+             cp -r ${./tests} test-work/tests
+             cd test-work
+             cp ${builtins.dirOf sc.opencodePluginFile}/tree-sitter-bash.wasm ./
+             bun test tests/claude-code-bash-policy.test.ts
+             bun test tests/claude-code-event-handlers.test.ts
+             bun test tests/gh-pr-create-parser-failure.test.ts
              bun test tests/gh-pr-create.test.ts
              bun test ./tests/bash-configured.test.ts
              bun test tests/read-only-cli.test.ts
@@ -144,33 +189,27 @@
             deny_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh alias set create-pr \"pr create --repo github.com/attacker/widgets\""}}'
             compound_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh pr create --repo github.com/acme/widgets --fill; gh api user"}}'
 
-             allow_out=$(echo "$allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_pr_create_policy.mjs)
-             unrelated_safe_out=$(echo "$unrelated_safe_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_pr_create_policy.mjs)
-            deny_out=$(echo "$deny_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_pr_create_policy.mjs)
-            compound_out=$(echo "$compound_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_pr_create_policy.mjs)
-            gh_api_compound_out=$(echo "$compound_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/gh_api_read_allow.mjs)
+              allow_out=$(echo "$allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+              unrelated_safe_out=$(echo "$unrelated_safe_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+             deny_out=$(echo "$deny_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+             compound_out=$(echo "$compound_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
 
             if ! echo "$allow_out" | grep -q '"permissionDecision":"allow"'; then
-              echo "expected gh_pr_create_policy.mjs to allow an allowlisted PR, got: $allow_out" >&2
+              echo "expected bash_policy.mjs to allow an allowlisted PR, got: $allow_out" >&2
               exit 1
             fi
             if [ -n "$unrelated_safe_out" ]; then
-              echo "expected gh_pr_create_policy.mjs to leave unrelated base-handler reads untouched, got: $unrelated_safe_out" >&2
+              echo "expected bash_policy.mjs to leave unrelated base-handler reads untouched, got: $unrelated_safe_out" >&2
               exit 1
             fi
             if ! echo "$deny_out" | grep -q '"permissionDecision":"deny"'; then
-              echo "expected gh_pr_create_policy.mjs to deny a non-allowlisted PR, got: $deny_out" >&2
+              echo "expected bash_policy.mjs to deny a non-allowlisted PR, got: $deny_out" >&2
               exit 1
             fi
             if ! echo "$compound_out" | grep -q '"permissionDecision":"deny"'; then
               echo "expected compound Bash invocation to be denied, got: $compound_out" >&2
               exit 1
             fi
-            if ! echo "$gh_api_compound_out" | grep -q '"permissionDecision":"deny"'; then
-              echo "expected gh-api profile not to override a compound PR denial, got: $gh_api_compound_out" >&2
-              exit 1
-            fi
-
             touch $out
           '';
 
@@ -197,89 +236,85 @@
              dynamic_child_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"DYNAMIC=$UNKNOWN; $DYNAMIC"}}'
              deny_after_indeterminate_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"DYNAMIC=$UNKNOWN; curl https://api.github.com/user"}}'
 
-             gh_allow_out=$(echo "$gh_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
-             generic_allow_out=$(echo "$generic_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
-            gh_defer_out=$(echo "$gh_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
-            helm_allow_out=$(echo "$helm_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
-            helm_defer_out=$(echo "$helm_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
-             docker_allow_out=$(echo "$docker_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
-             wrapper_allow_out=$(echo "$wrapper_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
-            docker_defer_out=$(echo "$docker_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
-            docker_content_defer_out=$(echo "$docker_content_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
-            kubectl_allow_out=$(echo "$kubectl_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
-            kubectl_defer_out=$(echo "$kubectl_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
-            npm_defer_out=$(echo "$npm_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
-            podman_allow_out=$(echo "$podman_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
-             tofu_defer_out=$(echo "$tofu_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
-             dynamic_child_out=$(echo "$dynamic_child_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/read_only_cli_allow.mjs)
-             deny_after_indeterminate_out=$(echo "$deny_after_indeterminate_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/github_raw_redirect.mjs)
+              gh_allow_out=$(echo "$gh_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+              generic_allow_out=$(echo "$generic_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+             gh_defer_out=$(echo "$gh_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+             helm_allow_out=$(echo "$helm_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+             helm_defer_out=$(echo "$helm_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+              docker_allow_out=$(echo "$docker_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+              wrapper_allow_out=$(echo "$wrapper_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+             docker_defer_out=$(echo "$docker_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+             docker_content_defer_out=$(echo "$docker_content_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+             kubectl_allow_out=$(echo "$kubectl_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+             kubectl_defer_out=$(echo "$kubectl_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+             npm_defer_out=$(echo "$npm_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+             podman_allow_out=$(echo "$podman_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+              tofu_defer_out=$(echo "$tofu_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+              dynamic_child_out=$(echo "$dynamic_child_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+              deny_after_indeterminate_out=$(echo "$deny_after_indeterminate_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
 
              if ! echo "$gh_allow_out" | grep -q '"permissionDecision":"allow"'; then
-              echo "expected read_only_cli_allow.mjs to allow gh label list, got: $gh_allow_out" >&2
+               echo "expected bash_policy.mjs to allow gh label list, got: $gh_allow_out" >&2
               exit 1
             fi
             if [ -n "$gh_defer_out" ]; then
-              echo "expected read_only_cli_allow.mjs to defer a compound command, got: $gh_defer_out" >&2
+               echo "expected bash_policy.mjs to defer a compound command, got: $gh_defer_out" >&2
               exit 1
             fi
             if ! echo "$helm_allow_out" | grep -q '"permissionDecision":"allow"'; then
-              echo "expected read_only_cli_allow.mjs to allow helm version, got: $helm_allow_out" >&2
+               echo "expected bash_policy.mjs to allow helm version, got: $helm_allow_out" >&2
               exit 1
             fi
             if [ -n "$helm_defer_out" ]; then
-              echo "expected read_only_cli_allow.mjs to defer helm show readme, got: $helm_defer_out" >&2
+               echo "expected bash_policy.mjs to defer helm show readme, got: $helm_defer_out" >&2
               exit 1
             fi
              if ! echo "$docker_allow_out" | grep -q '"permissionDecision":"allow"'; then
-              echo "expected read_only_cli_allow.mjs to allow docker image ls, got: $docker_allow_out" >&2
+               echo "expected bash_policy.mjs to allow docker image ls, got: $docker_allow_out" >&2
               exit 1
              fi
              if ! echo "$generic_allow_out" | grep -q '"permissionDecision":"allow"'; then
-               echo "expected read_only_cli_allow.mjs to allow tea --help, got: $generic_allow_out" >&2
+                echo "expected bash_policy.mjs to allow tea --help, got: $generic_allow_out" >&2
                exit 1
              fi
-             if [ -n "$unrelated_safe_out" ]; then
-               echo "expected gh_pr_create_policy.mjs to leave unrelated base-handler reads untouched, got: $unrelated_safe_out" >&2
-               exit 1
-             fi
-             if ! echo "$wrapper_allow_out" | grep -q '"permissionDecision":"allow"'; then
-               echo "expected read_only_cli_allow.mjs to allow a stateful assignment through a wrapper, got: $wrapper_allow_out" >&2
+              if ! echo "$wrapper_allow_out" | grep -q '"permissionDecision":"allow"'; then
+                echo "expected bash_policy.mjs to allow a stateful assignment through a wrapper, got: $wrapper_allow_out" >&2
                exit 1
              fi
             if [ -n "$docker_defer_out" ]; then
-              echo "expected read_only_cli_allow.mjs to defer an explicit Docker path, got: $docker_defer_out" >&2
+               echo "expected bash_policy.mjs to defer an explicit Docker path, got: $docker_defer_out" >&2
               exit 1
             fi
             if [ -n "$docker_content_defer_out" ]; then
-              echo "expected read_only_cli_allow.mjs to defer Docker command-column output, got: $docker_content_defer_out" >&2
+               echo "expected bash_policy.mjs to defer Docker command-column output, got: $docker_content_defer_out" >&2
               exit 1
             fi
             if ! echo "$kubectl_allow_out" | grep -q '"permissionDecision":"allow"'; then
-              echo "expected read_only_cli_allow.mjs to allow namespaced kubectl get, got: $kubectl_allow_out" >&2
+               echo "expected bash_policy.mjs to allow namespaced kubectl get, got: $kubectl_allow_out" >&2
               exit 1
             fi
             if [ -n "$kubectl_defer_out" ]; then
-              echo "expected read_only_cli_allow.mjs to defer a later protected kubectl resource, got: $kubectl_defer_out" >&2
+               echo "expected bash_policy.mjs to defer a later protected kubectl resource, got: $kubectl_defer_out" >&2
               exit 1
             fi
             if [ -n "$npm_defer_out" ]; then
-              echo "expected read_only_cli_allow.mjs to defer npm package-object output, got: $npm_defer_out" >&2
+               echo "expected bash_policy.mjs to defer npm package-object output, got: $npm_defer_out" >&2
               exit 1
             fi
             if ! echo "$podman_allow_out" | grep -q '"permissionDecision":"allow"'; then
-              echo "expected read_only_cli_allow.mjs to allow a Podman list alias, got: $podman_allow_out" >&2
+               echo "expected bash_policy.mjs to allow a Podman list alias, got: $podman_allow_out" >&2
               exit 1
             fi
              if [ -n "$tofu_defer_out" ]; then
-              echo "expected read_only_cli_allow.mjs to defer configuration-aware OpenTofu reads, got: $tofu_defer_out" >&2
+                echo "expected bash_policy.mjs to defer configuration-aware OpenTofu reads, got: $tofu_defer_out" >&2
               exit 1
              fi
              if [ -n "$dynamic_child_out" ]; then
-               echo "expected read_only_cli_allow.mjs to leave a dynamic child permission untouched, got: $dynamic_child_out" >&2
+                echo "expected bash_policy.mjs to leave a dynamic child permission untouched, got: $dynamic_child_out" >&2
                exit 1
              fi
              if ! echo "$deny_after_indeterminate_out" | grep -q '"permissionDecision":"deny"'; then
-               echo "expected github_raw_redirect.mjs to deny after an indeterminate child, got: $deny_after_indeterminate_out" >&2
+                echo "expected bash_policy.mjs to deny after an indeterminate child, got: $deny_after_indeterminate_out" >&2
                exit 1
              fi
 
@@ -329,9 +364,12 @@
                 ];
               };
               bashAllow = evaled.config.programs.opencode.settings.permission.bash;
+              claudeBashHooks = builtins.concatLists (map (entry: if entry.matcher == "Bash" then entry.hooks else [ ]) evaled.config.programs.claude-code.settings.hooks.PreToolUse);
+              claudeBashCommands = map (hook: hook.command) claudeBashHooks;
             in
             assert bashAllow ? "ls *";
             assert bashAllow."ls *" == "allow";
+            assert claudeBashCommands == [ "$HOME/.claude/hooks/bash_policy.mjs" ];
             pkgs.runCommand "safety-core-readonlybash-opencode-eval-check" { } "touch $out";
 
           gh-pr-create-profile-eval =

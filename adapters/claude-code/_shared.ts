@@ -1,12 +1,13 @@
-// Small stdin/stdout helpers shared by every claude-code hook adapter.
+// Small stdin/stdout helpers shared by every Claude Code hook adapter.
 //
 // Every hook script reads a JSON event from stdin and produces one of:
 //   - exit 0                    → "no opinion", let default rules decide
 //   - exit 2 + stderr           → hard block; stderr is shown to the model
 //   - stdout JSON with hookSpecificOutput → permissionDecision override
 //   - stdout plain text (SessionStart) → additional context for the model
-// TODO: Replace the separate Bash policy hook scripts with one adapter entry
-// that delegates configured, single-pass Bash evaluation to the shared core.
+// Bash PreToolUse policy decisions are consolidated in bash_policy.ts. Other
+// entries remain only for event-specific Read, WebFetch, SessionStart, and
+// PostToolUse behavior.
 
 import { readFileSync } from "node:fs";
 
@@ -36,7 +37,7 @@ export function parseHookEvent(raw: string): HookEvent | null {
   }
 }
 
-/** Emit a PreToolUse allow decision and exit 0. */
+/** Emit a native PreToolUse allow override on stdout and exit 0. */
 export function emitAllow(reason: string): void {
   process.stdout.write(
     JSON.stringify({
@@ -49,7 +50,7 @@ export function emitAllow(reason: string): void {
   );
 }
 
-/** Emit a PreToolUse deny decision and exit 0. */
+/** Emit a native PreToolUse deny override on stdout and exit 0. */
 export function emitDeny(reason: string): void {
   process.stdout.write(
     JSON.stringify({
@@ -74,8 +75,7 @@ export function emitPostContext(text: string): void {
   );
 }
 
-/** Hard block: exit code 2 tells Claude Code to abort the tool call and
- *  surface the stderr contents to the model. */
+/** Hard block direct reads with exit code 2 and an stderr-only reason. */
 export function hardBlock(message: string): never {
   process.stderr.write(message);
   process.exit(2);
@@ -83,7 +83,7 @@ export function hardBlock(message: string): never {
 
 /**
  * Parser deployment failures are fatal. Other hook errors retain the existing
- * fail-open behavior until the hooks are consolidated in a later slice.
+ * fail-open behavior so Claude Code can continue through native permissions.
  */
 export function run(main: () => Promise<void> | void): void {
   Promise.resolve()

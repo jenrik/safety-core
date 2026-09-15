@@ -1,8 +1,8 @@
 // Claude Code hook: secrets policy.
 //
 // - SessionStart / SubagentStart: emit the policy file to stdout for context.
-// - PreToolUse Read/Bash: hard-block reads of files that contain secret
-//   VALUES (exit 2 + stderr message).
+// - PreToolUse Read: hard-block reads of files that contain secret VALUES
+//   (exit 2 + stderr message).
 
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -12,11 +12,7 @@ import {
   SECRETS_POLICY_FALLBACK,
   basename,
   buildSecretBlockMessage,
-  discoverWasmDir,
-  initBashParser,
   isSecretPath,
-  loadBashAnalysisLimits,
-  parseBashForSecretRead,
 } from "../../src/index.js";
 
 import { hardBlock, parseHookEvent, readStdin, run } from "./_shared.js";
@@ -42,16 +38,7 @@ function handlePreToolUseRead(event: ReturnType<typeof parseHookEvent>): void {
   }
 }
 
-function handlePreToolUseBash(event: ReturnType<typeof parseHookEvent>): void {
-  const command = (event?.tool_input?.command as string | undefined) ?? "";
-  const reason = parseBashForSecretRead(command, bashAuthorizationContext());
-  if (reason) hardBlock(buildSecretBlockMessage(reason));
-}
-
-run(async () => {
-  // Initialise the bash parser (lazy, first-call only).
-  await initBashParser(discoverWasmDir(import.meta.url));
-
+run(() => {
   const event = parseHookEvent(readStdin());
   if (!event) return;
 
@@ -62,14 +49,6 @@ run(async () => {
       return;
     case "PreToolUse":
       if (event.tool_name === "Read") handlePreToolUseRead(event);
-      else if (event.tool_name === "Bash") handlePreToolUseBash(event);
-      return;
+       return;
   }
 });
-
-function bashAuthorizationContext() {
-  return Object.freeze({
-    limits: loadBashAnalysisLimits(),
-    initialEnvironment: { kind: "unavailable" as const },
-  });
-}
