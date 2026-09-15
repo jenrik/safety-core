@@ -155,7 +155,7 @@
              bun test tests/claude-code-event-handlers.test.ts
              bun test tests/gh-pr-create-parser-failure.test.ts
              bun test tests/gh-pr-create.test.ts
-             bun test ./tests/bash-configured.test.ts
+              bun test ./tests/bash-configured.test.ts
              bun test tests/read-only-cli.test.ts
             bun test tests/opencode-read-only-cli.test.ts
             bun test tests/pi-adapter.test.ts
@@ -169,7 +169,6 @@
             bun test ./tests/bash-hard-block-policies.test.ts
             bun test ./tests/bash-guards.test.ts
             bun test ./tests/bash-gh-policies.test.ts
-            bun test ./tests/bash-adapter.test.ts
             bun test ./tests/opencode-bash-guards.test.ts
             bun test ./tests/bash-equivalence.test.ts
             bun test ./tests/bash-performance.test.ts
@@ -363,12 +362,11 @@
                   { config.programs.safetyCorePermissions.profiles.readOnlyBash.enable = true; }
                 ];
               };
-              bashAllow = evaled.config.programs.opencode.settings.permission.bash;
+              bashAllow = (evaled.config.programs.opencode.settings.permission or { }).bash or { };
               claudeBashHooks = builtins.concatLists (map (entry: if entry.matcher == "Bash" then entry.hooks else [ ]) evaled.config.programs.claude-code.settings.hooks.PreToolUse);
               claudeBashCommands = map (hook: hook.command) claudeBashHooks;
             in
-            assert bashAllow ? "ls *";
-            assert bashAllow."ls *" == "allow";
+             assert bashAllow == { };
             assert claudeBashCommands == [ "$HOME/.claude/hooks/bash_policy.mjs" ];
             pkgs.runCommand "safety-core-readonlybash-opencode-eval-check" { } "touch $out";
 

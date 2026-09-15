@@ -139,40 +139,9 @@ export function discoverWasmDir(moduleUrl: string): string {
 
 // ─── Public types ───────────────────────────────────────────────────────────
 
-// TODO: Remove the legacy flattened SimpleCommand/Redirect API and its
-// projection helpers; CST programs and configured evaluation are the API.
-
-export interface SimpleCommand {
-  /** The command name (e.g. "cat", "kubectl", "curl"). */
-  name: string;
-  /** Positional arguments and flags after the command name. */
-  args: string[];
-  /** I/O redirects attached to this command. */
-  redirects: Redirect[];
-}
-
-export type RedirectKind = "input" | "output" | "append";
-
-export interface Redirect {
-  kind: RedirectKind;
-  /** The file/destination path. */
-  target: string;
-}
+type RedirectKind = "input" | "output" | "append";
 
 // ─── Public API ─────────────────────────────────────────────────────────────
-
-/**
- * Parse a shell command string and extract all simple commands from it.
- *
- * Handles `&&`, `||`, `;`, `|`, `&` separators, redirects (`<`, `>`, `>>`),
- * and environment variable assignments (`FOO=bar cmd`). Returns an empty
- * array for malformed commands and throws a deployment assertion if the parser
- * was not initialized.
- */
-export function parseBash(command: string): SimpleCommand[] {
-  const program = parseBashProgram(command);
-  return program.kind === "parse-failure" ? [] : flattenCommands(program.statements);
-}
 
 /**
  * Parse Bash into an immutable, backend-neutral projection of the CST.
@@ -436,81 +405,6 @@ function projectWord(node: SyntaxNode): BashWord {
   }
 }
 
-function flattenCommands(statements: readonly BashStatement[]): SimpleCommand[] {
-  const commands: SimpleCommand[] = [];
-  for (const statement of statements) flattenStatement(statement, commands);
-  return commands;
-}
-
-function flattenStatement(statement: BashStatement, out: SimpleCommand[]): void {
-  switch (statement.kind) {
-    case "command": {
-      const [name, ...args] = statement.words;
-      if (name) {
-        const canonicalName = canonicalCommandName(name.text);
-        if (canonicalName) {
-          out.push({
-            name: canonicalName,
-            args: args.map((word) => stripQuotes(word.text)).filter((argument) => argument !== ""),
-            redirects: statement.redirects.flatMap((redirect) => {
-              if (!redirect.target || redirect.kind === "unsupported") return [];
-              const target = stripQuotes(redirect.target.text);
-              return target ? [{ kind: redirect.kind, target }] : [];
-            }),
-          });
-        }
-      }
-      flattenWordsInSourceOrder([
-        ...statement.assignments.flatMap((assignment) => assignment.value ? [assignment.value] : []),
-        ...statement.words,
-        ...statement.redirects.flatMap((redirect) => redirect.words),
-      ], out);
-      break;
-    }
-    case "function":
-      flattenStatement(statement.body, out);
-      flattenRedirects(statement.redirects, out);
-      break;
-    case "list":
-    case "pipeline":
-    case "subshell":
-    case "group":
-      for (const child of statement.statements) flattenStatement(child, out);
-      flattenRedirects(statement.redirects, out);
-      break;
-    case "if":
-      for (const child of [...statement.condition, ...statement.consequent, ...statement.alternate]) flattenStatement(child, out);
-      flattenRedirects(statement.redirects, out);
-      break;
-    case "unsupported":
-      for (const child of statement.statements) flattenStatement(child, out);
-      flattenRedirects(statement.redirects, out);
-      break;
-  }
-}
-
-function flattenWord(word: BashWord, out: SimpleCommand[]): void {
-  if (word.kind === "command-substitution") {
-    for (const statement of word.statements) flattenStatement(statement, out);
-  } else if (word.kind === "concatenation") {
-    for (const part of word.parts) flattenWord(part, out);
-  } else if (word.kind === "expansion" || word.kind === "unsupported-word") {
-    for (const statement of word.statements) flattenStatement(statement, out);
-  }
-}
-
-function flattenRedirects(redirects: readonly BashRedirect[] | undefined, out: SimpleCommand[]): void {
-  for (const redirect of redirects ?? []) {
-    flattenWordsInSourceOrder(redirect.words, out);
-  }
-}
-
-function flattenWordsInSourceOrder(words: readonly BashWord[], out: SimpleCommand[]): void {
-  words
-    .map((word, index) => ({ word, index }))
-    .sort((left, right) => left.word.span.start - right.word.span.start || left.index - right.index)
-    .forEach(({ word }) => flattenWord(word, out));
-}
 
 function projectUnsupported(node: SyntaxNode): BashStatement {
   return {
@@ -580,11 +474,6 @@ function freeze<T>(value: T): T {
     Object.freeze(value);
   }
   return value;
-}
-
-/** Shell quotes do not alter an executable name (`g''h` still runs `gh`). */
-function canonicalCommandName(text: string): string {
-  return basename(stripQuotes(text));
 }
 
 /** Infer whether a file_redirect is input, output, or append from its text. */

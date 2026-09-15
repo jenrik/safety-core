@@ -4,6 +4,7 @@
 // to translate between OpenCode's plugin API and core decision functions.
 
 import type { Plugin, PluginInput } from "@opencode-ai/plugin";
+import { join } from "node:path";
 
 import {
   SECRET_BLOCK_MESSAGE,
@@ -11,7 +12,7 @@ import {
   SECRET_PATTERNS,
   appendAuditRecord,
   checkWebfetchUrl,
-  defaultAuditPath,
+  createBashProfileSnapshotSource,
   discoverWasmDir,
   evaluateConfiguredBash,
   initBashParser,
@@ -23,11 +24,14 @@ import {
   createOpenAIJudge,
   type BashConfiguredEvaluation,
   type BashConfiguredOptions,
+  type BashProfileSnapshotSource,
+  type BashProfileSnapshotVersion,
   type JudgeProvider,
 } from "../src/index.js";
 
 export interface OpenCodePluginDependencies {
   readonly evaluateConfiguredBash?: BashConfiguredEvaluator;
+  readonly profileSnapshotSource?: BashProfileSnapshotSource;
 }
 
 export async function createOpenCodePlugin(
@@ -37,6 +41,7 @@ export async function createOpenCodePlugin(
 ) {
   await initBashParser(discoverWasmDir(import.meta.url));
   const permissionEvaluator = dependencies.evaluateConfiguredBash ?? evaluateConfiguredBash;
+  const profileSnapshots = dependencies.profileSnapshotSource ?? createBashProfileSnapshotSource();
   const bashResults = createBashResultCache();
 
   // TODO: Integrate with OpenCode's native model runtime so the judge can use
@@ -64,7 +69,8 @@ export async function createOpenCodePlugin(
       const command = String(args.command ?? "");
 
       // ── Rule-based checks: hard-block clear violations ────────────
-      const evaluation = evaluateConfigured(command, permissionEvaluator);
+      const snapshot = profileSnapshots.reloadIfChanged();
+      const evaluation = evaluateConfigured(command, permissionEvaluator, snapshot);
       const guardReason = openCodeBashGuardBlockReason(evaluation);
       if (guardReason) throw new Error(guardReason);
 
@@ -75,7 +81,7 @@ export async function createOpenCodePlugin(
           throw new Error(`Blocked by OpenCode safety policy (🧑‍⚖️ judge): ${verdict.reasoning}`);
         }
       }
-      bashResults.store(input, command, evaluation);
+      bashResults.store(input, command, evaluation, snapshot.generation);
     },
 
     // Older OpenCode releases invoke permission.ask with the parsed command.
@@ -87,7 +93,7 @@ export async function createOpenCodePlugin(
       const command = Array.isArray(input.pattern) ? input.pattern.join(" && ") : input.pattern;
       if (!command) return;
       // Permission callbacks must observe their own event-local config snapshot.
-      const decision = evaluateConfigured(command, permissionEvaluator).permission;
+      const decision = evaluateConfigured(command, permissionEvaluator, profileSnapshots.reloadIfChanged()).permission;
       if (decision.kind === "allow" || decision.kind === "deny") output.status = decision.kind;
     },
 
@@ -107,8 +113,10 @@ export async function createOpenCodePlugin(
       const command = event.properties.patterns.join(" && ");
       const cached = bashResults.lookup(bashResults.permissionIdentity(event.properties), command);
       if (cached.key) bashResults.bindRequest(event.properties.id, cached.key);
-      // Do not reuse a before-hook decision across a profile configuration change.
-      const decision = evaluateConfigured(command, permissionEvaluator).permission;
+      const snapshot = profileSnapshots.reloadIfChanged();
+      const decision = cached.evaluation && cached.generation === snapshot.generation
+        ? cached.evaluation.permission
+        : evaluateConfigured(command, permissionEvaluator, snapshot).permission;
       if (decision.kind === "allow") {
         await client.permission.reply({ directory, requestID: event.properties.id, reply: "once" });
       } else if (decision.kind === "deny") {
@@ -121,7 +129,7 @@ export async function createOpenCodePlugin(
       const command = String((input.args as Record<string, unknown>).command ?? "");
 
       const cached = bashResults.take(input, command);
-      const summary = (cached ?? evaluateConfigured(command, permissionEvaluator)).audit.kubectlSecret;
+      const summary = kubectlSecretAudit((cached ?? evaluateConfigured(command, permissionEvaluator, profileSnapshots.reloadIfChanged())).audit.events);
       if (summary) {
         await appendAuditRecord(defaultAuditPath("opencode"), {
           timestamp: new Date().toISOString(),
@@ -167,8 +175,16 @@ function matchesSecretKeyword(command: string): boolean {
 
 type BashConfiguredEvaluator = (options: BashConfiguredOptions) => BashConfiguredEvaluation;
 
-function evaluateConfigured(command: string, evaluate: BashConfiguredEvaluator): BashConfiguredEvaluation {
-  return evaluate({ source: command, initialEnvironment: { kind: "unavailable" } });
+function evaluateConfigured(command: string, evaluate: BashConfiguredEvaluator, version: BashProfileSnapshotVersion): BashConfiguredEvaluation {
+  return evaluate({ source: command, initialEnvironment: { kind: "unavailable" }, profileSnapshot: version.snapshot });
+}
+
+function kubectlSecretAudit(events: BashConfiguredEvaluation["audit"]["events"]): BashConfiguredEvaluation["audit"]["events"][number]["fields"] | null {
+  return events.find((event) => event.kind === "kubectl-secret")?.fields ?? null;
+}
+
+function defaultAuditPath(agent: string): string {
+  return join(process.env.XDG_STATE_HOME ?? join(process.env.HOME ?? "", ".local", "state"), agent, "kubectl-secret-audit.jsonl");
 }
 
 /** Map one deny-only core guard evaluation to OpenCode's existing messages. */
@@ -190,11 +206,13 @@ interface CachedBashEvaluation {
   readonly source: string;
   readonly evaluation: BashConfiguredEvaluation;
   readonly createdAt: number;
+  readonly generation: number;
 }
 
 interface CachedLookup {
   readonly key: string | null;
   readonly evaluation: BashConfiguredEvaluation | null;
+  readonly generation: number | null;
 }
 
 const BASH_RESULT_TTL_MS = 10 * 60 * 1_000;
@@ -226,21 +244,21 @@ function createBashResultCache() {
   function lookup(value: BashLifecycleInput | null, source: string): CachedLookup {
     prune();
     const resultKey = value ? key(value) : null;
-    if (!resultKey) return { key: null, evaluation: null };
+    if (!resultKey) return { key: null, evaluation: null, generation: null };
     const entry = entries.get(resultKey);
     if (!entry || entry.source !== source) {
       if (entry) drop(resultKey);
-      return { key: null, evaluation: null };
+      return { key: null, evaluation: null, generation: null };
     }
-    return { key: resultKey, evaluation: entry.evaluation };
+    return { key: resultKey, evaluation: entry.evaluation, generation: entry.generation };
   }
 
-  function store(value: BashLifecycleInput, source: string, evaluation: BashConfiguredEvaluation): void {
+  function store(value: BashLifecycleInput, source: string, evaluation: BashConfiguredEvaluation, generation: number): void {
     const resultKey = key(value);
     if (!resultKey) return;
     prune();
     entries.delete(resultKey);
-    entries.set(resultKey, { source, evaluation, createdAt: Date.now() });
+    entries.set(resultKey, { source, evaluation, createdAt: Date.now(), generation });
     while (entries.size > MAX_CACHED_BASH_RESULTS) drop(entries.keys().next().value!);
   }
 

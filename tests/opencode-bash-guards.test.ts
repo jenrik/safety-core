@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { evaluateConfiguredBash, initBashParser, setJudgeProvider, type BashConfiguredEvaluation, type BashConfiguredOptions } from "../src/index.ts";
+import { evaluateConfiguredBash, initBashParser, setJudgeProvider, STRICT_BASH_PROFILE_EXECUTABLES, type BashConfiguredEvaluation, type BashConfiguredOptions, type BashProfileSnapshot } from "../src/index.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-opencode-bash-guards-"));
 let openCodeBashGuardBlockReason: typeof import("../adapters/opencode.ts")["openCodeBashGuardBlockReason"];
@@ -135,7 +135,7 @@ describe("OpenCode single-pass Bash guards", () => {
       } });
       await after(afterInput("session-1", "call-1", command), { output: "" });
 
-      expect(calls).toBe(2);
+      expect(calls).toBe(1);
       expect(replies).toEqual([]);
       const audit = JSON.parse(readFileSync(join(stateHome, "opencode", "kubectl-secret-audit.jsonl"), "utf8"));
       expect(audit).toMatchObject({ kubectl_subcommand: "get", resource: "secret", command_length: command.length });
@@ -207,8 +207,18 @@ describe("OpenCode single-pass Bash guards", () => {
 });
 
 function evaluate(source: string) {
-  return evaluateConfiguredBash({ source, initialEnvironment: { kind: "unavailable" } });
+  return evaluateConfiguredBash({ source, initialEnvironment: { kind: "unavailable" }, profileSnapshot: defaultSnapshot });
 }
+
+const defaultSnapshot: BashProfileSnapshot = Object.freeze({
+  readOnlyBash: false,
+  ghApiReadOnly: false,
+  ghReadOnly: false,
+  helmReadOnly: false,
+  strictProfiles: Object.freeze(Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false]))) as BashProfileSnapshot["strictProfiles"],
+  ghPrCreate: Object.freeze({ enabled: false, allowedRepositories: Object.freeze([]), allowedOrganizations: Object.freeze([]) }),
+  limits: Object.freeze({ maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 7_500, maxWorkItems: 10_000 }),
+});
 
 function bashInput(sessionID: string, callID: string) {
   return { tool: "bash", sessionID, callID };

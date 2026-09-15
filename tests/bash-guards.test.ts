@@ -3,9 +3,24 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { evaluateBashGuards, initBashParser, summariseKubectlSecret } from "../src/index.ts";
+import {
+  STRICT_BASH_PROFILE_EXECUTABLES,
+  evaluateBashGuards,
+  evaluateConfiguredBash,
+  initBashParser,
+  type BashProfileSnapshot,
+} from "../src/index.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-bash-guards-"));
+const profileSnapshot: BashProfileSnapshot = Object.freeze({
+  readOnlyBash: false,
+  ghApiReadOnly: false,
+  ghReadOnly: false,
+  helmReadOnly: false,
+  strictProfiles: Object.freeze(Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false]))) as BashProfileSnapshot["strictProfiles"],
+  ghPrCreate: Object.freeze({ enabled: false, allowedRepositories: Object.freeze([]), allowedOrganizations: Object.freeze([]) }),
+  limits: Object.freeze({ maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 7_500, maxWorkItems: 10_000 }),
+});
 
 beforeAll(async () => {
   mkdirSync(join(wasmDir, "node_modules"), { recursive: true });
@@ -117,15 +132,15 @@ describe("single-pass Bash guards", () => {
   test("preserves literal kubectl audit fields when only a flag value comes from a binding", () => {
     const source = "NS=default; kubectl --namespace \"$NS\" get secret application";
 
-    expect(summariseKubectlSecret(source)).toEqual({
-      kubectl_subcommand: "get",
-      resource: "secret",
-      command_length: source.length,
-    });
-    expect(summariseKubectlSecret("RESOURCE=secret; kubectl get \"$RESOURCE\"")).toMatchObject({
-      kubectl_subcommand: "get",
-      resource: null,
-    });
+    expect(evaluateConfiguredBash({ source, initialEnvironment: { kind: "unavailable" }, profileSnapshot }).audit.events)
+      .toEqual([{ kind: "kubectl-secret", policy: "kubectl", fields: {
+        kubectl_subcommand: "get", resource: "secret", command_length: source.length,
+      } }]);
+    expect(evaluateConfiguredBash({
+      source: "RESOURCE=secret; kubectl get \"$RESOURCE\"",
+      initialEnvironment: { kind: "unavailable" },
+      profileSnapshot,
+    }).audit.events[0]?.fields).toMatchObject({ kubectl_subcommand: "get", resource: null });
   });
 
   test("property: supported wrappers preserve every baseline denial", () => {

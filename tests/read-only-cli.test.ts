@@ -4,13 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  analyzeGhReadOnlyCommand,
-  analyzeGenericReadOnlyCommand,
-  analyzeHelmReadOnlyCommand,
-  analyzeKubectl,
-  analyzeStrictReadOnlyCommand,
-  checkBashForKubectlSecret,
+  STRICT_BASH_PROFILE_EXECUTABLES,
+  evaluateConfiguredBash,
   initBashParser,
+  type BashProfileSnapshot,
 } from "../src/index.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-read-only-cli-"));
@@ -28,20 +25,41 @@ beforeAll(async () => {
 
 afterAll(() => rmSync(wasmDir, { force: true, recursive: true }));
 
+function snapshot(overrides: Partial<BashProfileSnapshot> = {}): BashProfileSnapshot {
+  return Object.freeze({
+    readOnlyBash: false,
+    ghApiReadOnly: false,
+    ghReadOnly: false,
+    helmReadOnly: false,
+    strictProfiles: Object.freeze(Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false]))) as BashProfileSnapshot["strictProfiles"],
+    ghPrCreate: Object.freeze({ enabled: false, allowedRepositories: Object.freeze([]), allowedOrganizations: Object.freeze([]) }),
+    limits: Object.freeze({ maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 7_500, maxWorkItems: 10_000 }),
+    ...overrides,
+  });
+}
+
+function configured(source: string, profileSnapshot: BashProfileSnapshot) {
+  return evaluateConfiguredBash({ source, initialEnvironment: { kind: "unavailable" }, profileSnapshot });
+}
+
 function gh(command: string): string {
-  return analyzeGhReadOnlyCommand(command).kind;
+  return configured(command, snapshot({ ghReadOnly: true })).permission.kind;
 }
 
 function helm(command: string): string {
-  return analyzeHelmReadOnlyCommand(command).kind;
+  return configured(command, snapshot({ helmReadOnly: true })).permission.kind;
 }
 
 function generic(command: string): string {
-  return analyzeGenericReadOnlyCommand(command).kind;
+  return configured(command, snapshot({ readOnlyBash: true })).permission.kind;
 }
 
 function strict(command: string, executable: string): string {
-  return analyzeStrictReadOnlyCommand(command, executable).kind;
+  const profile = STRICT_BASH_PROFILE_EXECUTABLES.find(([, candidate]) => candidate === executable)?.[0];
+  if (!profile) throw new Error(`No strict profile for ${executable}`);
+  return configured(command, snapshot({
+    strictProfiles: Object.freeze({ ...snapshot().strictProfiles, [profile]: true }),
+  })).permission.kind;
 }
 
 function insertBlock(blocks: readonly (readonly string[])[], block: readonly string[]): string[][] {
@@ -325,22 +343,35 @@ describe("strict credential-safe CLI profiles", () => {
 
       const multipleResources = `kubectl get pod/example ${base}.v1/name`;
       expect(strict(multipleResources, "kubectl"), multipleResources).toBe("defer");
-      expect(analyzeKubectl(multipleResources).kind, multipleResources).toBe("defer");
-      expect(checkBashForKubectlSecret(multipleResources), multipleResources).not.toBeNull();
+      const multipleResourcesResult = configured(multipleResources, snapshot({
+        strictProfiles: Object.freeze({ ...snapshot().strictProfiles, kubectlReadOnly: true }),
+      }));
+      expect(multipleResourcesResult.analysis.evidence, multipleResources).toContainEqual(expect.objectContaining({
+        name: "kubectl", decision: "defer",
+      }));
+      expect(multipleResourcesResult.audit.events, multipleResources).toHaveLength(base === "secret" || base === "secrets" ? 1 : 0);
 
       for (const ambiguous of [
         `kubectl get pod ${base}/name`,
         `kubectl get pod example ${base}/name`,
       ]) {
         expect(strict(ambiguous, "kubectl"), ambiguous).toBe("defer");
-        expect(analyzeKubectl(ambiguous).kind, ambiguous).toBe("defer");
-        expect(checkBashForKubectlSecret(ambiguous), ambiguous).not.toBeNull();
+        const ambiguousResult = configured(ambiguous, snapshot({
+          strictProfiles: Object.freeze({ ...snapshot().strictProfiles, kubectlReadOnly: true }),
+        }));
+        expect(ambiguousResult.analysis.evidence, ambiguous).toContainEqual(expect.objectContaining({
+          name: "kubectl", decision: "defer",
+        }));
+        expect(ambiguousResult.audit.events, ambiguous).toHaveLength(base === "secret" || base === "secrets" ? 1 : 0);
       }
     }
 
     expect(strict("kubectl get pod secret", "kubectl")).toBe("allow");
-    expect(analyzeKubectl("kubectl get pod secret").kind).toBe("allow");
-    expect(checkBashForKubectlSecret("kubectl get pod secret")).toBeNull();
+    expect(configured("kubectl get pod secret", snapshot({
+      strictProfiles: Object.freeze({ ...snapshot().strictProfiles, kubectlReadOnly: true }),
+    })).audit.events).toEqual([{ kind: "kubectl-secret", policy: "kubectl", fields: {
+      kubectl_subcommand: "get", resource: "pod", command_length: "kubectl get pod secret".length,
+    } }]);
     expect(strict("kubectl get pod/example deployment/app", "kubectl")).toBe("allow");
   });
 

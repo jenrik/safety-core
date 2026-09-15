@@ -91,30 +91,25 @@ describe("configured Bash permissions", () => {
       strictProfiles: Object.freeze({ ...snapshot().strictProfiles, kubectlReadOnly: true }),
     }));
     expect(kubectl.permission).toEqual({ kind: "defer" });
-    expect(kubectl.audit.policies).toMatchObject([{ name: "kubectl", kubectl: { secretReview: true } }]);
-    expect(kubectl.audit.kubectlSecret).toEqual({
-      kubectl_subcommand: "get",
-      resource: "secret",
-      command_length: "kubectl get Secret application".length,
+    expect(kubectl.audit.events).toEqual([{
+      kind: "kubectl-secret",
+      policy: "kubectl",
+      fields: { kubectl_subcommand: "get", resource: "secret", command_length: "kubectl get Secret application".length },
+    }]);
+    expect(evaluate("kubectl get pods", snapshot()).audit.events).toEqual([]);
+    expect(evaluate("RESOURCE=secret; kubectl get \"$RESOURCE\"", snapshot()).audit.events[0]?.fields).toEqual({
+      kubectl_subcommand: "get", resource: null, command_length: "RESOURCE=secret; kubectl get \"$RESOURCE\"".length,
     });
-    expect(evaluate("kubectl get pods", snapshot()).audit.kubectlSecret).toBeNull();
-    expect(evaluate("RESOURCE=secret; kubectl get \"$RESOURCE\"", snapshot()).audit.kubectlSecret).toEqual({
-      kubectl_subcommand: "get",
-      resource: null,
-      command_length: "RESOURCE=secret; kubectl get \"$RESOURCE\"".length,
-    });
-    expect(evaluate("kubectl get secrets.v1 application", snapshot()).audit.kubectlSecret).toEqual({
-      kubectl_subcommand: "get",
-      resource: "secrets",
-      command_length: "kubectl get secrets.v1 application".length,
+    expect(evaluate("kubectl get secrets.v1 application", snapshot()).audit.events[0]?.fields).toEqual({
+      kubectl_subcommand: "get", resource: "secrets", command_length: "kubectl get secrets.v1 application".length,
     });
 
     const serialized = JSON.stringify(evaluate("CANARY_VALUE=never-emit; gh label list", snapshot({ ghReadOnly: true })));
     expect(serialized).not.toContain("CANARY_VALUE");
     expect(serialized).not.toContain("never-emit");
     expect(Object.isFrozen(kubectl)).toBe(true);
-    expect(Object.isFrozen(kubectl.audit.policies)).toBe(true);
-    expect(Object.isFrozen(kubectl.audit.kubectlSecret!)).toBe(true);
+    expect(Object.isFrozen(kubectl.audit.events)).toBe(true);
+    expect(Object.isFrozen(kubectl.audit.events[0]!)).toBe(true);
   });
 
   test("preserves wrapper coverage and native deferral for incomplete analysis", () => {

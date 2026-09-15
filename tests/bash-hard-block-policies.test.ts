@@ -5,12 +5,8 @@ import { join } from "node:path";
 
 import {
   analyzeBashAuthorization,
-  analyzeKubectl,
-  buildGithubSuggestion,
-  checkBashForGithub,
-  checkBashForKubectlSecret,
+  evaluateBashGuards,
   initBashParser,
-  parseBashForSecretRead,
 } from "../src/index.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-bash-hard-block-policies-"));
@@ -32,16 +28,17 @@ afterAll(() => rmSync(wasmDir, { force: true, recursive: true }));
 
 describe("walker-backed hard-block compatibility policies", () => {
   test("detects readers resolved through assignments and transparent wrappers", () => {
-    expect(parseBashForSecretRead("READER=cat; strace $READER credentials.json")).toContain("cat");
-    expect(parseBashForSecretRead("cat README.md; env -i cat credentials.json")).toContain("cat");
+    expectGuardBlock("READER=cat; strace $READER credentials.json", "secret-read");
+    expectGuardBlock("cat README.md; env -i cat credentials.json", "secret-read");
   });
 
   test("retains short-circuit path correlations needed for hard blocks", () => {
-    expect(parseBashForSecretRead('condition && FILE=credentials.json; cat "$FILE"')).toContain("cat");
-    expect(parseBashForSecretRead("condition || # keep the right operand\ncat credentials.json")).toContain("cat");
-    expect(parseBashForSecretRead(
+    expectGuardBlock('condition && FILE=credentials.json; cat "$FILE"', "secret-read");
+    expectGuardBlock("condition || # keep the right operand\ncat credentials.json", "secret-read");
+    expectGuardBlock(
       'X=credentials.json; Y=README.md; condition && X=README.md || Y=$X; cat "$Y"',
-    )).toContain("cat");
+      "secret-read",
+    );
   });
 
   test("applies env environment operands to its child command", () => {
@@ -54,7 +51,7 @@ describe("walker-backed hard-block compatibility policies", () => {
   });
 
   test("denies path-qualified reader commands", () => {
-    expect(parseBashForSecretRead("/bin/cat credentials.json")).toContain("cat");
+    expectGuardBlock("/bin/cat credentials.json", "secret-read");
   });
 
   test("denies secret input redirects for arbitrary commands and redirect-only commands", () => {
@@ -62,7 +59,7 @@ describe("walker-backed hard-block compatibility policies", () => {
       "wc < credentials.json", "bash < credentials.json", "< credentials.json",
       "(cat) < credentials.json", "{ cat; } < credentials.json",
     ]) {
-      expect(parseBashForSecretRead(command), command).toBe("bash redirect from 'credentials.json'");
+      expectGuardBlock(command, "secret-read", "bash redirect from 'credentials.json'");
     }
   });
 
@@ -71,28 +68,23 @@ describe("walker-backed hard-block compatibility policies", () => {
     "f(){ true; }; f < credentials.json",
     "export VALUE < credentials.json",
   ])("denies a secret input redirect before the shortcut in %s", (command) => {
-    expect(parseBashForSecretRead(command)).toBe("bash redirect from 'credentials.json'");
+    expectGuardBlock(command, "secret-read", "bash redirect from 'credentials.json'");
   });
 
   test("denies a secret input redirect before the readonly-assignment shortcut", () => {
-    expect(parseBashForSecretRead("readonly VALUE=old; VALUE=next cat < credentials.json"))
-      .toBe("bash redirect from 'credentials.json'");
+    expectGuardBlock("readonly VALUE=old; VALUE=next cat < credentials.json", "secret-read", "bash redirect from 'credentials.json'");
   });
 
   test("detects direct GitHub HTTP invocations", () => {
-    expect(checkBashForGithub("curl https://api.github.com/repos/o/r/issues")).toContain("Use the native gh command");
-    expect(checkBashForGithub("curl https://example.test; strace curl https://api.github.com/repos/o/r/issues"))
-      .toContain("Use the native gh command");
-    expect(checkBashForGithub("(curl https://api.github.com/repos/o/r/issues) > trace.log"))
-      .toContain("Use the native gh command");
+    expectGuardBlock("curl https://api.github.com/repos/o/r/issues", "github-http", "Use the native gh command");
+    expectGuardBlock("curl https://example.test; strace curl https://api.github.com/repos/o/r/issues", "github-http", "Use the native gh command");
+    expectGuardBlock("(curl https://api.github.com/repos/o/r/issues) > trace.log", "github-http", "Use the native gh command");
   });
 
   test("recognizes ANSI-C executable quoting and shell long options before --command", () => {
-    expect(checkBashForGithub("$'cu'rl https://api.github.com/repos/o/r/issues")).toContain("Use the native gh command");
-    expect(checkBashForGithub("bash --noprofile --command 'curl https://api.github.com/repos/o/r/issues'"))
-      .toContain("Use the native gh command");
-    expect(checkBashForGithub("bash -c 'curl \"$2\"' shell-name ignored https://api.github.com/repos/o/r/issues"))
-      .toContain("Use the native gh command");
+    expectGuardBlock("$'cu'rl https://api.github.com/repos/o/r/issues", "github-http", "Use the native gh command");
+    expectGuardBlock("bash --noprofile --command 'curl https://api.github.com/repos/o/r/issues'", "github-http", "Use the native gh command");
+    expectGuardBlock("bash -c 'curl \"$2\"' shell-name ignored https://api.github.com/repos/o/r/issues", "github-http", "Use the native gh command");
   });
 
   test("does not expose a resolved URL or query in GitHub policy evidence", () => {
@@ -132,23 +124,23 @@ describe("walker-backed hard-block compatibility policies", () => {
   });
 
   test("recurses into known literal eval payloads while keeping unknown eval payloads neutral", () => {
-    expect(parseBashForSecretRead("eval 'cat credentials.json'")).toContain("cat");
+    expectGuardBlock("eval 'cat credentials.json'", "secret-read");
     expect(analyzeBashAuthorization({ source: "eval \"$UNKNOWN\"" }).verdict).toEqual({ kind: "neutral" });
   });
 
   test("preserves URL-specific steering for path-qualified HTTP commands", () => {
     const url = "https://api.github.com/repos/o/r/issues";
-    expect(checkBashForGithub(`/usr/bin/curl ${url}`)).toBe(buildGithubSuggestion(url));
+    expectGuardBlock(`/usr/bin/curl ${url}`, "github-http", "Use the native gh command");
   });
 
   test("detects kubectl Secret reads resolved through assignments and wrappers", () => {
-    expect(checkBashForKubectlSecret("TOOL=kubectl; strace $TOOL get secret app")).toContain("kubectl get Secret");
-    expect(checkBashForKubectlSecret("TOOL=kubectl; strace $TOOL --namespace default get secret app")).toContain("kubectl get Secret");
+    expectKubectlSecretReview("TOOL=kubectl; strace $TOOL get secret app");
+    expectKubectlSecretReview("TOOL=kubectl; strace $TOOL --namespace default get secret app");
   });
 
   test("denies path-qualified kubectl commands and preserves no-subcommand compatibility", () => {
-    expect(checkBashForKubectlSecret("/usr/bin/kubectl view-secret app")).toContain("kubectl view-secret is blocked");
-    expect(analyzeKubectl("kubectl")).toEqual({ kind: "ignore" });
+    expectGuardBlock("/usr/bin/kubectl view-secret app", "kubectl", "kubectl view-secret is blocked");
+    expect(evaluateBashGuards({ source: "kubectl" })).toMatchObject({ kind: "pass" });
   });
 
   test("allows only a complete set of known-safe hard-block invocations", () => {
@@ -186,7 +178,7 @@ describe("walker-backed hard-block compatibility policies", () => {
   test("property: compound forms never bypass a secret input redirect", () => {
     for (const command of ["cat", "wc", "bash"]) {
       for (const source of [`(${command}) < credentials.json`, `{ ${command}; } < credentials.json`]) {
-        expect(parseBashForSecretRead(source), source).toBe("bash redirect from 'credentials.json'");
+        expectGuardBlock(source, "secret-read", "bash redirect from 'credentials.json'");
       }
     }
   });
@@ -196,10 +188,27 @@ describe("walker-backed hard-block compatibility policies", () => {
       const conditions = Array.from({ length }, (_, index) => `condition-${index}`);
       const source = `${conditions.join(" && ")} && FILE=credentials.json; cat "$FILE"`;
 
-      expect(parseBashForSecretRead(source), source).toContain("cat");
+      expectGuardBlock(source, "secret-read");
     }
   });
 });
+
+function expectGuardBlock(source: string, policy: "secret-read" | "github-http" | "kubectl", reason?: string): void {
+  const result = evaluateBashGuards({ source });
+  expect(result, source).toMatchObject({ kind: "block", policy: { name: policy, decision: "deny" } });
+  if (reason !== undefined) expect(result.reason, source).toContain(reason);
+}
+
+function expectKubectlSecretReview(source: string): void {
+  expect(evaluateBashGuards({ source }), source).toMatchObject({
+    kind: "pass",
+    policies: [expect.objectContaining({
+      name: "kubectl",
+      decision: "defer",
+      kubectl: expect.objectContaining({ secretReview: true }),
+    })],
+  });
+}
 
 function lcg(seed: number): () => number {
   let state = seed;

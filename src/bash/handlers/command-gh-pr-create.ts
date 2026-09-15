@@ -1,7 +1,6 @@
-import type { GhPrCreatePolicy } from "../../gh-pr-create.js";
 import { ignorePolicy, observePolicy, type PolicyDispatchContext, type PolicyObserver } from "../dispatch.js";
 import { policyDeny, policySafe } from "../outcome.js";
-import { analyzeGhPrCreateInvocation, denyGhPrCreate } from "../policies/gh-pr-create.js";
+import { analyzeGhPrCreateInvocation, denyGhPrCreate, type GhPrCreatePolicy } from "../policies/gh-pr-create.js";
 import { KNOWN_TOP_LEVEL, commandScript, findSubcommand, isPrCreate, knownArguments, repositoryValues } from "./gh-utils.js";
 
 export function ghPrCreateHandler(policy: GhPrCreatePolicy): PolicyObserver {

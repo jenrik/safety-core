@@ -1,5 +1,10 @@
-import type { GhPrCreatePolicy } from "../../gh-pr-create.js";
 import type { PolicyEvidence } from "../outcome.js";
+
+export interface GhPrCreatePolicy {
+  readonly enabled: boolean;
+  readonly allowedRepositories: readonly string[];
+  readonly allowedOrganizations: readonly string[];
+}
 
 export type GhPrCreateInvocationDecision =
   | { readonly kind: "allow"; readonly reason: string; readonly evidence: PolicyEvidence }

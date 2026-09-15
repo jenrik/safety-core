@@ -1,19 +1,25 @@
 import {
+  createBashProfileSnapshotSource,
   evaluateConfiguredBash,
   type BashConfiguredEvaluation,
   type BashConfiguredOptions,
+  type BashProfileSnapshotSource,
 } from "../../src/index.js";
 import type { HookEvent } from "./_shared.js";
 
 export interface ClaudeBashPolicyDependencies {
-  readonly evaluateConfiguredBash: (options: BashConfiguredOptions) => BashConfiguredEvaluation;
+  readonly evaluateConfiguredBash?: (options: BashConfiguredOptions) => BashConfiguredEvaluation;
+  readonly profileSnapshotSource?: BashProfileSnapshotSource;
 }
 
 export type ClaudeBashPolicyDecision =
   | { readonly kind: "allow" | "deny"; readonly reason: string }
   | undefined;
 
-const defaultDependencies: ClaudeBashPolicyDependencies = Object.freeze({ evaluateConfiguredBash });
+const defaultDependencies: Required<ClaudeBashPolicyDependencies> = Object.freeze({
+  evaluateConfiguredBash,
+  profileSnapshotSource: createBashProfileSnapshotSource(),
+});
 
 /** A valid Bash PreToolUse event is the only input this adapter evaluates. */
 export function isBashPreToolUse(event: HookEvent | null): boolean {
@@ -28,10 +34,12 @@ export function evaluateClaudeBashPolicy(
   dependencies: ClaudeBashPolicyDependencies = defaultDependencies,
 ): ClaudeBashPolicyDecision {
   if (!isBashPreToolUse(event)) return undefined;
+  const active = { ...defaultDependencies, ...dependencies };
   const command = event.tool_input!.command as string;
-  const evaluation = dependencies.evaluateConfiguredBash({
+  const evaluation = active.evaluateConfiguredBash({
     source: command,
     initialEnvironment: { kind: "unavailable" },
+    profileSnapshot: active.profileSnapshotSource.reloadIfChanged().snapshot,
   });
   if (evaluation.guards.kind === "block") return freeze({ kind: "deny", reason: evaluation.guards.reason });
   if (evaluation.permission.kind === "deny") return freeze({ kind: "deny", reason: evaluation.permission.reason });

@@ -1,14 +1,6 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 
-import type { GhPrCreatePolicy } from "../src/index.ts";
-
-const enabledPolicy: GhPrCreatePolicy = {
-  enabled: true,
-  allowedRepositories: ["acme/widgets"],
-  allowedOrganizations: [],
-};
-
 test("treats an unavailable Bash parser as a deployment assertion failure", () => {
   // Other test files initialize the module-global parser. Exercise this
   // deployment boundary in a fresh Bun process so file scheduling cannot
@@ -17,7 +9,7 @@ test("treats an unavailable Bash parser as a deployment assertion failure", () =
   const result = spawnSync(process.execPath, ["-e", `
     const core = await import(${JSON.stringify(moduleUrl)});
     try {
-      core.analyzeGhPrCreateCommand("echo harmless", ${JSON.stringify(enabledPolicy)});
+      core.evaluateBashGuards({ source: "echo harmless" });
       process.exit(1);
     } catch (error) {
       if (!(error instanceof core.BashParserFailure)) process.exit(1);

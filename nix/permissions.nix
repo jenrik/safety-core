@@ -12,9 +12,9 @@
 # wiring is untouched here, since adapters/opencode.ts's gh-api check ships
 # as part of the existing, already-wired safety-core plugin file.
 #
-# readOnlyBash combines static Nix rules with parsed safe command forms. Dynamic
-# profiles cannot be expressed as static allow-list data, so the single Bash
-# hook is wired unconditionally once this module is imported. Its actual
+# Dynamic profiles cannot be expressed as static allow-list data without
+# bypassing runtime fail-closed configuration, so the single Bash hook is wired
+# unconditionally once this module is imported. Its actual
 # enabled/disabled state lives in one shared runtime file
 # (~/.config/safety-core/profiles.json, see src/config.ts) that every
 # harness adapter consults -- avoiding two independent Nix-rendered sources
@@ -23,7 +23,6 @@
 with lib;
 let
   cfg = config.programs.safetyCorePermissions;
-  readOnlyBashCommands = builtins.fromJSON (builtins.readFile ../data/read-only-bash-commands.json);
 in
 {
   options.programs.safetyCorePermissions.profiles = {
@@ -145,12 +144,5 @@ in
       ];
     }
 
-    (mkIf cfg.profiles.readOnlyBash.enable {
-      programs.claude-code.settings.permissions.allow =
-        map (cmd: "Bash(${cmd}:*)") readOnlyBashCommands;
-
-      programs.opencode.settings.permission.bash =
-        listToAttrs (map (cmd: nameValuePair "${cmd} *" "allow") readOnlyBashCommands);
-    })
   ];
 }

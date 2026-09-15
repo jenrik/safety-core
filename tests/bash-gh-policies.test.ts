@@ -4,14 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  analyzeGhApiCommand,
-  analyzeGhPrCreateCommand,
-  analyzeGhReadOnlyCommand,
-  analyzeHelmReadOnlyCommand,
-  analyzeStrictReadOnlyCommand,
-  analyzeGhPrCreateAuthorization,
-  analyzeBashAuthorization,
+  STRICT_BASH_PROFILE_EXECUTABLES,
+  evaluateBashGuards,
+  evaluateConfiguredBash,
   initBashParser,
+  type BashProfileSnapshot,
   type GhPrCreatePolicy,
 } from "../src/index.ts";
 
@@ -38,38 +35,77 @@ beforeAll(async () => {
 
 afterAll(() => rmSync(wasmDir, { force: true, recursive: true }));
 
+function snapshot(overrides: Partial<BashProfileSnapshot> = {}): BashProfileSnapshot {
+  return Object.freeze({
+    readOnlyBash: false,
+    ghApiReadOnly: false,
+    ghReadOnly: false,
+    helmReadOnly: false,
+    strictProfiles: Object.freeze(Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false]))) as BashProfileSnapshot["strictProfiles"],
+    ghPrCreate: Object.freeze({ enabled: false, allowedRepositories: Object.freeze([]), allowedOrganizations: Object.freeze([]) }),
+    limits: Object.freeze({ maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 7_500, maxWorkItems: 10_000 }),
+    ...overrides,
+  });
+}
+
+function configured(source: string, profiles: BashProfileSnapshot) {
+  return evaluateConfiguredBash({ source, initialEnvironment: { kind: "unavailable" }, profileSnapshot: profiles });
+}
+
+function ghApi(source: string): string {
+  return configured(source, snapshot({ ghApiReadOnly: true })).permission.kind;
+}
+
+function ghPrCreate(source: string, activePolicy: GhPrCreatePolicy = policy): string {
+  return configured(source, snapshot({ ghPrCreate: Object.freeze(activePolicy) })).permission.kind;
+}
+
+function ghReadOnly(source: string): string {
+  return configured(source, snapshot({ ghReadOnly: true })).permission.kind;
+}
+
+function helmReadOnly(source: string): string {
+  return configured(source, snapshot({ helmReadOnly: true })).permission.kind;
+}
+
+function strictReadOnly(source: string, profile: "dockerReadOnly" | "kubectlReadOnly"): string {
+  return configured(source, snapshot({
+    strictProfiles: Object.freeze({ ...snapshot().strictProfiles, [profile]: true }),
+  })).permission.kind;
+}
+
 describe("walker-backed gh policy compatibility", () => {
   test("resolves assignments through transparent wrappers for allowlisted native PR creation", () => {
-    expect(analyzeGhPrCreateCommand(
+    expect(ghPrCreate(
       "TOOL=gh; strace $TOOL pr create --repo github.com/acme/widgets --fill",
       policy,
-    ).kind).toBe("allow");
+    )).toBe("allow");
   });
 
   test("requires an explicit host after stateful assignment resolution", () => {
-    expect(analyzeGhPrCreateCommand(
+    expect(ghPrCreate(
       "REPO=acme/widgets; gh pr create --repo $REPO --fill",
       policy,
-    ).kind).toBe("deny");
+    )).toBe("deny");
   });
 
-  test("does not treat non-PR gh invocations as safe beside an allowlisted PR creation", () => {
-    expect(analyzeGhPrCreateCommand(
+  test("defers non-PR gh invocations beside an allowlisted PR creation", () => {
+    expect(ghPrCreate(
       "gh pr create --repo github.com/acme/widgets --fill; gh repo delete acme/widgets",
       policy,
-    ).kind).toBe("deny");
+    )).toBe("defer");
   });
 
   test("does not activate unrelated credential-safe profiles", () => {
-    expect(analyzeGhReadOnlyCommand("gh label list; docker image ls").kind).toBe("defer");
-    expect(analyzeStrictReadOnlyCommand("docker image ls; gh label list", "docker").kind).toBe("defer");
-    expect(analyzeStrictReadOnlyCommand("docker image ls; kubectl get pods", "docker").kind).toBe("defer");
+    expect(ghReadOnly("gh label list; docker image ls")).toBe("defer");
+    expect(strictReadOnly("docker image ls; gh label list", "dockerReadOnly")).toBe("defer");
+    expect(strictReadOnly("docker image ls; kubectl get pods", "dockerReadOnly")).toBe("defer");
   });
 
   test("uses an explicit gh api method ahead of parameter-implied POST", () => {
-    expect(analyzeGhApiCommand("METHOD=GET; gh api -X $METHOD -f q=x user").kind).toBe("allow");
-    expect(analyzeGhApiCommand("gh api -f q=x --method=HEAD user").kind).toBe("allow");
-    expect(analyzeGhApiCommand("gh api -X GET graphql").kind).toBe("defer");
+    expect(ghApi("METHOD=GET; gh api -X $METHOD -f q=x user")).toBe("allow");
+    expect(ghApi("gh api -f q=x --method=HEAD user")).toBe("allow");
+    expect(ghApi("gh api -X GET graphql")).toBe("defer");
   });
 
   test("defers repeated or conflicting explicit gh api methods", () => {
@@ -77,57 +113,57 @@ describe("walker-backed gh policy compatibility", () => {
       "gh api -X GET --method POST user",
       "gh api --method=GET -XPOST user",
       "gh api -X GET --method GET user",
-    ]) expect(analyzeGhApiCommand(command).kind, command).toBe("defer");
+    ]) expect(ghApi(command), command).toBe("defer");
   });
 
   test("does not let a PR option value masquerade as a repository selector", () => {
-    expect(analyzeGhPrCreateCommand(
+    expect(ghPrCreate(
       "gh pr create --title --repo=github.com/acme/widgets --fill",
       policy,
-    ).kind).toBe("deny");
+    )).toBe("deny");
   });
 
   test("keeps preview recognized as a non-PR gh invocation", () => {
-    expect(analyzeGhPrCreateCommand("gh preview feature", policy).kind).toBe("ignore");
+    expect(ghPrCreate("gh preview feature", policy)).toBe("ignore");
   });
 
   test("does not deny quoted gh policy examples that are not executed", () => {
-    expect(analyzeGhPrCreateCommand(
+    expect(ghPrCreate(
       "printf '%s' 'gh alias set create-pr pr create'",
       policy,
-    ).kind).toBe("ignore");
+    )).toBe("ignore");
   });
 
   test("keeps unknown shell children neutral rather than approving a compound invocation", () => {
-    expect(analyzeStrictReadOnlyCommand("docker image ls; unknown-command", "docker").kind).toBe("defer");
+    expect(strictReadOnly("docker image ls; unknown-command", "dockerReadOnly")).toBe("defer");
   });
 
   test("allows a compound invocation only when every command is safe for the active read-only profile", () => {
-    expect(analyzeStrictReadOnlyCommand("TOOL=docker; $TOOL image ls; docker volume ls", "docker").kind).toBe("allow");
+    expect(strictReadOnly("TOOL=docker; $TOOL image ls; docker volume ls", "dockerReadOnly")).toBe("allow");
   });
 
   test("migrates gh and helm read-only profiles through assignments and wrappers", () => {
-    expect(analyzeGhReadOnlyCommand("TOOL=gh; strace $TOOL label list").kind).toBe("allow");
-    expect(analyzeHelmReadOnlyCommand("TOOL=helm; nice $TOOL version").kind).toBe("allow");
+    expect(ghReadOnly("TOOL=gh; strace $TOOL label list")).toBe("allow");
+    expect(helmReadOnly("TOOL=helm; nice $TOOL version")).toBe("allow");
   });
 
   test("defers credential-safe profiles after persisted credential configuration bindings", () => {
-    expect(analyzeStrictReadOnlyCommand("KUBECONFIG=/tmp/kubeconfig; kubectl get pods", "kubectl").kind).toBe("defer");
-    expect(analyzeStrictReadOnlyCommand("DOCKER_CONFIG=/tmp/docker-config; docker image ls", "docker").kind).toBe("defer");
-    expect(analyzeGhReadOnlyCommand("GH_CONFIG_DIR=/tmp/gh-config; gh label list").kind).toBe("defer");
+    expect(strictReadOnly("KUBECONFIG=/tmp/kubeconfig; kubectl get pods", "kubectlReadOnly")).toBe("defer");
+    expect(strictReadOnly("DOCKER_CONFIG=/tmp/docker-config; docker image ls", "dockerReadOnly")).toBe("defer");
+    expect(ghReadOnly("GH_CONFIG_DIR=/tmp/gh-config; gh label list")).toBe("defer");
   });
 
   test("preserves credential-safe allows for unrelated persisted bindings", () => {
-    expect(analyzeStrictReadOnlyCommand("LABEL=stable; kubectl get pods", "kubectl").kind).toBe("allow");
-    expect(analyzeStrictReadOnlyCommand("TOOL=docker; $TOOL image ls", "docker").kind).toBe("allow");
-    expect(analyzeGhReadOnlyCommand("LABEL=stable; gh label list").kind).toBe("allow");
+    expect(strictReadOnly("LABEL=stable; kubectl get pods", "kubectlReadOnly")).toBe("allow");
+    expect(strictReadOnly("TOOL=docker; $TOOL image ls", "dockerReadOnly")).toBe("allow");
+    expect(ghReadOnly("LABEL=stable; gh label list")).toBe("allow");
   });
 
   test("property: gh api explicit method precedence survives every audited flag position through a wrapper", () => {
     const blocks = [["-f", "q=x"], ["user"]];
     for (let index = 0; index <= blocks.length; index++) {
       const args = [...blocks.slice(0, index).flat(), "-X", "GET", ...blocks.slice(index).flat()];
-      expect(analyzeGhApiCommand(`strace gh api ${args.join(" ")}`).kind, args.join(" ")).toBe("allow");
+      expect(ghApi(`strace gh api ${args.join(" ")}`), args.join(" ")).toBe("allow");
     }
   });
 
@@ -142,7 +178,7 @@ describe("walker-backed gh policy compatibility", () => {
     for (let index = 0; index < 64; index++) {
       state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
       const args = positions[state % positions.length]!;
-      expect(analyzeGhPrCreateCommand(`strace gh ${args.join(" ")}`, policy).kind).toBe("allow");
+      expect(ghPrCreate(`strace gh ${args.join(" ")}`, policy)).toBe("allow");
     }
   });
 
@@ -150,10 +186,10 @@ describe("walker-backed gh policy compatibility", () => {
     const titleForms = ["--title", "-t", "--body", "-b"];
     for (let index = 0; index < 64; index++) {
       const title = titleForms[index % titleForms.length]!;
-      expect(analyzeGhPrCreateCommand(
+      expect(ghPrCreate(
         `strace gh pr create ${title} --repo=github.com/acme/widgets --fill`,
         policy,
-      ).kind).toBe("deny");
+      )).toBe("deny");
     }
   });
 
@@ -164,7 +200,7 @@ describe("walker-backed gh policy compatibility", () => {
       for (const right of second) {
         const render = (flag: string, method: string): string[] => flag.endsWith("=") ? [`${flag}${method}`] : [flag, method];
         const args = [...render(left, "GET"), ...render(right, "GET"), "user"];
-        expect(analyzeGhApiCommand(`strace gh api ${args.join(" ")}`).kind, args.join(" ")).toBe("defer");
+        expect(ghApi(`strace gh api ${args.join(" ")}`), args.join(" ")).toBe("defer");
       }
     }
   });
@@ -172,40 +208,21 @@ describe("walker-backed gh policy compatibility", () => {
   test("property: only same-profile safe prefixes compose to an allow", () => {
     const ghReads = ["gh label list", "gh repo list", "gh auth status"];
     for (const left of ghReads) {
-      for (const right of ghReads) expect(analyzeGhReadOnlyCommand(`${left}; ${right}`).kind).toBe("allow");
+      for (const right of ghReads) expect(ghReadOnly(`${left}; ${right}`)).toBe("allow");
     }
   });
 
   test("keeps ordinary unresolved execution neutral in the generic analysis API", () => {
-    expect(analyzeBashAuthorization({ source: "$UNKNOWN image ls" }).verdict.kind).toBe("neutral");
+    expect(evaluateBashGuards({ source: "$UNKNOWN image ls" })).toMatchObject({ kind: "pass", status: "indeterminate" });
   });
 
   test("keeps raw PR authorization neutral until every reachable command is safe", () => {
-    const context = {
-      initialEnvironment: { kind: "unavailable" as const },
-      limits: { maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 100_000, maxWorkItems: 10_000 },
-    };
-
-    expect(analyzeGhPrCreateAuthorization(
-      "gh pr create --repo github.com/acme/widgets --fill",
-      policy,
-      context,
-    ).verdict.kind).toBe("allow");
-    expect(analyzeGhPrCreateAuthorization(
-      "gh pr create --repo github.com/acme/widgets --fill; $UNKNOWN",
-      policy,
-      context,
-    ).verdict.kind).toBe("neutral");
-    expect(analyzeGhPrCreateAuthorization(
-      "$UNKNOWN; gh pr create --repo github.com/attacker/widgets --fill",
-      policy,
-      context,
-    ).verdict.kind).toBe("deny");
+    expect(ghPrCreate("gh pr create --repo github.com/acme/widgets --fill", policy)).toBe("allow");
+    expect(ghPrCreate("gh pr create --repo github.com/acme/widgets --fill; $UNKNOWN", policy)).toBe("defer");
+    expect(ghPrCreate("$UNKNOWN; gh pr create --repo github.com/attacker/widgets --fill", policy)).toBe("deny");
   });
 
   test("raw PR adapter analysis does not auto-allow unrelated base-handler reads", () => {
-    expect(analyzeGhPrCreateAuthorization("cat README.md", policy, {
-      initialEnvironment: { kind: "unavailable" },
-    }).verdict.kind).toBe("neutral");
+    expect(ghPrCreate("cat README.md", policy)).toBe("ignore");
   });
 });

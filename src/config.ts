@@ -6,7 +6,7 @@
 // The configured Bash evaluator loads one validated immutable snapshot per
 // event. A process-lifetime snapshot remains a later lifecycle concern.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_BASH_ANALYSIS_LIMITS, type BashAnalysisLimits } from "./bash/runner.js";
 
@@ -78,6 +78,17 @@ export interface BashProfileSnapshot {
   readonly limits: BashAnalysisLimits;
 }
 
+export interface BashProfileSnapshotVersion {
+  readonly generation: number;
+  readonly snapshot: BashProfileSnapshot;
+}
+
+/** Adapter-owned lifecycle for a validated, atomically replaced profile snapshot. */
+export interface BashProfileSnapshotSource {
+  current(): BashProfileSnapshotVersion;
+  reloadIfChanged(): BashProfileSnapshotVersion;
+}
+
 /**
  * Default profile-config path under $SAFETY_CORE_CONFIG_HOME, falling back
  * to $XDG_CONFIG_HOME, then ~/.config. SAFETY_CORE_CONFIG_HOME lets a
@@ -93,28 +104,46 @@ export function defaultProfileConfigPath(): string {
 }
 
 /**
- * Load the profile config. Fails CLOSED: a missing, unreadable, or invalid
- * file returns `{}` (every profile reads as disabled), not an exception and
- * not a permissive default. This intentionally differs from this repo's
- * fail-open judge-provider convention -- there, failing open falls back to
- * asking a human; here, failing open would mean silently auto-allowing a
- * GitHub API write.
- */
-export function loadProfileConfig(path: string = defaultProfileConfigPath()): SafetyCoreProfileConfig {
-  try {
-    const parsed = JSON.parse(readFileSync(path, "utf8"));
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-/**
  * Parse one immutable, event-local configuration snapshot for the configured
  * Bash evaluator. Invalid data can never enable an auto-allow profile.
  */
 export function loadBashProfileSnapshot(path?: string): BashProfileSnapshot {
-  const configured = loadProfileConfig(path);
+  try {
+    return parseBashProfileSnapshot(JSON.parse(readFileSync(path ?? defaultProfileConfigPath(), "utf8"))) ?? disabledBashProfileSnapshot();
+  } catch {
+    return disabledBashProfileSnapshot();
+  }
+}
+
+/**
+ * Build a source that follows an atomically replaced Home Manager symlink
+ * without resolving it once to the old Nix-store target.
+ */
+export function createBashProfileSnapshotSource(path: string = defaultProfileConfigPath()): BashProfileSnapshotSource {
+  let version = freezeVersion(0, disabledBashProfileSnapshot());
+  let fingerprint: string | null = null;
+
+  function reloadIfChanged(): BashProfileSnapshotVersion {
+    const stable = readStable(path);
+    if (stable.fingerprint === fingerprint) return version;
+    fingerprint = stable.fingerprint;
+    version = freezeVersion(version.generation + 1, stable.source === null
+      ? disabledBashProfileSnapshot()
+      : parseBashProfileSnapshot(stable.source) ?? disabledBashProfileSnapshot());
+    return version;
+  }
+
+  reloadIfChanged();
+  return Object.freeze({ current: () => version, reloadIfChanged });
+}
+
+function parseBashProfileSnapshot(value: unknown): BashProfileSnapshot | null {
+  if (!isRecord(value)) return null;
+  const configured = value as SafetyCoreProfileConfig;
+  if (!hasOnlyKeys(value, PROFILE_KEYS) || !optionalBoolean(configured.readOnlyBash) || !optionalBoolean(configured.ghApiReadOnly)
+    || !optionalBoolean(configured.ghReadOnly) || !optionalBoolean(configured.helmReadOnly)
+    || !validStrictProfiles(configured) || !validGhPrCreate(configured.ghPrCreate)
+    || !validLimits(configured.bashAnalysis)) return null;
   const ghPrCreate = configured.ghPrCreate;
   const strictProfiles = Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, configured[profile] === true])) as Record<StrictBashProfile, boolean>;
   return Object.freeze({
@@ -124,51 +153,98 @@ export function loadBashProfileSnapshot(path?: string): BashProfileSnapshot {
     helmReadOnly: configured.helmReadOnly === true,
     strictProfiles: Object.freeze(strictProfiles),
     ghPrCreate: Object.freeze({
-      enabled: isRecord(ghPrCreate) && ghPrCreate.enabled === true,
-      allowedRepositories: Object.freeze(stringArray(ghPrCreate?.allowedRepositories)),
-      allowedOrganizations: Object.freeze(stringArray(ghPrCreate?.allowedOrganizations)),
+      enabled: ghPrCreate?.enabled === true,
+      allowedRepositories: Object.freeze(ghPrCreate?.allowedRepositories ?? []),
+      allowedOrganizations: Object.freeze(ghPrCreate?.allowedOrganizations ?? []),
     }),
     limits: Object.freeze({
-      maxFunctionDepth: positiveSafeInteger(configured.bashAnalysis?.maxFunctionDepth, DEFAULT_BASH_ANALYSIS_LIMITS.maxFunctionDepth),
-      maxNestedScriptDepth: positiveSafeInteger(configured.bashAnalysis?.maxNestedScriptDepth, DEFAULT_BASH_ANALYSIS_LIMITS.maxNestedScriptDepth),
-      maxSteps: positiveSafeInteger(configured.bashAnalysis?.maxSteps, DEFAULT_BASH_ANALYSIS_LIMITS.maxSteps),
-      maxWorkItems: positiveSafeInteger(configured.bashAnalysis?.maxWorkItems, DEFAULT_BASH_ANALYSIS_LIMITS.maxWorkItems),
+      maxFunctionDepth: configured.bashAnalysis?.maxFunctionDepth ?? DEFAULT_BASH_ANALYSIS_LIMITS.maxFunctionDepth,
+      maxNestedScriptDepth: configured.bashAnalysis?.maxNestedScriptDepth ?? DEFAULT_BASH_ANALYSIS_LIMITS.maxNestedScriptDepth,
+      maxSteps: configured.bashAnalysis?.maxSteps ?? DEFAULT_BASH_ANALYSIS_LIMITS.maxSteps,
+      maxWorkItems: configured.bashAnalysis?.maxWorkItems ?? DEFAULT_BASH_ANALYSIS_LIMITS.maxWorkItems,
     }),
   });
 }
 
-/**
- * Load only validated structural analysis limits. Invalid or absent values use
- * the conservative, finite defaults rather than widening an analysis budget.
- */
-export function loadBashAnalysisLimits(path?: string): BashAnalysisLimits {
-  const configured = loadProfileConfig(path).bashAnalysis;
+function disabledBashProfileSnapshot(): BashProfileSnapshot {
+  const strictProfiles = Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false])) as Record<StrictBashProfile, boolean>;
   return Object.freeze({
-    maxFunctionDepth: positiveSafeInteger(configured?.maxFunctionDepth, DEFAULT_BASH_ANALYSIS_LIMITS.maxFunctionDepth),
-    maxNestedScriptDepth: positiveSafeInteger(configured?.maxNestedScriptDepth, DEFAULT_BASH_ANALYSIS_LIMITS.maxNestedScriptDepth),
-    maxSteps: positiveSafeInteger(configured?.maxSteps, DEFAULT_BASH_ANALYSIS_LIMITS.maxSteps),
-    maxWorkItems: positiveSafeInteger(configured?.maxWorkItems, DEFAULT_BASH_ANALYSIS_LIMITS.maxWorkItems),
+    readOnlyBash: false,
+    ghApiReadOnly: false,
+    ghReadOnly: false,
+    helmReadOnly: false,
+    strictProfiles: Object.freeze(strictProfiles),
+    ghPrCreate: Object.freeze({ enabled: false, allowedRepositories: Object.freeze([]), allowedOrganizations: Object.freeze([]) }),
+    limits: Object.freeze({ ...DEFAULT_BASH_ANALYSIS_LIMITS }),
   });
 }
 
-/** True iff the named profile is enabled in the profile config. */
-export function isProfileEnabled(
-  name: keyof SafetyCoreProfileConfig,
-  path?: string,
-): boolean {
-  return loadProfileConfig(path)[name] === true;
+function validStrictProfiles(configured: SafetyCoreProfileConfig): boolean {
+  return STRICT_BASH_PROFILE_EXECUTABLES.every(([profile]) => optionalBoolean(configured[profile]));
 }
 
-function positiveSafeInteger(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
-    ? value
-    : fallback;
+function validGhPrCreate(value: unknown): value is GhPrCreateProfileConfig | undefined {
+  return value === undefined || (isRecord(value) && hasOnlyKeys(value, GH_PR_CREATE_KEYS) && optionalBoolean(value.enabled)
+    && optionalStringArray(value.allowedRepositories) && optionalStringArray(value.allowedOrganizations));
 }
 
-function isRecord(value: unknown): value is GhPrCreateProfileConfig {
-  return typeof value === "object" && value !== null;
+function validLimits(value: unknown): value is BashAnalysisProfileConfig | undefined {
+  return value === undefined || (isRecord(value) && hasOnlyKeys(value, BASH_ANALYSIS_KEYS)
+    && optionalPositiveSafeInteger(value.maxFunctionDepth)
+    && optionalPositiveSafeInteger(value.maxNestedScriptDepth)
+    && optionalPositiveSafeInteger(value.maxSteps)
+    && optionalPositiveSafeInteger(value.maxWorkItems));
 }
 
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+function optionalBoolean(value: unknown): boolean {
+  return value === undefined || typeof value === "boolean";
+}
+
+function optionalStringArray(value: unknown): boolean {
+  return value === undefined || (Array.isArray(value) && value.every((item) => typeof item === "string"));
+}
+
+function optionalPositiveSafeInteger(value: unknown): boolean {
+  return value === undefined || (typeof value === "number" && Number.isSafeInteger(value) && value > 0);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const PROFILE_KEYS = new Set<string>([
+  "readOnlyBash", "ghApiReadOnly", "ghReadOnly", "helmReadOnly", "ghPrCreate", "bashAnalysis",
+  ...STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => profile),
+]);
+const GH_PR_CREATE_KEYS = new Set(["enabled", "allowedRepositories", "allowedOrganizations"]);
+const BASH_ANALYSIS_KEYS = new Set(["maxFunctionDepth", "maxNestedScriptDepth", "maxSteps", "maxWorkItems"]);
+
+function hasOnlyKeys(value: Record<string, unknown>, allowed: ReadonlySet<string>): boolean {
+  return Object.keys(value).every((key) => allowed.has(key));
+}
+
+function freezeVersion(generation: number, snapshot: BashProfileSnapshot): BashProfileSnapshotVersion {
+  return Object.freeze({ generation, snapshot });
+}
+
+function readStable(path: string): { readonly fingerprint: string; readonly source: unknown | null } {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const before = fingerprintFor(path);
+    try {
+      const source = JSON.parse(readFileSync(path, "utf8"));
+      if (before === fingerprintFor(path)) return { fingerprint: before, source };
+    } catch {
+      if (before === fingerprintFor(path)) return { fingerprint: before, source: null };
+    }
+  }
+  return { fingerprint: `${fingerprintFor(path)}:unstable`, source: null };
+}
+
+function fingerprintFor(path: string): string {
+  try {
+    const stat = statSync(path, { bigint: true });
+    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+  } catch {
+    return "unavailable";
+  }
 }

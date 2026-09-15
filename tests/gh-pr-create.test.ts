@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  analyzeGhPrCreateCommand,
+  STRICT_BASH_PROFILE_EXECUTABLES,
+  evaluateConfiguredBash,
   initBashParser,
+  type BashProfileSnapshot,
   type GhPrCreatePolicy,
 } from "../src/index.ts";
 
@@ -39,7 +41,16 @@ afterAll(() => {
 });
 
 function decision(command: string, activePolicy: GhPrCreatePolicy = policy): string {
-  return analyzeGhPrCreateCommand(command, activePolicy).kind;
+  const profileSnapshot: BashProfileSnapshot = Object.freeze({
+    readOnlyBash: false,
+    ghApiReadOnly: false,
+    ghReadOnly: false,
+    helmReadOnly: false,
+    strictProfiles: Object.freeze(Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false]))) as BashProfileSnapshot["strictProfiles"],
+    ghPrCreate: Object.freeze(activePolicy),
+    limits: Object.freeze({ maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 7_500, maxWorkItems: 10_000 }),
+  });
+  return evaluateConfiguredBash({ source: command, initialEnvironment: { kind: "unavailable" }, profileSnapshot }).permission.kind;
 }
 
 describe("gh pr create policy", () => {
@@ -124,8 +135,8 @@ describe("gh pr create policy", () => {
     }
   });
 
-  test("denies compound Bash calls instead of approving unrelated commands", () => {
-    expect(decision("gh pr create --repo github.com/acme/widgets --fill; rm -rf generated")).toBe("deny");
+  test("defers compound Bash calls instead of approving unrelated commands", () => {
+    expect(decision("gh pr create --repo github.com/acme/widgets --fill; rm -rf generated")).toBe("defer");
     expect(decision("bash -c 'gh pr create --repo github.com/acme/widgets --fill'")).toBe("deny");
     expect(decision("g\\h pr create --repo github.com/attacker/widgets --fill")).toBe("deny");
   });

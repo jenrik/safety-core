@@ -13,9 +13,8 @@ import { findSubcommand, isPrCreate, knownArguments } from "./bash/handlers/gh-u
 import { genericReadOnlyHandlers, helmReadOnlyHandlers, strictReadOnlyHandlers } from "./bash/handlers/read-only.js";
 import { ghApiHandler } from "./bash/handlers/command-gh-api.js";
 import { ignorePolicy } from "./bash/dispatch.js";
-import { STRICT_BASH_PROFILE_EXECUTABLES, loadBashProfileSnapshot, type BashProfileSnapshot, type StrictBashProfile } from "./config.js";
-import type { GhPrCreatePolicy } from "./gh-pr-create.js";
-import type { KubectlAuditRecord } from "./kubectl.js";
+import { STRICT_BASH_PROFILE_EXECUTABLES, type BashProfileSnapshot, type StrictBashProfile } from "./config.js";
+import type { GhPrCreatePolicy } from "./bash/policies/gh-pr-create.js";
 import { parseBashProgram } from "./shell.js";
 
 export type BashInitialEnvironment =
@@ -95,14 +94,23 @@ export interface BashConfiguredEvaluation {
     readonly evidence: readonly PolicyEvidence[];
   };
   readonly audit: {
-    readonly policies: readonly PolicyEvidence[];
-    readonly kubectlSecret: KubectlAuditRecord | null;
+    readonly events: readonly BashAuditEvent[];
   };
 }
 
+/** Redacted event data which adapters may map to their own audit sinks. */
+export interface BashAuditEvent {
+  readonly kind: "kubectl-secret";
+  readonly policy: "kubectl";
+  readonly fields: Readonly<{
+    kubectl_subcommand: string | null;
+    resource: string | null;
+    command_length: number;
+  }>;
+}
+
 export interface BashConfiguredOptions extends Pick<BashAuthorizationOptions, "source" | "limits" | "initialEnvironment"> {
-  readonly configPath?: string;
-  readonly profileSnapshot?: BashProfileSnapshot;
+  readonly profileSnapshot: BashProfileSnapshot;
 }
 
 const baseHandlers = Object.freeze([...readerHandlers, ...httpHandlers, kubectlHandler]);
@@ -177,7 +185,7 @@ export function evaluateBashGuards(options: BashGuardOptions): BashGuardEvaluati
  * observations cannot authorize a command.
  */
 export function evaluateConfiguredBash(options: BashConfiguredOptions): BashConfiguredEvaluation {
-  const snapshot = options.profileSnapshot ?? loadBashProfileSnapshot(options.configPath);
+  const snapshot = options.profileSnapshot;
   const limits = options.limits ?? snapshot.limits;
   const handlers = configuredHandlers(snapshot);
   const analysis = analyzeBashAuthorization({
@@ -195,61 +203,11 @@ export function evaluateConfiguredBash(options: BashConfiguredOptions): BashConf
     profiles,
     analysis: freeze({ status: guardAnalysisStatus(analysis.outcome.kind), evidence: analysis.policies }),
     audit: freeze({
-      policies: Object.freeze(analysis.policies.filter((policy) => policy.kubectl?.mentionsSecret === true)),
-      kubectlSecret: kubectlAuditSummary(options.source, analysis.policies),
+      events: kubectlAuditEvents(options.source, analysis.policies),
     }),
   });
 }
 
-
-/**
- * Run an adapter-facing evaluator with an explicit unavailable environment and
- * map only the definitive walker verdict onto a native permission status.
- */
-export function evaluateBashPermission(
-  status: string,
-  source: string,
-  limits: BashAnalysisLimits,
-  evaluator: (options: BashAuthorizationOptions) => { readonly verdict: { readonly kind: string } },
-): string {
-  const result = evaluator({ source, limits, initialEnvironment: { kind: "unavailable" } });
-  return mapBashPermissionStatus(status, result.verdict);
-}
-
-/** Preserve the native status unless analysis proves the invocation safe or denied. */
-export function mapBashPermissionStatus<T extends string>(status: T, verdict: { readonly kind: string }): T | "allow" | "deny" {
-  switch (verdict.kind) {
-    case "allow": return "allow";
-    case "deny": return "deny";
-    default: return status;
-  }
-}
-
-/** OpenCode's native permission mapping: only definitive walker verdicts override it. */
-// TODO: Move all harness permission mapping out of the core; adapters should
-// translate a harness-neutral configured evaluator result.
-export function mapOpenCodeBashStatus<T extends string>(status: T, verdict: { readonly kind: string }): T | "allow" | "deny" {
-  return mapBashPermissionStatus(status, verdict);
-}
-
-/** Pi's hard-block phase may stop execution only for a proven denial. */
-export function shouldBlockPiBash(verdict: { readonly kind: string }): boolean {
-  return verdict.kind === "deny";
-}
-
-/** Claude Code hooks emit no decision for analysis uncertainty or failure. */
-export function mapClaudeBashDecision(verdict: { readonly kind: string }): "allow" | "deny" | undefined {
-  return verdict.kind === "allow" || verdict.kind === "deny" ? verdict.kind : undefined;
-}
-
-/** Evaluate a hard-block policy under the same explicit unavailable environment. */
-export function shouldHardBlockBash(
-  source: string,
-  limits: BashAnalysisLimits,
-  evaluator: (options: BashAuthorizationOptions) => { readonly verdict: { readonly kind: string } },
-): boolean {
-  return evaluator({ source, limits, initialEnvironment: { kind: "unavailable" } }).verdict.kind === "deny";
-}
 
 function policyFrom(completed: RunStepsResult): PolicyEvidence | null {
   return policiesFrom(completed)[0] ?? null;
@@ -373,14 +331,18 @@ function policySpan(policy: PolicyEvidence): string {
 }
 
 /** Derive the audit-safe kubectl summary from already-redacted policy evidence. */
-function kubectlAuditSummary(source: string, policies: readonly PolicyEvidence[]): KubectlAuditRecord | null {
-  const policy = policies.find((candidate) => candidate.name === "kubectl" && candidate.kubectl?.mentionsSecret);
-  if (!policy?.kubectl) return null;
-  return freeze({
-    kubectl_subcommand: policy.kubectl.subcommand,
-    resource: policy.kubectl.resource,
-    command_length: source.length,
-  });
+function kubectlAuditEvents(source: string, policies: readonly PolicyEvidence[]): readonly BashAuditEvent[] {
+  return Object.freeze(policies
+    .filter((policy) => policy.name === "kubectl" && policy.kubectl?.mentionsSecret)
+    .map((policy) => freeze({
+      kind: "kubectl-secret" as const,
+      policy: "kubectl" as const,
+      fields: freeze({
+        kubectl_subcommand: policy.kubectl!.subcommand,
+        resource: policy.kubectl!.resource,
+        command_length: source.length,
+      }),
+    })));
 }
 
 function guardAnalysisStatus(kind: RunStepsResult["outcome"]["kind"]): BashGuardAnalysisStatus {

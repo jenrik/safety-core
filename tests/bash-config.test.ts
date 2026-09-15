@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import * as config from "../src/config.ts";
+import * as core from "../src/index.ts";
 
 const defaults = {
   maxFunctionDepth: 128,
@@ -21,45 +22,7 @@ function writeProfile(profile: unknown): string {
   return path;
 }
 
-test("bash analysis configuration accepts only positive safe integer limits", () => {
-  const loadBashAnalysisLimits = (config as Record<string, unknown>).loadBashAnalysisLimits as
-    | ((path: string) => unknown)
-    | undefined;
-
-  expect(loadBashAnalysisLimits).toBeFunction();
-  expect(loadBashAnalysisLimits!(writeProfile({
-    bashAnalysis: {
-      maxFunctionDepth: 7,
-      maxNestedScriptDepth: -1,
-      maxSteps: 1.5,
-      maxWorkItems: Number.MAX_SAFE_INTEGER + 1,
-    },
-  }))).toEqual({
-    maxFunctionDepth: 7,
-    maxNestedScriptDepth: defaults.maxNestedScriptDepth,
-    maxSteps: defaults.maxSteps,
-    maxWorkItems: defaults.maxWorkItems,
-  });
-});
-
-test("bash analysis configuration falls back to every safe default when absent or non-numeric", () => {
-  const loadBashAnalysisLimits = (config as Record<string, unknown>).loadBashAnalysisLimits as
-    | ((path: string) => unknown)
-    | undefined;
-
-  expect(loadBashAnalysisLimits).toBeFunction();
-  expect(loadBashAnalysisLimits!(writeProfile({
-    bashAnalysis: {
-      maxFunctionDepth: "128",
-      maxNestedScriptDepth: null,
-      maxSteps: Number.POSITIVE_INFINITY,
-      maxWorkItems: 0,
-    },
-  }))).toEqual(defaults);
-  expect(loadBashAnalysisLimits!(writeProfile({}))).toEqual(defaults);
-});
-
-test("configured Bash snapshots are immutable and never enable malformed profiles", () => {
+test("configured Bash snapshots are immutable and reject a malformed recognized field", () => {
   const loadBashProfileSnapshot = (config as Record<string, unknown>).loadBashProfileSnapshot as
     | ((path: string) => Record<string, unknown>)
     | undefined;
@@ -72,14 +35,65 @@ test("configured Bash snapshots are immutable and never enable malformed profile
     ghPrCreate: { enabled: true, allowedRepositories: ["acme/widgets", 4], allowedOrganizations: "acme" },
   }));
   expect(snapshot).toMatchObject({
-    readOnlyBash: true,
+    readOnlyBash: false,
     ghReadOnly: false,
-    ghPrCreate: { enabled: true, allowedRepositories: ["acme/widgets"], allowedOrganizations: [] },
-    strictProfiles: { dockerReadOnly: true },
+    ghPrCreate: { enabled: false, allowedRepositories: [], allowedOrganizations: [] },
+    strictProfiles: { dockerReadOnly: false },
   });
   expect(Object.isFrozen(snapshot)).toBe(true);
   expect(Object.isFrozen(snapshot.strictProfiles)).toBe(true);
   expect(Object.isFrozen(snapshot.ghPrCreate)).toBe(true);
+});
+
+test("configured Bash snapshots reject unknown root and nested configuration keys", () => {
+  const loadBashProfileSnapshot = (config as Record<string, unknown>).loadBashProfileSnapshot as
+    | ((path: string) => { readonly ghReadOnly: boolean })
+    | undefined;
+  expect(loadBashProfileSnapshot).toBeFunction();
+  for (const profile of [
+    { ghReadOnly: true, unknown: true },
+    { ghReadOnly: true, ghPrCreate: { unknown: true } },
+    { ghReadOnly: true, bashAnalysis: { unknown: 1 } },
+  ]) expect(loadBashProfileSnapshot!(writeProfile(profile)).ghReadOnly).toBe(false);
+});
+
+test("profile snapshot sources atomically replace immutable generations", () => {
+  const createBashProfileSnapshotSource = (config as Record<string, unknown>).createBashProfileSnapshotSource as
+    | ((path: string) => { current(): { generation: number; snapshot: { ghReadOnly: boolean } }; reloadIfChanged(): { generation: number; snapshot: { ghReadOnly: boolean } } })
+    | undefined;
+  expect(createBashProfileSnapshotSource).toBeFunction();
+  const path = writeProfile({ ghReadOnly: true });
+  const source = createBashProfileSnapshotSource!(path);
+  const first = source.current();
+  expect(first.snapshot.ghReadOnly).toBe(true);
+  expect(source.reloadIfChanged()).toBe(first);
+  writeFileSync(path, JSON.stringify({ ghReadOnly: false }));
+  const second = source.reloadIfChanged();
+  expect(second.generation).toBeGreaterThan(first.generation);
+  expect(second.snapshot.ghReadOnly).toBe(false);
+  writeFileSync(path, JSON.stringify({ ghReadOnly: "true" }));
+  expect(source.reloadIfChanged().snapshot.ghReadOnly).toBe(false);
+});
+
+test("profile sources follow a Home Manager-style symlink retarget", () => {
+  const createBashProfileSnapshotSource = (config as Record<string, unknown>).createBashProfileSnapshotSource as
+    | ((path: string) => { current(): { generation: number; snapshot: { ghReadOnly: boolean } }; reloadIfChanged(): { generation: number; snapshot: { ghReadOnly: boolean } } })
+    | undefined;
+  expect(createBashProfileSnapshotSource).toBeFunction();
+  const directory = mkdtempSync(join(tmpdir(), "safety-core-bash-config-link-"));
+  const first = join(directory, "first.json");
+  const second = join(directory, "second.json");
+  const current = join(directory, "profiles.json");
+  writeFileSync(first, JSON.stringify({ ghReadOnly: true }));
+  writeFileSync(second, JSON.stringify({ ghReadOnly: false }));
+  symlinkSync(first, current);
+  const source = createBashProfileSnapshotSource!(current);
+  expect(source.current().snapshot.ghReadOnly).toBe(true);
+  // Replacing the pathname, rather than its realpath target, mirrors activation.
+  const replacement = join(directory, "replacement");
+  symlinkSync(second, replacement);
+  renameSync(replacement, current);
+  expect(source.reloadIfChanged().snapshot.ghReadOnly).toBe(false);
 });
 
 nixEvaluationTest("Nix renders all configured Bash analysis limits into the shared profile", () => {
@@ -147,31 +161,6 @@ nixEvaluationTest("Nix rejects every value outside the JavaScript positive-safe-
   }
 });
 
-test("property: limit loading accepts exactly generated positive safe integers", () => {
-  const loadBashAnalysisLimits = (config as Record<string, unknown>).loadBashAnalysisLimits as
-    | ((path: string) => typeof defaults)
-    | undefined;
-  expect(loadBashAnalysisLimits).toBeFunction();
-
-  let state = 0x4d595df4;
-  for (let index = 0; index < 128; index++) {
-    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
-    const valid = state % 2 === 0;
-    const value = valid ? (state % 10_000) + 1 : (state % 3 === 0 ? 0 : state + 0.5);
-    const limits = loadBashAnalysisLimits!(writeProfile({ bashAnalysis: {
-      maxFunctionDepth: value,
-      maxNestedScriptDepth: value,
-      maxSteps: value,
-      maxWorkItems: value,
-    } }));
-    const expected = valid ? value : defaults.maxFunctionDepth;
-    expect(limits.maxFunctionDepth).toBe(expected);
-    expect(limits.maxNestedScriptDepth).toBe(valid ? value : defaults.maxNestedScriptDepth);
-    expect(limits.maxSteps).toBe(valid ? value : defaults.maxSteps);
-    expect(limits.maxWorkItems).toBe(valid ? value : defaults.maxWorkItems);
-  }
-});
-
 test("property: only literal true enables generated profile values", () => {
   const loadBashProfileSnapshot = (config as Record<string, unknown>).loadBashProfileSnapshot as
     | ((path: string) => { readonly ghReadOnly: boolean })
@@ -181,4 +170,17 @@ test("property: only literal true enables generated profile values", () => {
   for (const value of values) {
     expect(loadBashProfileSnapshot!(writeProfile({ ghReadOnly: value })).ghReadOnly, String(value)).toBe(value === true);
   }
+});
+
+test("public core exports only structured Bash evaluation APIs", () => {
+  for (const retired of [
+    "parseBash", "parseBashForSecretRead", "checkBashForGithub", "analyzeKubectl",
+    "checkBashForKubectlSecret", "summariseKubectlSecret", "analyzeGhApiCommand",
+    "analyzeGhPrCreateCommand", "analyzeStrictReadOnlyCommand", "mapOpenCodeBashStatus",
+    "evaluateBashPermission", "mapBashPermissionStatus", "shouldBlockPiBash",
+    "mapClaudeBashDecision", "loadProfileConfig", "analyzeHelmReadOnlyCommand",
+  ]) expect(retired in core, retired).toBe(false);
+  expect(core.parseBashProgram).toBeFunction();
+  expect(core.evaluateBashGuards).toBeFunction();
+  expect(core.evaluateConfiguredBash).toBeFunction();
 });

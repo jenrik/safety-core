@@ -65,7 +65,7 @@ function fakeEvaluation(overrides: Partial<BashConfiguredEvaluation>): BashConfi
     permission: Object.freeze({ kind: "ignore" }),
     profiles: Object.freeze({}),
     analysis: Object.freeze({ status: "complete", evidence: Object.freeze([]) }),
-    audit: Object.freeze({ policies: Object.freeze([]), kubectlSecret: null }),
+    audit: Object.freeze({ events: Object.freeze([]) }),
     ...overrides,
   } as BashConfiguredEvaluation;
 }
@@ -74,7 +74,7 @@ describe("Claude configured Bash policy", () => {
   test("evaluates valid Bash callbacks once with an unavailable environment", () => {
     const result = evaluate("gh api user", snapshot({ ghApiReadOnly: true }));
     expect(result.calls).toBe(1);
-    expect(result.options).toEqual({ source: "gh api user", initialEnvironment: { kind: "unavailable" } });
+    expect(result.options).toMatchObject({ source: "gh api user", initialEnvironment: { kind: "unavailable" }, profileSnapshot: expect.anything() });
     expect(result.decision).toMatchObject({ kind: "allow" });
     expect(isBashPreToolUse(event("id"))).toBe(true);
     expect(isBashPreToolUse({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "id" } })).toBe(false);

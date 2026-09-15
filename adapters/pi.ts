@@ -19,7 +19,7 @@ import {
   SECRET_PATTERNS,
   basename,
   checkWebfetchUrl,
-  defaultAuditPath,
+  createBashProfileSnapshotSource,
   discoverWasmDir,
   evaluateConfiguredBash,
   initBashParser,
@@ -33,6 +33,8 @@ import {
   createCompletionJudge,
   type BashConfiguredEvaluation,
   type BashConfiguredOptions,
+  type BashProfileSnapshotSource,
+  type BashProfileSnapshotVersion,
   type JudgeProvider,
 } from "../src/index.js";
 
@@ -73,15 +75,20 @@ async function refreshJudge(): Promise<void> {
 
 export interface PiExtensionDependencies {
   readonly evaluateConfiguredBash?: BashConfiguredEvaluator;
+  readonly profileSnapshotSource?: BashProfileSnapshotSource;
 }
 
 export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDependencies = {}) {
   const configuredEvaluator = dependencies.evaluateConfiguredBash ?? evaluateConfiguredBash;
+  const profileSnapshots = dependencies.profileSnapshotSource ?? createBashProfileSnapshotSource();
+  const parserReady = initBashParser(discoverWasmDir(import.meta.url));
+  // The callbacks await this same rejected promise, but avoid an unhandled
+  // rejection before Pi delivers its first lifecycle event.
+  void parserReady.catch(() => {});
   const bashResults = createPiBashResultCache();
   // ── Initialise the bash parser + LLM judge ────────────────────────────
   pi.on("session_start", async (_event, ctx) => {
-    const wasmDir = discoverWasmDir(import.meta.url);
-    await initBashParser(wasmDir);
+    await parserReady;
 
     // Use Pi's model runtime so every authenticated provider/model available
     // to this instance can be selected as the judge.
@@ -166,9 +173,11 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
     }
 
     if (event.toolName === "bash") {
+      await parserReady;
       const command = (event.input as { command?: string })?.command ?? "";
       // ── Rule-based checks: hard-block clear violations ────────────
-      const evaluation = evaluateConfigured(command, configuredEvaluator);
+      const snapshot = profileSnapshots.reloadIfChanged();
+      const evaluation = evaluateConfigured(command, configuredEvaluator, snapshot);
       const block = piBashGuardBlock(evaluation);
       if (block) {
         setJudgeVerdict(event.toolCallId, {
@@ -195,7 +204,7 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
           }
         }
         // Judge approved (or unavailable) — let the command proceed.
-        bashResults.store(event.toolCallId, command, evaluation);
+        bashResults.store(event.toolCallId, command, evaluation, snapshot.generation);
         return;
       }
 
@@ -204,7 +213,7 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
         safe: true,
         reasoning: "Safety check passed — no policy violations detected",
       });
-      bashResults.store(event.toolCallId, command, evaluation);
+      bashResults.store(event.toolCallId, command, evaluation, snapshot.generation);
     }
   });
 
@@ -214,7 +223,7 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
     const command = (event.input as { command?: string })?.command ?? "";
 
     const cached = bashResults.take(event.toolCallId, command);
-    const summary = (cached ?? evaluateConfigured(command, configuredEvaluator)).audit.kubectlSecret;
+    const summary = kubectlSecretAudit((cached ?? evaluateConfigured(command, configuredEvaluator, profileSnapshots.reloadIfChanged())).audit.events);
     if (summary) {
       await appendAuditRecord(defaultAuditPath("pi"), {
         timestamp: new Date().toISOString(),
@@ -459,8 +468,16 @@ function matchesSecretKeyword(command: string): boolean {
 
 type BashConfiguredEvaluator = (options: BashConfiguredOptions) => BashConfiguredEvaluation;
 
-function evaluateConfigured(command: string, evaluate: BashConfiguredEvaluator): BashConfiguredEvaluation {
-  return evaluate({ source: command, initialEnvironment: { kind: "unavailable" } });
+function evaluateConfigured(command: string, evaluate: BashConfiguredEvaluator, version: BashProfileSnapshotVersion): BashConfiguredEvaluation {
+  return evaluate({ source: command, initialEnvironment: { kind: "unavailable" }, profileSnapshot: version.snapshot });
+}
+
+function kubectlSecretAudit(events: BashConfiguredEvaluation["audit"]["events"]): BashConfiguredEvaluation["audit"]["events"][number]["fields"] | null {
+  return events.find((event) => event.kind === "kubectl-secret")?.fields ?? null;
+}
+
+function defaultAuditPath(agent: string): string {
+  return join(process.env.XDG_STATE_HOME ?? join(process.env.HOME ?? "", ".local", "state"), agent, "kubectl-secret-audit.jsonl");
 }
 
 interface PiGuardBlock {
@@ -490,6 +507,7 @@ interface PiCachedBashEvaluation {
   readonly source: string;
   readonly evaluation: BashConfiguredEvaluation;
   readonly createdAt: number;
+  readonly generation: number;
 }
 
 const PI_BASH_RESULT_TTL_MS = 10 * 60 * 1_000;
@@ -498,11 +516,11 @@ const MAX_PI_CACHED_BASH_RESULTS = 128;
 function createPiBashResultCache() {
   const entries = new Map<string, PiCachedBashEvaluation>();
 
-  function store(toolCallId: unknown, source: string, evaluation: BashConfiguredEvaluation): void {
+  function store(toolCallId: unknown, source: string, evaluation: BashConfiguredEvaluation, generation: number): void {
     if (typeof toolCallId !== "string" || toolCallId.length === 0) return;
     prune();
     entries.delete(toolCallId);
-    entries.set(toolCallId, { source, evaluation, createdAt: Date.now() });
+    entries.set(toolCallId, { source, evaluation, createdAt: Date.now(), generation });
     while (entries.size > MAX_PI_CACHED_BASH_RESULTS) entries.delete(entries.keys().next().value!);
   }
 

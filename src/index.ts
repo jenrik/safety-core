@@ -13,11 +13,9 @@ export {
   isBashParserFailure,
   isBashParserInitialized,
   matchesAnyGlob,
-  parseBash,
   parseBashProgram,
 } from "./shell.js";
 export { BashParserFailure } from "./shell.js";
-export type { Redirect, SimpleCommand } from "./shell.js";
 export type {
   BashAssignment,
   BashCommand,
@@ -50,9 +48,7 @@ export { analyzeGithubHttpInvocation } from "./bash/policies/github.js";
 export { analyzeKubectlInvocation } from "./bash/policies/kubectl.js";
 export { analyzeGhApiInvocation } from "./bash/policies/gh-api.js";
 export { analyzeGhPrCreateInvocation } from "./bash/policies/gh-pr-create.js";
-export * from "./gh.js";
-export * from "./read-only-cli.js";
-export * from "./gh-pr-create.js";
+export type { GhPrCreatePolicy } from "./bash/policies/gh-pr-create.js";
 export * from "./audit.js";
 export * from "./judge.js";
 export * from "./config.js";

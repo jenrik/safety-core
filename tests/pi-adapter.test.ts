@@ -82,7 +82,7 @@ test("Pi never blocks a permission-only configured decision", async () => {
         permission: Object.freeze({ kind: "deny", profile: "ghReadOnly", reason: "permission-only test denial" }),
         profiles: Object.freeze({ ghReadOnly: Object.freeze({ kind: "deny", profile: "ghReadOnly", reason: "permission-only test denial" }) }),
         analysis: Object.freeze({ status: "complete", evidence: Object.freeze([]) }),
-        audit: Object.freeze({ policies: Object.freeze([]), kubectlSecret: null }),
+        audit: Object.freeze({ events: Object.freeze([]) }),
       }) as never;
     },
   });

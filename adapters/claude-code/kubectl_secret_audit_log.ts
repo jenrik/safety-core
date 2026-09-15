@@ -7,7 +7,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { appendAuditRecord, discoverWasmDir, initBashParser, summariseKubectlSecret } from "../../src/index.js";
+import { appendAuditRecord, createBashProfileSnapshotSource, discoverWasmDir, evaluateConfiguredBash, initBashParser } from "../../src/index.js";
 
 import { parseHookEvent, readStdin, run } from "./_shared.js";
 
@@ -25,9 +25,15 @@ run(async () => {
 
   // The hook is wired against `Bash(*secret*)` in settings, so ANY match is
   // worth logging (even non-kubectl commands that happened to mention a
-  // secret-shaped word). summariseKubectlSecret returns null when the command
-  // isn't a Secret-touching kubectl call; in that case log a minimal record.
-  const summary = summariseKubectlSecret(command) ?? {
+  // secret-shaped word). The configured evaluator emits no event for a
+  // non-kubectl command; retain the established minimal record in that case.
+  const snapshots = createBashProfileSnapshotSource();
+  const evaluation = evaluateConfiguredBash({
+    source: command,
+    initialEnvironment: { kind: "unavailable" },
+    profileSnapshot: snapshots.current().snapshot,
+  });
+  const summary = evaluation.audit.events.find((audit) => audit.kind === "kubectl-secret")?.fields ?? {
     kubectl_subcommand: null,
     resource: null,
     command_length: command.length,
