@@ -448,6 +448,7 @@
           packages = [
             (pkgsFor system).bun
             (pkgsFor system).nodejs_22
+            (pkgsFor system).typescript
             (pkgsFor system).python3
             (pkgsFor system).python3Packages.marimo
             (pkgsFor system).python3Packages.polars
