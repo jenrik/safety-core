@@ -1,4 +1,4 @@
-import type { DispatchContext } from "../dispatch.js";
+import type { StructuralDispatchContext } from "../dispatch.js";
 import type { ResolvedWord } from "../expand.js";
 import { assignBinding, fromInitialEnvironment, known as knownBinding, setExported, unsetBinding } from "../environment.js";
 import { indeterminate } from "../outcome.js";
@@ -6,7 +6,7 @@ import { continueFrom, isKnown, known, wrapperHandler } from "./wrapper-utils.js
 
 export const envHandler = wrapperHandler("env", parseEnv);
 
-function parseEnv(arguments_: readonly ResolvedWord[], context: DispatchContext) {
+function parseEnv(arguments_: readonly ResolvedWord[], context: StructuralDispatchContext) {
   let index = 0;
   let environment = context.environment;
   while (index < arguments_.length) {

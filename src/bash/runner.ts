@@ -1,5 +1,6 @@
 import type { SourceSpan } from "./cst.js";
 import type { Environment } from "./environment.js";
+import { isBashParserFailure } from "../shell.js";
 import {
   analysisFailure,
   failure,
@@ -107,7 +108,8 @@ export function runSteps(initial: Step, limits: BashAnalysisLimits = DEFAULT_BAS
 function runTarget(target: DispatchTarget, state: Environment, evidence: Outcome[]): Step | undefined {
   try {
     return target.run(state);
-  } catch {
+  } catch (error) {
+    if (isBashParserFailure(error)) throw error;
     evidence.push(failure(target.span));
     return undefined;
   }

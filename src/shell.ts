@@ -1,7 +1,7 @@
 // Shell parsing for the LLM safety hook.
 //
-// Uses tree-sitter-bash for accurate shell parsing. Callers must initialize
-// it before policy evaluation; an unavailable parser yields a parse failure.
+// Uses tree-sitter-bash for accurate shell parsing. Parser initialization is a
+// deployment boundary; policy evaluation must never silently run without it.
 
 import { statSync } from "node:fs";
 import { Language, Node as SyntaxNode, Parser } from "web-tree-sitter";
@@ -26,6 +26,16 @@ import type {
 
 let bashParser: Parser | null = null;
 let initPromise: Promise<void> | null = null;
+let initializationFailure: BashParserFailure | null = null;
+
+export class BashParserFailure extends Error {
+  readonly code = "SAFETY_CORE_BASH_PARSER_FAILURE";
+
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "BashParserFailure";
+  }
+}
 
 /**
  * Initialise the tree-sitter bash parser. Must be called once before
@@ -40,18 +50,24 @@ export async function initBashParser(wasmDir: string, grammarPath = `${wasmDir}/
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
-    // Initialise the tree-sitter runtime, pointing at our bundled WASM.
-    await Parser.init({
-      locateFile(): string {
-        return `${wasmDir}/node_modules/web-tree-sitter/web-tree-sitter.wasm`;
-      },
-    });
+    try {
+      // Initialise the tree-sitter runtime, pointing at our bundled WASM.
+      await Parser.init({
+        locateFile(): string {
+          return `${wasmDir}/node_modules/web-tree-sitter/web-tree-sitter.wasm`;
+        },
+      });
 
-    const BashLang = await Language.load(
-      grammarPath,
-    );
-    bashParser = new Parser();
-    bashParser.setLanguage(BashLang);
+      const BashLang = await Language.load(grammarPath);
+      bashParser = new Parser();
+      bashParser.setLanguage(BashLang);
+    } catch (cause) {
+      initializationFailure = new BashParserFailure(
+        "Bash parser initialization failed; safety-core cannot start without its packaged parser",
+        { cause },
+      );
+      throw initializationFailure;
+    }
   })();
 
   return initPromise;
@@ -60,6 +76,20 @@ export async function initBashParser(wasmDir: string, grammarPath = `${wasmDir}/
 /** True once the Bash AST parser is available for policy checks. */
 export function isBashParserInitialized(): boolean {
   return bashParser !== null;
+}
+
+/** Crash rather than evaluating restrictive policy with no parser. */
+export function assertBashParserInitialized(): asserts bashParser is Parser {
+  if (bashParser) return;
+  throw initializationFailure ?? new BashParserFailure(
+    "Bash parser was not initialized before safety-core policy evaluation",
+  );
+}
+
+export function isBashParserFailure(error: unknown): error is BashParserFailure {
+  return error instanceof BashParserFailure
+    || (typeof error === "object" && error !== null
+      && "code" in error && error.code === "SAFETY_CORE_BASH_PARSER_FAILURE");
 }
 
 /**
@@ -136,7 +166,8 @@ export interface Redirect {
  *
  * Handles `&&`, `||`, `;`, `|`, `&` separators, redirects (`<`, `>`, `>>`),
  * and environment variable assignments (`FOO=bar cmd`). Returns an empty
- * array if the parser is not initialised or the command cannot be parsed.
+ * array for malformed commands and throws a deployment assertion if the parser
+ * was not initialized.
  */
 export function parseBash(command: string): SimpleCommand[] {
   const program = parseBashProgram(command);
@@ -150,13 +181,7 @@ export function parseBash(command: string): SimpleCommand[] {
  * parser backends to produce the same model for the authorization walker.
  */
 export function parseBashProgram(source: string): BashProgram | BashParseFailure {
-  if (!bashParser) {
-    return freeze({
-      kind: "parse-failure",
-      reason: "Bash parser is unavailable",
-      span: { start: 0, end: source.length },
-    });
-  }
+  assertBashParserInitialized();
 
   const tree = bashParser.parse(source);
   const error = findSyntaxError(tree.rootNode);

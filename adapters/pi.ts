@@ -79,13 +79,8 @@ async function refreshJudge(): Promise<void> {
 export default function (pi: ExtensionAPI) {
   // ── Initialise the bash parser + LLM judge ────────────────────────────
   pi.on("session_start", async (_event, ctx) => {
-    try {
-      const wasmDir = discoverWasmDir(import.meta.url);
-      await initBashParser(wasmDir);
-    } catch {
-      // TODO: Fail Pi extension startup catastrophically here; never defer
-      // this deployment failure to tool runtime or disable enforcement.
-    }
+    const wasmDir = discoverWasmDir(import.meta.url);
+    await initBashParser(wasmDir);
 
     // Use Pi's model runtime so every authenticated provider/model available
     // to this instance can be selected as the judge.

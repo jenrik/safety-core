@@ -24,6 +24,7 @@ import {
 import { fromInitialEnvironment, lookupBinding } from "../src/bash/environment.ts";
 import type { SourceSpan } from "../src/bash/cst.ts";
 import type { Outcome } from "../src/bash/outcome.ts";
+import { BashParserFailure } from "../src/shell.ts";
 
 const span: SourceSpan = { start: 3, end: 9 };
 
@@ -217,6 +218,14 @@ describe("iterative Bash authorization runner", () => {
     expect(completed.outcome).toEqual(failure(span));
     expect(completed.verdict).toEqual({ kind: "neutral" });
     expect(safeTargetRan).toBeTrue();
+  });
+
+  test("rethrows a parser deployment assertion instead of deferring it", () => {
+    const initial: Step = continueWith(target(() => {
+      throw new BashParserFailure("parser disappeared");
+    }));
+
+    expect(() => runSteps(initial, limits())).toThrow(BashParserFailure);
   });
 
   test("redacts unrecognized fields from foreign outcome objects", () => {

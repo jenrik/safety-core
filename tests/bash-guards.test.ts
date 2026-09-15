@@ -90,6 +90,18 @@ describe("single-pass Bash guards", () => {
     }
   });
 
+  test("redacts binding-derived ghPrCreate repositories", () => {
+    const marker = "opaque-gh-pr-repository";
+    const result = evaluateBashGuards({
+      source: "gh pr create --repo \"$REPOSITORY\" --fill",
+      initialEnvironment: { kind: "verified", values: { REPOSITORY: `github.com/${marker}/repository` } },
+      ghPrCreatePolicy: { enabled: true, allowedRepositories: ["acme/widgets"], allowedOrganizations: [] },
+    });
+
+    expect(result).toMatchObject({ kind: "block", policy: { name: "gh-pr-create" } });
+    expect(JSON.stringify(result)).not.toContain(marker);
+  });
+
   test("redacts known kubectl actions resolved from bindings", () => {
     for (const [source, values, resolvedPhrase] of [
       ["kubectl \"$ACTION\"", { ACTION: "version" }, "version"],

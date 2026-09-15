@@ -9,6 +9,7 @@ export const evalHandler: CommandHandler = Object.freeze({
     return args.every((argument) => argument.kind === "known")
       ? context.continueWith(args.map((argument) => argument.value).join(" "), undefined, {
         isolate: false,
+        route: "eval",
         sourceDerivedFromBinding: args.some(isBindingResolvedWord),
       })
       : indeterminate(context.span);

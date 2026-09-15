@@ -42,6 +42,20 @@ export interface BashWalkContext {
   readonly dispatchCommand: (request: BashDispatchRequest) => BashDispatchResult;
 }
 
+/** Metadata-only execution route; never contains source, arguments, or values. */
+export type BashExecutionRoute =
+  | "direct"
+  | "transparent-wrapper"
+  | "eval"
+  | "shell-command"
+  | "binding-derived-script";
+
+export interface BashExecutionProvenance {
+  readonly route: readonly BashExecutionRoute[];
+}
+
+const DIRECT_PROVENANCE: BashExecutionProvenance = Object.freeze({ route: Object.freeze(["direct"]) });
+
 export interface BashDispatchRequest {
   readonly command: NormalizedCommand;
   /** Source provenance for redacted outcome evidence emitted by a command handler. */
@@ -51,6 +65,7 @@ export interface BashDispatchRequest {
   readonly nestedScriptDepth: number;
   /** True when the command receives pipeline input whose contents are not modeled. */
   readonly inPipeline: boolean;
+  readonly provenance: BashExecutionProvenance;
   /** Returns a scheduled nested script without giving dispatch code ambient execution access. */
   readonly continueWith: (
     source: string,
@@ -64,15 +79,19 @@ export interface BashDispatchContinuation {
   readonly environment: Environment;
   readonly functionDepth: number;
   readonly nestedScriptDepth: number;
+  /** Pipeline stdin remains unknown through transparent wrapper children. */
+  readonly inPipeline: boolean;
   readonly isolate: boolean;
   /** Explicit caller-state replacement is conservatively unsupported. */
   readonly environmentExplicit: boolean;
+  readonly provenance: BashExecutionProvenance;
   /** Literal code reparsed from a binding must retain redaction provenance. */
   readonly sourceDerivedFromBinding?: boolean;
 }
 
 export interface BashDispatchContinuationOptions {
   readonly isolate?: boolean;
+  readonly route?: Exclude<BashExecutionRoute, "direct" | "binding-derived-script">;
   /** The continuation source was materialized from at least one binding. */
   readonly sourceDerivedFromBinding?: boolean;
 }
@@ -93,6 +112,7 @@ interface Path {
   readonly nestedScriptDepth: number;
   readonly returned: boolean;
   readonly sourceDerivedFromBinding: boolean;
+  readonly provenance: BashExecutionProvenance;
 }
 
 interface Work {
@@ -109,7 +129,7 @@ interface Work {
  * injected, so this layer only models Bash statement and binding semantics.
  */
 export function walkProgram(program: BashProgram, context: BashWalkContext): Step {
-  const initial = path(context.environment, new Map(), new Set(), emptyOutcomeSummary(), new Set(), 0, 0, false, false);
+  const initial = path(context.environment, new Map(), new Set(), emptyOutcomeSummary(), new Set(), 0, 0, false, false, DIRECT_PROVENANCE);
   const target: DispatchTarget = {
     span: programSpan(program),
     functionDepth: 0,
@@ -410,6 +430,7 @@ function dispatchNormalized(
     functionDepth: input.functionDepth,
     nestedScriptDepth: input.nestedScriptDepth,
     inPipeline,
+    provenance: input.provenance,
     continueWith: (source, environment, options = {}) => freeze({
       outcome: safe(),
       continuations: Object.freeze([freeze({
@@ -417,8 +438,10 @@ function dispatchNormalized(
         environment: environment ?? command.environment,
         functionDepth: input.functionDepth,
         nestedScriptDepth: input.nestedScriptDepth + 1,
+        inPipeline,
         isolate: options.isolate ?? true,
         environmentExplicit: environment !== undefined,
+        provenance: continuationProvenance(input.provenance, options),
         sourceDerivedFromBinding: input.sourceDerivedFromBinding || options.sourceDerivedFromBinding === true,
       })]),
     }),
@@ -464,7 +487,10 @@ function dispatchNormalized(
     }
     const childEnvironment = continuation.isolate ? pushSubshellFrame(continuation.environment) : continuation.environment;
     const child = withSourceBindingProvenance(
-      resetWrites(withEnvironment(next, childEnvironment, false, continuation.nestedScriptDepth)),
+      withExecutionProvenance(
+        resetWrites(withEnvironment(next, childEnvironment, false, continuation.nestedScriptDepth)),
+        continuation.provenance,
+      ),
       continuation.sourceDerivedFromBinding === true,
     );
     scheduleNested(parsed.statements, child, (finished) => {
@@ -472,7 +498,7 @@ function dispatchNormalized(
       remaining--;
       if (remaining !== 0) return;
       finishContinuations();
-    }, schedule);
+    }, schedule, continuation.inPipeline);
   }
   if (remaining === 0) finishContinuations();
 }
@@ -696,6 +722,7 @@ function path(
   nestedScriptDepth: number,
   returned: boolean,
   sourceDerivedFromBinding: boolean,
+  provenance: BashExecutionProvenance,
 ): Path {
   return freeze({
     environment,
@@ -707,6 +734,7 @@ function path(
     nestedScriptDepth,
     returned,
     sourceDerivedFromBinding,
+    provenance,
   });
 }
 
@@ -729,6 +757,7 @@ function withEnvironment(
     nestedScriptDepth,
     returned,
     input.sourceDerivedFromBinding,
+    input.provenance,
   );
 }
 
@@ -737,11 +766,11 @@ function withFunction(input: Path, definition: BashFunction): Path {
   const missingFunctions = new Set(input.missingFunctions);
   functions.set(definition.name, Object.freeze([definition]));
   missingFunctions.delete(definition.name);
-  return path(input.environment, functions, missingFunctions, input.outcome, input.writes, input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding);
+  return path(input.environment, functions, missingFunctions, input.outcome, input.writes, input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding, input.provenance);
 }
 
 function withFunctions(input: Path, functions: ReadonlyMap<string, readonly BashFunction[]>, missingFunctions: ReadonlySet<string>): Path {
-  return path(input.environment, functions, missingFunctions, input.outcome, input.writes, input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding);
+  return path(input.environment, functions, missingFunctions, input.outcome, input.writes, input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding, input.provenance);
 }
 
 /** Preserves every branch-reachable definition so a later call walks them all. */
@@ -764,7 +793,7 @@ function mergeFunctions(branches: readonly Path[]): { readonly functions: Readon
 }
 
 function resetWrites(input: Path): Path {
-  return path(input.environment, input.functions, input.missingFunctions, input.outcome, new Set(), input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding);
+  return path(input.environment, input.functions, input.missingFunctions, input.outcome, new Set(), input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding, input.provenance);
 }
 
 function appendWrites(existing: ReadonlySet<string>, next: ReadonlySet<string> | readonly string[]): ReadonlySet<string> {
@@ -772,7 +801,7 @@ function appendWrites(existing: ReadonlySet<string>, next: ReadonlySet<string> |
 }
 
 function addOutcome(input: Path, outcome: Outcome): Path {
-  return path(input.environment, input.functions, input.missingFunctions, appendOutcomeSummary(input.outcome, outcome), input.writes, input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding);
+  return path(input.environment, input.functions, input.missingFunctions, appendOutcomeSummary(input.outcome, outcome), input.writes, input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding, input.provenance);
 }
 
 function withSourceBindingProvenance(input: Path, sourceDerivedFromBinding: boolean): Path {
@@ -786,7 +815,36 @@ function withSourceBindingProvenance(input: Path, sourceDerivedFromBinding: bool
     input.nestedScriptDepth,
     input.returned,
     sourceDerivedFromBinding,
+    input.provenance,
   );
+}
+
+function withExecutionProvenance(input: Path, provenance: BashExecutionProvenance): Path {
+  return path(
+    input.environment,
+    input.functions,
+    input.missingFunctions,
+    input.outcome,
+    input.writes,
+    input.functionDepth,
+    input.nestedScriptDepth,
+    input.returned,
+    input.sourceDerivedFromBinding,
+    provenance,
+  );
+}
+
+function continuationProvenance(
+  parent: BashExecutionProvenance,
+  options: BashDispatchContinuationOptions,
+): BashExecutionProvenance {
+  const scriptRoute = options.route === "eval" || options.route === "shell-command";
+  const route = [
+    ...parent.route,
+    ...(options.route ? [options.route] : []),
+    ...(scriptRoute && options.sourceDerivedFromBinding ? ["binding-derived-script" as const] : []),
+  ];
+  return freeze({ route: Object.freeze(route) });
 }
 
 function programSpan(program: BashProgram): SourceSpan {

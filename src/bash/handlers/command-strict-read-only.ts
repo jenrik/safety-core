@@ -1,9 +1,9 @@
-import type { CommandHandler } from "../dispatch.js";
+import type { PolicyObserver } from "../dispatch.js";
 import { kubectlResourceOperandsRequireReview } from "../policies/kubectl.js";
 import { STRICT_ALLOWED_FLAGS, STRICT_READ_ONLY_COMMANDS } from "../policies/read-only.js";
 import { allow, defer, hasSecretOperand, parseAllowedFlags, readOnlyHandler } from "./read-only-utils.js";
 
-export function strictReadOnlyHandler(executable: string): CommandHandler {
+export function strictReadOnlyHandler(executable: string): PolicyObserver {
   return readOnlyHandler(executable, "strict-read-only", (args) => {
     if (hasSecretOperand(args)) return defer("strict-read-only", executable);
     if (args.length === 1 && ["--help", "--version", "version"].includes(args[0]!)) return allow("strict-read-only", executable);

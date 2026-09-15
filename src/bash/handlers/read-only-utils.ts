@@ -1,4 +1,4 @@
-import type { CommandHandler, InvocationCursor } from "../dispatch.js";
+import { ignorePolicy, observePolicy, type PolicyObservation, type PolicyObserver, type InvocationCursor } from "../dispatch.js";
 import { lookupBinding } from "../environment.js";
 import { indeterminate, policyIndeterminate, policySafe, safe, type Outcome } from "../outcome.js";
 import { isSecretPath, readOnlyAllow, readOnlyDefer, type AllowedFlag, type ReadOnlyInvocationDecision } from "../policies/read-only.js";
@@ -16,25 +16,25 @@ export function readOnlyHandler(
   name: string,
   policy: ReadOnlyPolicy,
   analyze: (args: readonly string[]) => ReadOnlyInvocationDecision | { readonly kind: "ignore" },
-): CommandHandler {
+): PolicyObserver {
   return Object.freeze({
     name,
-    handle(cursor, context) {
+    observe(cursor, context) {
       const args = knownArguments(cursor);
-      if (!args) return policyIndeterminate(context.span, defer(policy, name).evidence);
+      if (!args) return observePolicy(policyIndeterminate(context.span, defer(policy, name).evidence));
       const executable = cursor.invocation.executable;
       if (executable?.kind === "known" && executable.value.includes("/")) {
-        return policyIndeterminate(context.span, defer(policy, name).evidence);
+        return observePolicy(policyIndeterminate(context.span, defer(policy, name).evidence));
       }
       if (cursor.invocation.assignmentPatch.writes.size > 0 || cursor.invocation.redirects.length > 0) {
-        return policyIndeterminate(context.span, defer(policy, name).evidence);
+        return observePolicy(policyIndeterminate(context.span, defer(policy, name).evidence));
       }
       if (hasCredentialConfigurationBinding(cursor, name)) {
-        return policyIndeterminate(context.span, defer(policy, name).evidence);
+        return observePolicy(policyIndeterminate(context.span, defer(policy, name).evidence));
       }
       const decision = analyze(args);
-      if (decision.kind === "ignore") return indeterminate(context.span);
-      return decision.kind === "allow" ? policySafe(decision.evidence) : policyIndeterminate(context.span, decision.evidence);
+      if (decision.kind === "ignore") return ignorePolicy();
+      return observePolicy(decision.kind === "allow" ? policySafe(decision.evidence) : policyIndeterminate(context.span, decision.evidence));
     },
   });
 }
@@ -103,11 +103,11 @@ export function isStraceOutputArgument(argument: string): boolean {
   return argument === "-o" || argument.startsWith("-o") || argument === "--output" || argument.startsWith("--output=");
 }
 
-export function readOnlyStraceOutcome(cursor: InvocationCursor, span: Parameters<CommandHandler["handle"]>[1]["span"]): Outcome {
+export function readOnlyStraceObservation(cursor: InvocationCursor, span: Parameters<PolicyObserver["observe"]>[1]["span"]): PolicyObservation {
   const args = knownArguments(cursor);
-  return !args || cursor.invocation.redirects.length > 0 || args.some(isStraceOutputArgument)
+  return observePolicy(!args || cursor.invocation.redirects.length > 0 || args.some(isStraceOutputArgument)
     ? policyIndeterminate(span, defer("generic-read-only", "strace").evidence)
-    : safe();
+    : safe());
 }
 
 function hasCredentialConfigurationBinding(cursor: InvocationCursor, executable: string): boolean {

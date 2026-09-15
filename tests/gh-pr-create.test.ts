@@ -105,6 +105,25 @@ describe("gh pr create policy", () => {
     expect(decision("gh ext $'exec' create-pr --fill")).toBe("deny");
   });
 
+  test("denies pipeline-fed interpreters through every transparent wrapper", () => {
+    const wrappers = [
+      "env bash",
+      "command bash",
+      "doas bash",
+      "exec bash",
+      "nice bash",
+      "nohup bash",
+      "setsid bash",
+      "stdbuf -oL bash",
+      "timeout 5s bash",
+      "strace bash",
+    ];
+    for (const interpreter of wrappers) {
+      expect(decision(`printf '%s\\n' 'gh pr create --repo github.com/attacker/widgets --fill' | ${interpreter}`), interpreter)
+        .toBe("deny");
+    }
+  });
+
   test("denies compound Bash calls instead of approving unrelated commands", () => {
     expect(decision("gh pr create --repo github.com/acme/widgets --fill; rm -rf generated")).toBe("deny");
     expect(decision("bash -c 'gh pr create --repo github.com/acme/widgets --fill'")).toBe("deny");

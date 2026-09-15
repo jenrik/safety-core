@@ -1,4 +1,4 @@
-import type { CommandHandler } from "../dispatch.js";
+import type { PolicyObserver } from "../dispatch.js";
 import { batHandler } from "./command-bat.js";
 import { catHandler } from "./command-cat.js";
 import { dotHandler } from "./command-dot.js";
@@ -13,7 +13,7 @@ import { tailHandler } from "./command-tail.js";
 import { viewHandler } from "./command-view.js";
 import { xxdHandler } from "./command-xxd.js";
 
-export const readerHandlers: readonly CommandHandler[] = Object.freeze([
+export const readerHandlers: readonly PolicyObserver[] = Object.freeze([
   catHandler,
   headHandler,
   tailHandler,

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -89,6 +89,35 @@ describe("OpenCode single-pass Bash guards", () => {
     });
     await expect(before(bashInput(), bashOutput("kubectl get Secret application"))).resolves.toBeUndefined();
     expect(judgeCalls).toBe(1);
+  });
+
+  test("uses one evaluator for enabled ghPrCreate enforcement", async () => {
+    const configHome = mkdtempSync(join(tmpdir(), "safety-core-opencode-gh-pr-"));
+    const previous = process.env.SAFETY_CORE_CONFIG_HOME;
+    try {
+      mkdirSync(join(configHome, "safety-core"));
+      writeFileSync(join(configHome, "safety-core", "profiles.json"), JSON.stringify({
+        ghPrCreate: { enabled: true, allowedRepositories: ["acme/widgets"], allowedOrganizations: [] },
+      }));
+      process.env.SAFETY_CORE_CONFIG_HOME = configHome;
+
+      let calls = 0;
+      const evaluate = (options: BashGuardOptions): BashGuardEvaluation => {
+        calls++;
+        expect(options.ghPrCreatePolicy).toMatchObject({ enabled: true, allowedRepositories: ["acme/widgets"] });
+        return evaluateBashGuards(options);
+      };
+      const plugin = await createOpenCodePlugin({ evaluateBashGuards: evaluate });
+      const before = plugin["tool.execute.before"] as Function;
+
+      await expect(before(bashInput(), bashOutput("gh pr create --repo github.com/attacker/widgets --fill")))
+        .rejects.toThrow("requested repository is not allowlisted");
+      expect(calls).toBe(1);
+    } finally {
+      if (previous === undefined) delete process.env.SAFETY_CORE_CONFIG_HOME;
+      else process.env.SAFETY_CORE_CONFIG_HOME = previous;
+      rmSync(configHome, { force: true, recursive: true });
+    }
   });
 });
 

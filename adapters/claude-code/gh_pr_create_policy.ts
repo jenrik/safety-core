@@ -23,13 +23,7 @@ run(async () => {
   const command = (event.tool_input?.command as string | undefined) ?? "";
   const context = bashAuthorizationContext();
 
-  try {
-    await initBashParser(discoverWasmDir(import.meta.url));
-  } catch {
-    const decision = analyzeGhPrCreateCommand(command, policy, context);
-    if (decision.kind === "deny") emitDeny(decision.reason);
-    return;
-  }
+  await initBashParser(discoverWasmDir(import.meta.url));
   const analysis = analyzeGhPrCreateAuthorization(command, policy, context);
   if (mapClaudeBashDecision(analysis.verdict) === "allow") emitAllow("gh pr create auto-allowed for an allowlisted repository");
   if (mapClaudeBashDecision(analysis.verdict) === "deny") emitDeny(analysis.policies.find((evidence) => evidence.decision === "deny")?.reason

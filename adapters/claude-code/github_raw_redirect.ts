@@ -8,6 +8,7 @@ import {
   detectBlockedDomain,
   discoverWasmDir,
   initBashParser,
+  isBashParserFailure,
   loadBashAnalysisLimits,
 } from "../../src/index.js";
 
@@ -43,7 +44,8 @@ run(async () => {
       if (reason) emitDeny(reason);
       return;
     }
-  } catch {
+  } catch (error) {
+    if (isBashParserFailure(error)) throw error;
     const domain = detectBlockedDomain(raw);
     if (domain) emitDeny(buildFallbackGithubBlock(domain));
   }

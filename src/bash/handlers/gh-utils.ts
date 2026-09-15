@@ -1,11 +1,11 @@
-import type { CommandHandler } from "../dispatch.js";
+import type { InvocationCursor } from "../dispatch.js";
 
 export const GLOBAL_VALUE_FLAGS = new Set(["-R", "--repo", "--hostname"]);
 export const PR_VALUE_FLAGS = new Set(["-R", "--repo", "-a", "--assignee", "-B", "--base", "-b", "--body", "-F", "--body-file", "-H", "--head", "-l", "--label", "-m", "--milestone", "-p", "--project", "--recover", "-r", "--reviewer", "-t", "--title", "-T", "--template"]);
 export const REPO_FLAGS = new Set(["-R", "--repo"]);
 export const KNOWN_TOP_LEVEL = new Set(["alias", "api", "attestation", "agent", "agent-task", "agent-tasks", "agents", "at", "auth", "browse", "cache", "codespace", "completion", "config", "copilot", "discussion", "environment", "exit-codes", "extension", "ext", "extensions", "gist", "gpg-key", "help", "issue", "label", "licenses", "org", "pr", "preview", "project", "release", "repo", "rs", "ruleset", "run", "search", "secret", "skill", "skills", "ssh-key", "status", "variable", "version", "workflow"]);
 
-export function knownArguments(cursor: Parameters<CommandHandler["handle"]>[0]): string[] | undefined {
+export function knownArguments(cursor: InvocationCursor): string[] | undefined {
   return cursor.invocation.argv.every((argument) => argument.kind === "known")
     ? cursor.invocation.argv.map((argument) => argument.value)
     : undefined;

@@ -1,14 +1,14 @@
-import type { CommandHandler, DispatchContext, InvocationCursor } from "../dispatch.js";
+import type { CommandHandler, StructuralDispatchContext, InvocationCursor } from "../dispatch.js";
 import { isBindingResolvedWord, type ResolvedWord } from "../expand.js";
 import { indeterminate, type Outcome } from "../outcome.js";
 import type { BashDispatchResult } from "../walker.js";
 
-export type WrapperParser = (arguments_: readonly ResolvedWord[], context: DispatchContext) => BashDispatchResult;
+export type WrapperParser = (arguments_: readonly ResolvedWord[], context: StructuralDispatchContext) => BashDispatchResult;
 
 export function wrapperHandler(name: string, parse: WrapperParser): CommandHandler {
   return Object.freeze({
     name,
-    handle(cursor: InvocationCursor, context: DispatchContext): BashDispatchResult {
+    handle(cursor: InvocationCursor, context: StructuralDispatchContext): BashDispatchResult {
       return parse(cursor.invocation.argv, context);
     },
   });
@@ -16,7 +16,7 @@ export function wrapperHandler(name: string, parse: WrapperParser): CommandHandl
 
 export function parseOptionChild(
   arguments_: readonly ResolvedWord[],
-  context: DispatchContext,
+  context: StructuralDispatchContext,
   valueOptions: ReadonlyMap<string, number>,
   flags: ReadonlySet<string>,
   equalsOptions: readonly string[] = [],
@@ -45,17 +45,18 @@ export function parseOptionChild(
 export function continueFrom(
   arguments_: readonly ResolvedWord[],
   index: number,
-  context: DispatchContext,
-  environment?: DispatchContext["environment"],
+  context: StructuralDispatchContext,
+  environment?: StructuralDispatchContext["environment"],
 ): BashDispatchResult {
   const child = arguments_.slice(index);
   if (child.length === 0 || child.some((argument) => argument.kind !== "known")) return indeterminate(context.span);
   return context.continueWith(child.map((argument) => quote(argument.value)).join(" "), environment, {
+    route: "transparent-wrapper",
     sourceDerivedFromBinding: child.some(isBindingResolvedWord),
   });
 }
 
-export function known(argument: ResolvedWord | undefined, context: DispatchContext): string | Outcome {
+export function known(argument: ResolvedWord | undefined, context: StructuralDispatchContext): string | Outcome {
   return argument?.kind === "known" ? argument.value : indeterminate(context.span);
 }
 

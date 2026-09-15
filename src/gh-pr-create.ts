@@ -4,9 +4,7 @@
 
 import { loadProfileConfig, type GhPrCreateProfileConfig } from "./config.js";
 import { analyzeBashAuthorization, type BashAuthorizationAnalysis, type BashAuthorizationContext } from "./authorization.js";
-import { ghPrCreateHandler } from "./bash/handlers/command-gh-pr-create.js";
-import { ghPrCreateShellHandlers } from "./bash/handlers/command-gh-pr-shell.js";
-import { isBashParserInitialized } from "./shell.js";
+import { ghPrCreateHandler, ghPrCreateInterpreterObservers } from "./bash/handlers/command-gh-pr-create.js";
 
 export interface GhPrCreatePolicy {
   enabled: boolean;
@@ -29,8 +27,8 @@ export function loadGhPrCreatePolicy(path?: string): GhPrCreatePolicy {
 }
 
 /**
- * Preserve the ghPrCreate deployment fail-closed behavior while ordinary
- * parser/word uncertainty remains neutral in the generic authorization API.
+ * Ordinary parser/word uncertainty remains neutral in the generic
+ * authorization API. A missing parser is a fatal deployment invariant.
  */
 export function analyzeGhPrCreateCommand(
   command: string,
@@ -38,12 +36,6 @@ export function analyzeGhPrCreateCommand(
   context: BashAuthorizationContext = {},
 ): GhPrCreateDecision {
   if (!policy.enabled) return { kind: "ignore" };
-  if (!isBashParserInitialized()) {
-    return {
-      kind: "deny",
-      reason: "Bash blocked: the ghPrCreate safety parser is unavailable. This indicates a damaged safety-core hook deployment; fix and redeploy the packaged hook before retrying.",
-    };
-  }
   const analysis = analyzeGhPrCreateAuthorization(command, policy, context);
   const policyEvidence = analysis.policies.find((evidence) => evidence.name === "gh-pr-create");
   if (!policyEvidence || policyEvidence.name !== "gh-pr-create") return { kind: "ignore" };
@@ -60,7 +52,7 @@ export function analyzeGhPrCreateAuthorization(
 ): BashAuthorizationAnalysis {
   return analyzeBashAuthorization({
     source: command,
-    handlers: [ghPrCreateHandler(policy), ...ghPrCreateShellHandlers],
+    handlers: [ghPrCreateHandler(policy), ...ghPrCreateInterpreterObservers],
     includeBaseHandlers: false,
     ...context,
   });

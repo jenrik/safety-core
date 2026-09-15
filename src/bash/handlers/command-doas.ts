@@ -1,11 +1,11 @@
-import type { DispatchContext } from "../dispatch.js";
+import type { StructuralDispatchContext } from "../dispatch.js";
 import type { ResolvedWord } from "../expand.js";
 import { indeterminate, safe } from "../outcome.js";
 import { continueFrom, isKnown, known, wrapperHandler } from "./wrapper-utils.js";
 
 export const doasHandler = wrapperHandler("doas", parseDoas);
 
-function parseDoas(arguments_: readonly ResolvedWord[], context: DispatchContext) {
+function parseDoas(arguments_: readonly ResolvedWord[], context: StructuralDispatchContext) {
   let index = 0;
   while (index < arguments_.length) {
     const argument = known(arguments_[index]!, context);

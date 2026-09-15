@@ -38,17 +38,12 @@ import {
   type JudgeProvider,
 } from "../src/index.js";
 
-// TODO: Fail OpenCode plugin initialization catastrophically when parser
-// initialization fails; never defer this deployment failure to tool runtime.
-// Initialise the bash parser eagerly (plugin factory can be async).
-const initPromise = initBashParser(discoverWasmDir(import.meta.url)).catch(() => {});
-
 export interface OpenCodePluginDependencies {
   readonly evaluateBashGuards?: BashGuardEvaluator;
 }
 
 export async function createOpenCodePlugin(dependencies: OpenCodePluginDependencies = {}) {
-  await initPromise;
+  await initBashParser(discoverWasmDir(import.meta.url));
   const guardEvaluator = dependencies.evaluateBashGuards ?? evaluateBashGuards;
 
   // TODO: Integrate with OpenCode's native model runtime so the judge can use
@@ -77,18 +72,9 @@ export async function createOpenCodePlugin(dependencies: OpenCodePluginDependenc
       const bashContext = bashAuthorizationContext();
 
       // ── Rule-based checks: hard-block clear violations ────────────
-      const guardReason = openCodeBashGuardBlockReason(command, bashContext, guardEvaluator);
-      if (guardReason) throw new Error(guardReason);
-
       const ghPrCreatePolicy = loadGhPrCreatePolicy();
-      const ghPrCreateAnalysis = ghPrCreatePolicy.enabled
-        ? analyzeGhPrCreateAuthorization(command, ghPrCreatePolicy, bashContext)
-        : null;
-      if (ghPrCreateAnalysis?.verdict.kind === "deny") {
-        const reason = ghPrCreateAnalysis.policies.find((policy) => policy.decision === "deny")?.reason
-          ?? "Pull-request creation is blocked";
-        throw new Error(`Blocked by OpenCode safety policy: ${reason}`);
-      }
+      const guardReason = openCodeBashGuardBlockReason(command, bashContext, ghPrCreatePolicy, guardEvaluator);
+      if (guardReason) throw new Error(guardReason);
 
       // ── LLM Judge: second pass for secret-adjacent commands ──────────
       if (shouldInvokeJudge(command)) {
@@ -221,9 +207,14 @@ type BashGuardEvaluator = (options: BashGuardOptions) => BashGuardEvaluation;
 export function openCodeBashGuardBlockReason(
   command: string,
   context: BashAuthorizationContext,
+  ghPrCreatePolicy: ReturnType<typeof loadGhPrCreatePolicy> = {
+    enabled: false,
+    allowedRepositories: [],
+    allowedOrganizations: [],
+  },
   evaluate: BashGuardEvaluator = evaluateBashGuards,
 ): string | null {
-  const result = evaluate({ source: command, ...context });
+  const result = evaluate({ source: command, ...context, ghPrCreatePolicy });
   if (result.kind === "pass") return null;
   return result.policy.name === "github-http"
     ? result.reason

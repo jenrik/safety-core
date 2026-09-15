@@ -7,13 +7,16 @@ export * from "./patterns.js";
 export * from "./messages.js";
 export {
   basename,
+  assertBashParserInitialized,
   discoverWasmDir,
   initBashParser,
+  isBashParserFailure,
   isBashParserInitialized,
   matchesAnyGlob,
   parseBash,
   parseBashProgram,
 } from "./shell.js";
+export { BashParserFailure } from "./shell.js";
 export type { Redirect, SimpleCommand } from "./shell.js";
 export type {
   BashAssignment,

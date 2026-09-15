@@ -1,8 +1,8 @@
-import type { CommandHandler } from "../dispatch.js";
+import type { PolicyObserver } from "../dispatch.js";
 import { GH_ALLOWED_FLAGS, GH_CREDENTIAL_SAFE_COMMANDS, GH_GLOBAL_FLAGS_WITH_VALUE, GH_TOP_LEVEL_COMMANDS } from "../policies/read-only.js";
 import { allow, commandTokens, defer, hasSecretOperand, parseAllowedFlags, readOnlyHandler } from "./read-only-utils.js";
 
-export const ghReadOnlyHandler: CommandHandler = readOnlyHandler("gh", "gh-read-only", (args) => {
+export const ghReadOnlyHandler: PolicyObserver = readOnlyHandler("gh", "gh-read-only", (args) => {
   if (commandTokens(args, GH_GLOBAL_FLAGS_WITH_VALUE)[0] === "api") return { kind: "ignore" };
   if (hasSecretOperand(args)) return defer("gh-read-only", "gh");
   if (args.length === 1 && ["--help", "--version"].includes(args[0]!)) return allow("gh-read-only", "gh");

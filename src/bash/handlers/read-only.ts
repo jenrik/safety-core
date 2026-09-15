@@ -1,4 +1,4 @@
-import type { CommandHandler } from "../dispatch.js";
+import type { PolicyObserver } from "../dispatch.js";
 import { STRICT_READ_ONLY_COMMANDS } from "../policies/read-only.js";
 import { gitReadOnlyHandler } from "./command-git-read-only.js";
 import { ghReadOnlyHandler } from "./command-gh-read-only.js";
@@ -8,7 +8,7 @@ import { straceReadOnlyHandler } from "./command-strace-read-only.js";
 import { strictReadOnlyHandler } from "./command-strict-read-only.js";
 import { teaReadOnlyHandler } from "./command-tea-read-only.js";
 
-export const readOnlyHandlers: readonly CommandHandler[] = Object.freeze([
+export const readOnlyHandlers: readonly PolicyObserver[] = Object.freeze([
   straceReadOnlyHandler,
   teaReadOnlyHandler,
   gitReadOnlyHandler,
@@ -18,15 +18,15 @@ export const readOnlyHandlers: readonly CommandHandler[] = Object.freeze([
   ...Object.keys(STRICT_READ_ONLY_COMMANDS).map(strictReadOnlyHandler),
 ]);
 
-export const ghReadOnlyHandlers: readonly CommandHandler[] = Object.freeze([straceReadOnlyHandler, ghReadOnlyHandler]);
-export const helmReadOnlyHandlers: readonly CommandHandler[] = Object.freeze([straceReadOnlyHandler, helmReadOnlyHandler]);
-export const genericReadOnlyHandlers: readonly CommandHandler[] = Object.freeze([
+export const ghReadOnlyHandlers: readonly PolicyObserver[] = Object.freeze([straceReadOnlyHandler, ghReadOnlyHandler]);
+export const helmReadOnlyHandlers: readonly PolicyObserver[] = Object.freeze([straceReadOnlyHandler, helmReadOnlyHandler]);
+export const genericReadOnlyHandlers: readonly PolicyObserver[] = Object.freeze([
   straceReadOnlyHandler,
   teaReadOnlyHandler,
   gitReadOnlyHandler,
   sha256sumReadOnlyHandler,
 ]);
-export function strictReadOnlyHandlers(executable: string): readonly CommandHandler[] {
+export function strictReadOnlyHandlers(executable: string): readonly PolicyObserver[] {
   return STRICT_READ_ONLY_COMMANDS[executable]
     ? Object.freeze([straceReadOnlyHandler, strictReadOnlyHandler(executable)])
     : Object.freeze([]);

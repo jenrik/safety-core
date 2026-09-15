@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { analyzeBashAuthorization, initBashParser } from "../src/index.ts";
-import type { CommandHandler, InvocationCursor } from "../src/bash/dispatch.ts";
+import { observePolicy, type InvocationCursor, type PolicyObserver } from "../src/bash/dispatch.ts";
 import { lookupBinding } from "../src/bash/environment.ts";
 import { safe } from "../src/bash/outcome.ts";
 import {
@@ -164,12 +164,12 @@ test("keeps unsupported mutation neutral and taints subsequent expansion", () =>
   expect(invocations[0]?.invocation.argv).toEqual([expect.objectContaining({ kind: "unknown" })]);
 });
 
-function recordingHandler(invocations: InvocationCursor[]): CommandHandler {
+function recordingHandler(invocations: InvocationCursor[]): PolicyObserver {
   return Object.freeze({
     name: "record-command",
-    handle(cursor) {
+    observe(cursor) {
       invocations.push(cursor);
-      return safe();
+      return observePolicy(safe());
     },
   });
 }
@@ -202,12 +202,12 @@ async function expectEquivalent(
 function finalBindingHandler(
   names: readonly string[],
   capture: (snapshot: ReturnType<typeof renderFinalBindings>) => void,
-): CommandHandler {
+): PolicyObserver {
   return Object.freeze({
     name: "capture-final",
-    handle(cursor) {
+    observe(cursor) {
       capture(renderFinalBindings(cursor, names));
-      return safe();
+      return observePolicy(safe());
     },
   });
 }

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
-test("Claude ghPrCreate hook denies when parser initialization fails", () => {
+test("Claude ghPrCreate hook fails fatally when parser initialization fails", () => {
   const configHome = mkdtempSync(join(tmpdir(), "safety-core-gh-pr-hook-parser-"));
   try {
     mkdirSync(join(configHome, "safety-core"));
@@ -22,9 +22,8 @@ test("Claude ghPrCreate hook denies when parser initialization fails", () => {
       env: { ...process.env, SAFETY_CORE_CONFIG_HOME: configHome },
     });
 
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain('"permissionDecision":"deny"');
-    expect(result.stdout).toContain("damaged safety-core hook deployment");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Bash parser initialization failed");
   } finally {
     rmSync(configHome, { force: true, recursive: true });
   }

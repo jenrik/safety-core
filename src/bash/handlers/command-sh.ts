@@ -16,11 +16,13 @@ export const shHandler: CommandHandler = Object.freeze({
         const script = arguments_[index + 1];
         if (!script || script.kind !== "known") return indeterminate(context.span);
         return context.continueWith(script.value, positionalEnvironment(arguments_, index + 2, context), {
+          route: "shell-command",
           sourceDerivedFromBinding: isBindingResolvedWord(script),
         });
       }
       if (argument.value.startsWith("--command=")) {
         return context.continueWith(argument.value.slice("--command=".length), positionalEnvironment(arguments_, index + 1, context), {
+          route: "shell-command",
           sourceDerivedFromBinding: isBindingResolvedWord(argument),
         });
       }

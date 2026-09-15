@@ -17,7 +17,7 @@ export function analyzeGhPrCreateInvocation(
       return deny("Pull-request creation is blocked: use an explicit --repo HOST/OWNER/REPO target so the allowlist cannot be redirected by GH_HOST");
     }
     if (!isAllowedRepository(repository, policy)) {
-      return deny(`Pull-request creation is blocked: repository ${repository} is not allowlisted by the ghPrCreate profile`);
+      return deny("Pull-request creation is blocked: the requested repository is not allowlisted by the ghPrCreate profile");
     }
   }
   return allow("gh pr create auto-allowed for an allowlisted repository");

@@ -1,4 +1,4 @@
-import type { DispatchContext } from "../dispatch.js";
+import type { StructuralDispatchContext } from "../dispatch.js";
 import type { ResolvedWord } from "../expand.js";
 import { indeterminate } from "../outcome.js";
 import { continueFrom, isKnown, known, wrapperHandler } from "./wrapper-utils.js";
@@ -8,7 +8,7 @@ const FLAGS = new Set(["-f", "-ff", "-c", "-C", "-D", "-dd", "-ddd", "-h", "-q",
 
 export const straceHandler = wrapperHandler("strace", parseStrace);
 
-function parseStrace(arguments_: readonly ResolvedWord[], context: DispatchContext) {
+function parseStrace(arguments_: readonly ResolvedWord[], context: StructuralDispatchContext) {
   let index = 0;
   while (index < arguments_.length) {
     const argument = known(arguments_[index]!, context);

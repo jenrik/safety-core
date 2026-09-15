@@ -1,4 +1,4 @@
-import { createCommandRegistry, dispatchCommand, type CommandHandler } from "./bash/dispatch.js";
+import { createCommandRegistry, dispatchCommand, type PolicyObserver } from "./bash/dispatch.js";
 import { fromInitialEnvironment, fromVerifiedInitialEnvironment } from "./bash/environment.js";
 import { indeterminate, type AuthorizationVerdict, type PolicyEvidence } from "./bash/outcome.js";
 import { DEFAULT_BASH_ANALYSIS_LIMITS, runSteps, type BashAnalysisLimits, type RunStepsResult } from "./bash/runner.js";
@@ -6,6 +6,8 @@ import { walkProgram } from "./bash/walker.js";
 import { httpHandlers } from "./bash/handlers/http.js";
 import { kubectlHandler } from "./bash/handlers/command-kubectl.js";
 import { readerHandlers } from "./bash/handlers/readers.js";
+import { ghPrCreateHandler, ghPrCreateInterpreterObservers } from "./bash/handlers/command-gh-pr-create.js";
+import type { GhPrCreatePolicy } from "./gh-pr-create.js";
 import { parseBashProgram } from "./shell.js";
 
 export type BashInitialEnvironment =
@@ -21,7 +23,7 @@ export interface BashAuthorizationOptions {
    */
   readonly initialEnvironment?: BashInitialEnvironment;
   /** Explicit policy handlers define the active profiles for this analysis. */
-  readonly handlers?: readonly CommandHandler[];
+  readonly handlers?: readonly PolicyObserver[];
   /** Compatibility profiles can opt out of unrelated baseline policy handlers. */
   readonly includeBaseHandlers?: boolean;
 }
@@ -41,7 +43,7 @@ export interface BashAuthorizationAnalysis {
   readonly policies: readonly PolicyEvidence[];
 }
 
-export type BashGuardPolicyName = "secret-read" | "github-http" | "kubectl";
+export type BashGuardPolicyName = "secret-read" | "github-http" | "kubectl" | "gh-pr-create";
 
 export type BashGuardAnalysisStatus = "complete" | "indeterminate" | "failure";
 
@@ -63,10 +65,10 @@ export type BashGuardEvaluation =
     readonly policies: readonly PolicyEvidence[];
   };
 
-export type BashGuardOptions = Pick<
-  BashAuthorizationOptions,
-  "source" | "limits" | "initialEnvironment"
->;
+export interface BashGuardOptions extends Pick<BashAuthorizationOptions, "source" | "limits" | "initialEnvironment"> {
+  /** Explicit adapter-loaded restrictive profile; the core never loads config. */
+  readonly ghPrCreatePolicy?: GhPrCreatePolicy;
+}
 
 const baseHandlers = Object.freeze([...readerHandlers, ...httpHandlers, kubectlHandler]);
 
@@ -107,7 +109,17 @@ export function analyzeBashAuthorization(options: BashAuthorizationOptions): Bas
  * through to the harness's existing permission and judge handling.
  */
 export function evaluateBashGuards(options: BashGuardOptions): BashGuardEvaluation {
-  const analysis = analyzeBashAuthorization(options);
+  const ghPrCreate = options.ghPrCreatePolicy;
+  const analysis = analyzeBashAuthorization({
+    source: options.source,
+    limits: options.limits,
+    initialEnvironment: options.initialEnvironment,
+    handlers: [
+      ...baseHandlers,
+      ...(ghPrCreate?.enabled ? [ghPrCreateHandler(ghPrCreate), ...ghPrCreateInterpreterObservers] : []),
+    ],
+    includeBaseHandlers: false,
+  });
   const blocked = analysis.policies.find(isBashGuardDenyEvidence);
   if (blocked) {
     return freeze({
@@ -200,7 +212,7 @@ function initialEnvironment(initial: BashInitialEnvironment | undefined, budgets
 
 function isBashGuardDenyEvidence(policy: PolicyEvidence): policy is BashGuardDenyEvidence {
   return policy.decision === "deny"
-    && (policy.name === "secret-read" || policy.name === "github-http" || policy.name === "kubectl");
+    && (policy.name === "secret-read" || policy.name === "github-http" || policy.name === "kubectl" || policy.name === "gh-pr-create");
 }
 
 function guardAnalysisStatus(kind: RunStepsResult["outcome"]["kind"]): BashGuardAnalysisStatus {
@@ -213,6 +225,7 @@ function defaultGuardReason(name: BashGuardPolicyName): string {
     case "secret-read": return "Bash command reads a protected secret file";
     case "github-http": return "Direct GitHub HTTP requests are blocked";
     case "kubectl": return "kubectl command is blocked";
+    case "gh-pr-create": return "Pull-request creation is blocked";
   }
 }
 

@@ -82,9 +82,8 @@ export function hardBlock(message: string): never {
 }
 
 /**
- * TODO: Surface Bash parser initialization failures as fatal hook deployment
- * errors rather than converting them to exit 0 and disabling enforcement.
- * Wrap an async main() so other uncaught exceptions exit 0 (fail-open).
+ * Parser deployment failures are fatal. Other hook errors retain the existing
+ * fail-open behavior until the hooks are consolidated in a later slice.
  */
 export function run(main: () => Promise<void> | void): void {
   Promise.resolve()
@@ -93,6 +92,11 @@ export function run(main: () => Promise<void> | void): void {
       try {
         process.stderr.write(`[safety-hook] internal error: ${err}\n`);
       } catch {}
-      process.exit(0);
+      process.exit(isBashParserFailure(err) ? 1 : 0);
     });
+}
+
+function isBashParserFailure(error: unknown): boolean {
+  return typeof error === "object" && error !== null
+    && "code" in error && error.code === "SAFETY_CORE_BASH_PARSER_FAILURE";
 }

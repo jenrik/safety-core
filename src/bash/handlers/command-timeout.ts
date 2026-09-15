@@ -1,11 +1,11 @@
-import type { DispatchContext } from "../dispatch.js";
+import type { StructuralDispatchContext } from "../dispatch.js";
 import type { ResolvedWord } from "../expand.js";
 import { indeterminate } from "../outcome.js";
 import { continueFrom, isKnown, known, wrapperHandler } from "./wrapper-utils.js";
 
 export const timeoutHandler = wrapperHandler("timeout", parseTimeout);
 
-function parseTimeout(arguments_: readonly ResolvedWord[], context: DispatchContext) {
+function parseTimeout(arguments_: readonly ResolvedWord[], context: StructuralDispatchContext) {
   let index = 0;
   while (index < arguments_.length) {
     const argument = known(arguments_[index]!, context);
@@ -26,7 +26,7 @@ function parseTimeout(arguments_: readonly ResolvedWord[], context: DispatchCont
   return indeterminate(context.span);
 }
 
-function durationThenChild(arguments_: readonly ResolvedWord[], index: number, context: DispatchContext) {
+function durationThenChild(arguments_: readonly ResolvedWord[], index: number, context: StructuralDispatchContext) {
   if (!isKnown(arguments_[index])) return indeterminate(context.span);
   return continueFrom(arguments_, index + 1, context);
 }

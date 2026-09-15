@@ -7,8 +7,10 @@ import { initBashParser, parseBashProgram } from "../src/index.ts";
 import {
   createCommandRegistry,
   dispatchCommand,
-  type CommandHandler,
+  ignorePolicy,
+  observePolicy,
   type InvocationCursor,
+  type PolicyObserver,
 } from "../src/bash/dispatch.ts";
 import { fromInitialEnvironment, unknown } from "../src/bash/environment.ts";
 import { httpHandlers } from "../src/bash/handlers/http.ts";
@@ -103,6 +105,60 @@ describe("named Bash command dispatch", () => {
     expect(result.completed.verdict).toMatchObject({ kind: "deny" });
     expect(invocations).toHaveLength(1);
     expect(invocations[0]?.invocation.executable).toEqual({ kind: "known", value: "strace" });
+  });
+
+  test("uses unknown-command only when every matching policy observer ignores the invocation", () => {
+    const ignored = analyze("gh pr list", [{
+      name: "gh",
+      observe: () => ignorePolicy(),
+    }]);
+    const observed = analyze("gh pr list", [recordingHandler("gh", [])]);
+
+    expect(ignored.completed.verdict).toEqual({ kind: "neutral" });
+    expect(observed.completed.verdict).toEqual({ kind: "allow" });
+  });
+
+  test("schedules and observes each literal shell child exactly once", () => {
+    let observations = 0;
+    const result = analyze("bash -c 'gh pr create --repo github.com/acme/widgets --fill'", [{
+      name: "gh",
+      observe: () => {
+        observations++;
+        return observePolicy(safe());
+      },
+    }]);
+
+    expect(result.completed.verdict).toEqual({ kind: "allow" });
+    expect(observations).toBe(1);
+  });
+
+  test("carries route-only provenance without retaining materialized source values", () => {
+    const marker = "opaque-provenance-canary";
+    const routes: Record<string, unknown> = {};
+    const observeRoute = (name: string): PolicyObserver => ({
+      name: "gh",
+      observe: (_cursor, context) => {
+        routes[name] = context.provenance;
+        return observePolicy(safe());
+      },
+    });
+
+    for (const [name, source] of [
+      ["direct", "gh pr create"],
+      ["wrapper", "strace gh pr create"],
+      ["eval", "eval 'gh pr create'"],
+      ["shell", "bash -c 'gh pr create'"],
+      ["binding", `SCRIPT='gh pr create ${marker}'; bash -c "$SCRIPT"`],
+    ] as const) analyze(source, [observeRoute(name)]);
+
+    expect(routes).toEqual({
+      direct: { route: ["direct"] },
+      wrapper: { route: ["direct", "transparent-wrapper"] },
+      eval: { route: ["direct", "eval"] },
+      shell: { route: ["direct", "shell-command"] },
+      binding: { route: ["direct", "shell-command", "binding-derived-script"] },
+    });
+    expect(JSON.stringify(routes)).not.toContain(marker);
   });
 
   test.each([
@@ -242,6 +298,37 @@ describe("named Bash command dispatch", () => {
     }
   });
 
+  test("property: transparent wrappers preserve one child observation and redacted provenance", () => {
+    const wrappers = [
+      (child: string) => `env -i ${child}`,
+      (child: string) => `command -p ${child}`,
+      (child: string) => `doas -n -u root ${child}`,
+      (child: string) => `exec -a check ${child}`,
+      (child: string) => `nice -n 5 ${child}`,
+      (child: string) => `nohup -- ${child}`,
+      (child: string) => `setsid --fork ${child}`,
+      (child: string) => `stdbuf -oL ${child}`,
+      (child: string) => `timeout 5s ${child}`,
+      (child: string) => `strace -f ${child}`,
+      (child: string) => `find . -exec ${child} \\;`,
+    ];
+    for (const wrap of wrappers) {
+      let observations = 0;
+      let provenance: unknown;
+      const result = analyze(wrap("gh pr create"), [{
+        name: "gh",
+        observe: (_cursor, context) => {
+          observations++;
+          provenance = context.provenance;
+          return observePolicy(safe());
+        },
+      }]);
+      expect(result.completed.verdict, wrap.name).toEqual({ kind: "allow" });
+      expect(observations, wrap.name).toBe(1);
+      expect(provenance, wrap.name).toEqual({ route: ["direct", "transparent-wrapper"] });
+    }
+  });
+
   test("property: audited flags for every child-executing wrapper preserve its known child", () => {
     const random = lcg(0x4b1d7a2c);
     const wrappers = [
@@ -352,7 +439,7 @@ describe("named Bash command dispatch", () => {
 
 function analyze(
   source: string,
-  handlers: readonly CommandHandler[],
+  handlers: readonly PolicyObserver[],
   environment = fromInitialEnvironment(),
 ) {
   const program = parseBashProgram(source);
@@ -371,22 +458,22 @@ function recordingHandler(
   name: string,
   invocations: InvocationCursor[],
   onInvocation?: (cursor: InvocationCursor) => void,
-): CommandHandler {
+): PolicyObserver {
   return {
     name,
-    handle(cursor) {
+    observe(cursor) {
       invocations.push(cursor);
       onInvocation?.(cursor);
-      return safe();
+      return observePolicy(safe());
     },
   };
 }
 
-function denyHandler(name: string): CommandHandler {
+function denyHandler(name: string): PolicyObserver {
   return {
     name,
-    handle() {
-      return { kind: "deny", span: { start: 0, end: 0 } };
+    observe() {
+      return observePolicy({ kind: "deny", span: { start: 0, end: 0 } });
     },
   };
 }
@@ -408,6 +495,7 @@ function directWrapperDispatch(executable: string, argv: readonly (string | unde
     environment,
     functionDepth: 0,
     nestedScriptDepth: 0,
+    provenance: { route: ["direct"] },
     continueWith: (source) => {
       scheduled.push(source);
       return {
@@ -417,8 +505,10 @@ function directWrapperDispatch(executable: string, argv: readonly (string | unde
           environment,
           functionDepth: 0,
           nestedScriptDepth: 1,
+          inPipeline: false,
           isolate: true,
           environmentExplicit: false,
+          provenance: { route: ["direct"] },
         }],
       };
     },

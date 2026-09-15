@@ -4,7 +4,7 @@
 
 import { analyzeBashAuthorization, type BashAuthorizationContext } from "./authorization.js";
 import { genericReadOnlyHandlers, ghReadOnlyHandlers, helmReadOnlyHandlers, strictReadOnlyHandlers } from "./bash/handlers/read-only.js";
-import type { CommandHandler } from "./bash/dispatch.js";
+import type { PolicyObserver } from "./bash/dispatch.js";
 
 export type ReadOnlyCliDecision =
   | { kind: "allow"; reason: string }
@@ -35,7 +35,7 @@ export function analyzeGenericReadOnlyCommand(command: string, context: BashAuth
   return { kind: "defer" };
 }
 
-function analyze(command: string, name: "strict-read-only" | "gh-read-only" | "helm-read-only", executable: string, handlers: readonly CommandHandler[], context: BashAuthorizationContext): ReadOnlyCliDecision {
+function analyze(command: string, name: "strict-read-only" | "gh-read-only" | "helm-read-only", executable: string, handlers: readonly PolicyObserver[], context: BashAuthorizationContext): ReadOnlyCliDecision {
   const analysis = analyzeBashAuthorization({ source: command, handlers, includeBaseHandlers: false, ...context });
   if (analysis.policies.some((evidence) => evidence.name === "generic-read-only" && evidence.decision === "defer")) {
     return { kind: "defer" };

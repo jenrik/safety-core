@@ -1,4 +1,4 @@
-import type { DispatchContext } from "../dispatch.js";
+import type { StructuralDispatchContext } from "../dispatch.js";
 import type { ResolvedWord } from "../expand.js";
 import { indeterminate, strongestOutcome, type Outcome } from "../outcome.js";
 import type { BashDispatchContinuation } from "../walker.js";
@@ -6,7 +6,7 @@ import { continueFrom, wrapperHandler } from "./wrapper-utils.js";
 
 export const findHandler = wrapperHandler("find", parseFind);
 
-function parseFind(arguments_: readonly ResolvedWord[], context: DispatchContext) {
+function parseFind(arguments_: readonly ResolvedWord[], context: StructuralDispatchContext) {
   const continuations: BashDispatchContinuation[] = [];
   const outcomes: Outcome[] = [];
   let foundAction = false;
