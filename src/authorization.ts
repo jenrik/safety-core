@@ -15,6 +15,7 @@ import { ghApiHandler } from "./bash/handlers/command-gh-api.js";
 import { ignorePolicy } from "./bash/dispatch.js";
 import { STRICT_BASH_PROFILE_EXECUTABLES, loadBashProfileSnapshot, type BashProfileSnapshot, type StrictBashProfile } from "./config.js";
 import type { GhPrCreatePolicy } from "./gh-pr-create.js";
+import type { KubectlAuditRecord } from "./kubectl.js";
 import { parseBashProgram } from "./shell.js";
 
 export type BashInitialEnvironment =
@@ -95,6 +96,7 @@ export interface BashConfiguredEvaluation {
   };
   readonly audit: {
     readonly policies: readonly PolicyEvidence[];
+    readonly kubectlSecret: KubectlAuditRecord | null;
   };
 }
 
@@ -192,7 +194,10 @@ export function evaluateConfiguredBash(options: BashConfiguredOptions): BashConf
     permission: selectPermission(snapshot, profiles),
     profiles,
     analysis: freeze({ status: guardAnalysisStatus(analysis.outcome.kind), evidence: analysis.policies }),
-    audit: freeze({ policies: Object.freeze(analysis.policies.filter((policy) => policy.kubectl?.secretReview === true)) }),
+    audit: freeze({
+      policies: Object.freeze(analysis.policies.filter((policy) => policy.kubectl?.mentionsSecret === true)),
+      kubectlSecret: kubectlAuditSummary(options.source, analysis.policies),
+    }),
   });
 }
 
@@ -365,6 +370,17 @@ function isBaselineEvidence(policy: PolicyEvidence): boolean {
 
 function policySpan(policy: PolicyEvidence): string {
   return policy.span ? `${policy.span.start}:${policy.span.end}` : "unproven";
+}
+
+/** Derive the audit-safe kubectl summary from already-redacted policy evidence. */
+function kubectlAuditSummary(source: string, policies: readonly PolicyEvidence[]): KubectlAuditRecord | null {
+  const policy = policies.find((candidate) => candidate.name === "kubectl" && candidate.kubectl?.mentionsSecret);
+  if (!policy?.kubectl) return null;
+  return freeze({
+    kubectl_subcommand: policy.kubectl.subcommand,
+    resource: policy.kubectl.resource,
+    command_length: source.length,
+  });
 }
 
 function guardAnalysisStatus(kind: RunStepsResult["outcome"]["kind"]): BashGuardAnalysisStatus {

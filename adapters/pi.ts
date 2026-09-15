@@ -18,26 +18,21 @@ import {
   SECRET_COMMAND_REMINDER,
   SECRET_PATTERNS,
   basename,
-  checkBashForGithub,
-  checkBashForKubectlSecret,
   checkWebfetchUrl,
-  analyzeGhPrCreateAuthorization,
   defaultAuditPath,
   discoverWasmDir,
+  evaluateConfiguredBash,
   initBashParser,
-  loadBashAnalysisLimits,
   isSecretPath,
-  loadGhPrCreatePolicy,
-  parseBashForSecretRead,
-  summariseKubectlSecret,
   appendAuditRecord,
   setJudgeVerdict,
   getJudgeVerdict,
   setJudgeProvider,
   invokeJudge,
   shouldInvokeJudge,
-  shouldBlockPiBash,
   createCompletionJudge,
+  type BashConfiguredEvaluation,
+  type BashConfiguredOptions,
   type JudgeProvider,
 } from "../src/index.js";
 
@@ -76,7 +71,13 @@ async function refreshJudge(): Promise<void> {
   setJudgeProvider(await buildJudgeProvider());
 }
 
-export default function (pi: ExtensionAPI) {
+export interface PiExtensionDependencies {
+  readonly evaluateConfiguredBash?: BashConfiguredEvaluator;
+}
+
+export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDependencies = {}) {
+  const configuredEvaluator = dependencies.evaluateConfiguredBash ?? evaluateConfiguredBash;
+  const bashResults = createPiBashResultCache();
   // ── Initialise the bash parser + LLM judge ────────────────────────────
   pi.on("session_start", async (_event, ctx) => {
     const wasmDir = discoverWasmDir(import.meta.url);
@@ -166,57 +167,16 @@ export default function (pi: ExtensionAPI) {
 
     if (event.toolName === "bash") {
       const command = (event.input as { command?: string })?.command ?? "";
-      const bashContext = bashAuthorizationContext();
-
-      // TODO: Replace adapter-owned policy orchestration with one
-      // configuration-driven core Bash evaluation and its structured result.
       // ── Rule-based checks: hard-block clear violations ────────────
-      const secretReason = parseBashForSecretRead(command, bashContext);
-      if (secretReason) {
+      const evaluation = evaluateConfigured(command, configuredEvaluator);
+      const block = piBashGuardBlock(evaluation);
+      if (block) {
         setJudgeVerdict(event.toolCallId, {
           safe: false,
-          reasoning: `Blocked: ${secretReason}`,
+          reasoning: block.annotation,
         });
-        ctx.ui.notify(`Blocked ${secretReason}`, "warning");
-        return { block: true, reason: SECRET_BLOCK_MESSAGE };
-      }
-
-      const githubReason = checkBashForGithub(command, bashContext);
-      if (githubReason) {
-        setJudgeVerdict(event.toolCallId, {
-          safe: false,
-          reasoning: "Blocked: direct GitHub HTTP request",
-        });
-        ctx.ui.notify("Blocked direct GitHub HTTP request", "warning");
-        return { block: true, reason: githubReason };
-      }
-
-      const ghPrCreatePolicy = loadGhPrCreatePolicy();
-      const ghPrCreateAnalysis = ghPrCreatePolicy.enabled
-        ? analyzeGhPrCreateAuthorization(command, ghPrCreatePolicy, bashContext)
-        : null;
-      if (ghPrCreateAnalysis && shouldBlockPiBash(ghPrCreateAnalysis.verdict)) {
-        const reason = ghPrCreateAnalysis.policies.find((policy) => policy.decision === "deny")?.reason
-          ?? "Pull-request creation is blocked";
-        setJudgeVerdict(event.toolCallId, {
-          safe: false,
-          reasoning: `Blocked: ${reason}`,
-        });
-        ctx.ui.notify(`Blocked ${reason}`, "warning");
-        return { block: true, reason };
-      }
-
-      // For kubectl commands that are clearly dangerous, block immediately.
-      // For borderline kubectl commands (e.g. `kubectl get Secret`), defer to
-      // the LLM judge below instead of blocking outright.
-      const kubectlDecision = checkBashForKubectlSecret(command, bashContext);
-      if (kubectlDecision && !kubectlDecision.startsWith("kubectl get Secret")) {
-        setJudgeVerdict(event.toolCallId, {
-          safe: false,
-          reasoning: "Blocked: kubectl Secret exposure",
-        });
-        ctx.ui.notify("Blocked kubectl Secret exposure", "warning");
-        return { block: true, reason: kubectlDecision };
+        ctx.ui.notify(block.notification, "warning");
+        return { block: true, reason: block.reason };
       }
 
       // ── LLM Judge: second pass for secret-adjacent commands ──────────
@@ -235,6 +195,7 @@ export default function (pi: ExtensionAPI) {
           }
         }
         // Judge approved (or unavailable) — let the command proceed.
+        bashResults.store(event.toolCallId, command, evaluation);
         return;
       }
 
@@ -243,6 +204,7 @@ export default function (pi: ExtensionAPI) {
         safe: true,
         reasoning: "Safety check passed — no policy violations detected",
       });
+      bashResults.store(event.toolCallId, command, evaluation);
     }
   });
 
@@ -251,7 +213,8 @@ export default function (pi: ExtensionAPI) {
     if (event.toolName !== "bash") return;
     const command = (event.input as { command?: string })?.command ?? "";
 
-    const summary = summariseKubectlSecret(command, bashAuthorizationContext());
+    const cached = bashResults.take(event.toolCallId, command);
+    const summary = (cached ?? evaluateConfigured(command, configuredEvaluator)).audit.kubectlSecret;
     if (summary) {
       await appendAuditRecord(defaultAuditPath("pi"), {
         timestamp: new Date().toISOString(),
@@ -320,6 +283,10 @@ export default function (pi: ExtensionAPI) {
       return container;
     },
   });
+}
+
+export default function (pi: ExtensionAPI) {
+  return createPiExtension(pi);
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -490,11 +457,73 @@ function matchesSecretKeyword(command: string): boolean {
   );
 }
 
-function bashAuthorizationContext() {
-  return Object.freeze({
-    limits: loadBashAnalysisLimits(),
-    initialEnvironment: { kind: "unavailable" as const },
-  });
+type BashConfiguredEvaluator = (options: BashConfiguredOptions) => BashConfiguredEvaluation;
+
+function evaluateConfigured(command: string, evaluate: BashConfiguredEvaluator): BashConfiguredEvaluation {
+  return evaluate({ source: command, initialEnvironment: { kind: "unavailable" } });
+}
+
+interface PiGuardBlock {
+  readonly reason: string;
+  readonly annotation: string;
+  readonly notification: string;
+}
+
+/** Pi has no native permission mapping: only a proven configured guard may block. */
+function piBashGuardBlock(evaluation: BashConfiguredEvaluation): PiGuardBlock | null {
+  if (evaluation.guards.kind === "pass") return null;
+  const { name } = evaluation.guards.policy;
+  const reason = evaluation.guards.reason;
+  switch (name) {
+    case "secret-read":
+      return { reason: SECRET_BLOCK_MESSAGE, annotation: `Blocked: ${reason}`, notification: `Blocked ${reason}` };
+    case "github-http":
+      return { reason, annotation: "Blocked: direct GitHub HTTP request", notification: "Blocked direct GitHub HTTP request" };
+    case "kubectl":
+      return { reason, annotation: "Blocked: kubectl Secret exposure", notification: "Blocked kubectl Secret exposure" };
+    case "gh-pr-create":
+      return { reason, annotation: `Blocked: ${reason}`, notification: `Blocked ${reason}` };
+  }
+}
+
+interface PiCachedBashEvaluation {
+  readonly source: string;
+  readonly evaluation: BashConfiguredEvaluation;
+  readonly createdAt: number;
+}
+
+const PI_BASH_RESULT_TTL_MS = 10 * 60 * 1_000;
+const MAX_PI_CACHED_BASH_RESULTS = 128;
+
+function createPiBashResultCache() {
+  const entries = new Map<string, PiCachedBashEvaluation>();
+
+  function store(toolCallId: unknown, source: string, evaluation: BashConfiguredEvaluation): void {
+    if (typeof toolCallId !== "string" || toolCallId.length === 0) return;
+    prune();
+    entries.delete(toolCallId);
+    entries.set(toolCallId, { source, evaluation, createdAt: Date.now() });
+    while (entries.size > MAX_PI_CACHED_BASH_RESULTS) entries.delete(entries.keys().next().value!);
+  }
+
+  function take(toolCallId: unknown, source: string): BashConfiguredEvaluation | null {
+    if (typeof toolCallId !== "string") return null;
+    prune();
+    const entry = entries.get(toolCallId);
+    if (!entry || entry.source !== source) {
+      if (entry) entries.delete(toolCallId);
+      return null;
+    }
+    entries.delete(toolCallId);
+    return entry.evaluation;
+  }
+
+  function prune(): void {
+    const cutoff = Date.now() - PI_BASH_RESULT_TTL_MS;
+    for (const [toolCallId, entry] of entries) if (entry.createdAt < cutoff) entries.delete(toolCallId);
+  }
+
+  return Object.freeze({ store, take });
 }
 
 type TextBlock = { type: "text"; text: string };

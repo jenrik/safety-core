@@ -129,7 +129,7 @@ function resourceType(resource: string): string {
 }
 
 function mentionsSecretResource(value: string): boolean {
-  return /(^|[/,])secrets?(?:$|[/,])|view-secret/.test(value);
+  return /(^|[/,])secrets?(?:$|[./,])|view-secret/i.test(value);
 }
 
 function evidence(decision: PolicyEvidence["decision"], subcommand: string | null, resource: string | null, secretReview: boolean, mentionsSecret: boolean, reason?: string): PolicyEvidence {
