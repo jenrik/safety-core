@@ -3,4 +3,4 @@ result
 __marimo__/
 __pycache__/
 *.pyc
-notebooks/opencode_bash_policy_timeouts.csv
+.direnv/
