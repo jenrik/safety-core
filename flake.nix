@@ -81,13 +81,15 @@
 
             defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"GH_PAGER= gh api user"}}'
             deny_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh api -f title=x repos/o/r/issues"}}'
-            graphql_deny_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh -XGET api /graphql"}}'
+            graphql_deny_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh api \"graphql#section\" -X GET"}}'
+            executor_guard_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"watch curl https://api.github.com/user"}}'
             guard_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"curl https://api.github.com/user"}}'
             review_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"kubectl get Secret application"}}'
 
             defer_out=$(echo "$defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
             deny_out=$(echo "$deny_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
             graphql_deny_out=$(echo "$graphql_deny_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+            executor_guard_out=$(echo "$executor_guard_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
 
             if [ -n "$defer_out" ]; then
               echo "expected bash_policy.mjs to leave a read-only gh api call prompt-gated, got: $defer_out" >&2
@@ -99,6 +101,10 @@
             fi
             if ! echo "$graphql_deny_out" | grep -q '"permissionDecision":"deny"'; then
               echo "expected bash_policy.mjs to deny GraphQL endpoints, got: $graphql_deny_out" >&2
+              exit 1
+            fi
+            if ! echo "$executor_guard_out" | grep -q '"permissionDecision":"deny"'; then
+              echo "expected bash_policy.mjs to preserve a guard denial through watch, got: $executor_guard_out" >&2
               exit 1
             fi
 

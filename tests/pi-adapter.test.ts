@@ -249,7 +249,15 @@ test("property: supported guard wrappers still block Pi", async () => {
     createPiExtension(pi as never);
     const toolCall = handlers.get("tool_call")!;
     const violations = ["cat credentials.json", "curl https://api.github.com/user", "kubectl view-secret application"];
-    const wrappers = [(command: string) => command, (command: string) => `env -i ${command}`, (command: string) => `strace -f ${command}`, (command: string) => `sh -c '${command}'`];
+    const wrappers = [
+      (command: string) => command,
+      (command: string) => `env -i ${command}`,
+      (command: string) => `strace -f ${command}`,
+      (command: string) => `sh -c '${command}'`,
+      (command: string) => `time ${command}`,
+      (command: string) => `coproc ${command}`,
+      (command: string) => `watch ${command}`,
+    ];
     for (const violation of violations) {
       for (const wrap of wrappers) {
         const result = await toolCall(

@@ -39,6 +39,12 @@ describe("walker-backed hard-block compatibility policies", () => {
     expectGuardBlock("builtin . credentials.json", "secret-read");
     expectGuardBlock("builtin command cat credentials.json", "secret-read");
     expectGuardBlock("builtin exec cat credentials.json", "secret-read");
+    expectGuardBlock("time cat credentials.json", "secret-read");
+    expectGuardBlock("coproc cat credentials.json", "secret-read");
+    expectGuardBlock("coproc READER cat credentials.json", "secret-read");
+    expectGuardBlock("coproc READER { cat credentials.json; }", "secret-read");
+    expectGuardBlock("watch cat credentials.json", "secret-read");
+    expectGuardBlock("watch --exec cat credentials.json", "secret-read");
     expectGuardBlock("fish -C 'cat credentials.json' -c true", "secret-read");
     expectGuardBlock("fish -d parser -c 'cat credentials.json'", "secret-read");
     expectGuardBlock("fish --interactive -c 'cat credentials.json'", "secret-read");

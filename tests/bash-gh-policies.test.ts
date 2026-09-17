@@ -214,6 +214,22 @@ describe("walker-backed gh policy compatibility", () => {
     }
   });
 
+  test("property: command executors preserve GitHub mutation denials", () => {
+    const wrappers = [
+      (command: string) => `time ${command}`,
+      (command: string) => `time -p ${command}`,
+      (command: string) => `coproc ${command}`,
+      (command: string) => `coproc JOB ${command}`,
+      (command: string) => `coproc JOB { ${command}; }`,
+      (command: string) => `watch ${command}`,
+      (command: string) => `watch --exec ${command}`,
+    ];
+    for (const wrap of wrappers) {
+      expect(ghApi(wrap("gh api user -X POST")), wrap("gh api user -X POST")).toBe("deny");
+      expect(ghPrCreate(wrap("gh pr create --repo github.com/attacker/widgets --fill")), wrap("gh pr create --repo github.com/attacker/widgets --fill")).toBe("deny");
+    }
+  });
+
   test("owns API methods and PR creation flags before their subcommands", () => {
     expect(ghApi("gh -X POST api user")).toBe("deny");
     expect(ghApi("gh --method POST api user")).toBe("deny");
@@ -260,6 +276,11 @@ describe("walker-backed gh policy compatibility", () => {
       initialEnvironment: { kind: "unavailable" },
       profileSnapshot: snapshot({ ghApiReadOnly: true }),
     }).permission.kind).toBe("deny");
+    for (const source of [
+      "gh api 'graphql#section' -X GET",
+      "gh api '/graphql#section' -X HEAD",
+      "gh api 'https://api.github.com/graphql#section' -X GET",
+    ]) expect(ghApi(source), source).toBe("deny");
   });
 
   test("property: PR flag placement and short clusters preserve repository ownership", () => {

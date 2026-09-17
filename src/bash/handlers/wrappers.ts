@@ -1,5 +1,6 @@
 import type { CommandHandler } from "../dispatch.js";
 import { commandHandler } from "./command-command.js";
+import { coprocHandler, timeHandler, watchHandler } from "./command-executors.js";
 import { doasHandler } from "./command-doas.js";
 import { envHandler } from "./command-env.js";
 import { execHandler } from "./command-exec.js";
@@ -17,6 +18,9 @@ import { xargsHandler } from "./command-xargs.js";
 export const wrapperHandlers: readonly CommandHandler[] = Object.freeze([
   envHandler,
   commandHandler,
+  timeHandler,
+  coprocHandler,
+  watchHandler,
   doasHandler,
   execHandler,
   niceHandler,
