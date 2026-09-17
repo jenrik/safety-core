@@ -82,8 +82,9 @@
             defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"GH_PAGER= gh api user"}}'
             deny_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh api -f title=x repos/o/r/issues"}}'
             graphql_deny_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh api \"graphql#section\" -X GET"}}'
-            executor_guard_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"watch -tx curl https://api.github.com/user"}}'
+            executor_guard_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"watch --no-color --follow -d=permanent curl https://api.github.com/user"}}'
             executor_assignment_guard_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"time MODE=1 curl https://api.github.com/user"}}'
+            executor_coproc_guard_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"coproc worker_1 { curl https://api.github.com/user; }"}}'
             guard_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"curl https://api.github.com/user"}}'
             review_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"kubectl get Secret application"}}'
 
@@ -92,6 +93,7 @@
             graphql_deny_out=$(echo "$graphql_deny_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
             executor_guard_out=$(echo "$executor_guard_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
             executor_assignment_guard_out=$(echo "$executor_assignment_guard_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+            executor_coproc_guard_out=$(echo "$executor_coproc_guard_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
 
             if [ -n "$defer_out" ]; then
               echo "expected bash_policy.mjs to leave a read-only gh api call prompt-gated, got: $defer_out" >&2
@@ -111,6 +113,10 @@
             fi
             if ! echo "$executor_assignment_guard_out" | grep -q '"permissionDecision":"deny"'; then
               echo "expected bash_policy.mjs to preserve a guard denial through a time assignment, got: $executor_assignment_guard_out" >&2
+              exit 1
+            fi
+            if ! echo "$executor_coproc_guard_out" | grep -q '"permissionDecision":"deny"'; then
+              echo "expected bash_policy.mjs to preserve a guard denial through a named compound coprocess, got: $executor_coproc_guard_out" >&2
               exit 1
             fi
 

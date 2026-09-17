@@ -8,9 +8,10 @@ const TIME_VALUE_OPTIONS = new Set(["-f", "--format", "-o", "--output"]);
 const TIME_FLAGS = new Set(["-a", "--append", "-p", "--portability", "-v", "--verbose", "--quiet", "-V", "--version", "--help"]);
 const WATCH_VALUE_OPTIONS = new Set(["-n", "--interval", "-q", "--equexit", "-s", "--shotsdir"]);
 const WATCH_FLAGS = new Set([
-  "-b", "--beep", "-c", "--color", "-d", "--differences", "-e", "--errexit", "-g", "--chgexit",
+  "-b", "--beep", "-c", "--color", "-C", "--no-color", "-d", "--differences", "-e", "--errexit",
+  "-f", "--follow", "-g", "--chgexit",
   "-p", "--precise", "-r", "--no-rerun", "-t", "--no-title", "-w", "--no-wrap", "-x", "--exec",
-  "--help", "--version",
+  "-h", "--help", "-v", "--version",
 ]);
 
 export const timeHandler = wrapperHandler("time", parseTime);
@@ -149,8 +150,12 @@ function parseWatchShortOptions(argument: string, next: ResolvedWord | undefined
   let direct = false;
   for (let index = 0; index < options.length; index++) {
     const option = options[index]!;
+    if (option === "d") {
+      if (index + 1 < options.length) return { consumed: 1, direct };
+      continue;
+    }
     if (option === "x") direct = true;
-    if ("bcdeghprtwx".includes(option)) continue;
+    if ("bcCefghprtvwx".includes(option)) continue;
     if (!"nqs".includes(option)) return undefined;
     const attached = options.slice(index + 1);
     return attached.length > 0

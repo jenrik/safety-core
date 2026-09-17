@@ -226,10 +226,12 @@ describe("walker-backed gh policy compatibility", () => {
       (command: string) => `coproc JOB MODE=1 ${command}`,
       (command: string) => `coproc JOB { ${command}; }`,
       (command: string) => `coproc JOB { MODE=1 ${command}; }`,
+      (command: string) => `coproc worker_1 { ${command}; }`,
       (command: string) => `watch ${command}`,
       (command: string) => `watch --exec ${command}`,
       (command: string) => `watch -tx ${command}`,
       (command: string) => `watch -txn1 ${command}`,
+      (command: string) => `watch --no-color --follow -d=permanent ${command}`,
     ];
     for (const wrap of wrappers) {
       expect(ghApi(wrap("gh api user -X POST")), wrap("gh api user -X POST")).toBe("deny");

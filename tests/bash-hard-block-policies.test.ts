@@ -46,6 +46,7 @@ describe("walker-backed hard-block compatibility policies", () => {
     expectGuardBlock("coproc READER cat credentials.json", "secret-read");
     expectGuardBlock("coproc READER MODE=1 cat credentials.json", "secret-read");
     expectGuardBlock("coproc READER { cat credentials.json; }", "secret-read");
+    expectGuardBlock("coproc worker_1 { cat credentials.json; }", "secret-read");
     expectGuardBlock("coproc READER { MODE=1 cat credentials.json; }", "secret-read");
     expectGuardBlock("watch cat credentials.json", "secret-read");
     expectGuardBlock("watch --exec cat credentials.json", "secret-read");
@@ -73,7 +74,9 @@ describe("walker-backed hard-block compatibility policies", () => {
     for (const options of ["-q", "-pv", "-apv", "-f%s"]) {
       expectGuardBlock(`time ${options} cat credentials.json`, "secret-read");
     }
-    for (const options of ["-tx", "-txn1", "-tn 1 -x"]) {
+    for (const options of [
+      "-tx", "-txn1", "-tn 1 -x", "-Cfx", "--no-color", "--follow", "-d=permanent", "-dpermanent",
+    ]) {
       expectGuardBlock(`watch ${options} cat credentials.json`, "secret-read");
     }
   });
