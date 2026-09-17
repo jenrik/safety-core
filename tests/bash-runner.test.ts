@@ -10,6 +10,7 @@ import {
   indeterminate,
   materializeOutcomeSummary,
   mergeOutcomeSummaries,
+  policyDeny,
   policySafe,
   safe,
   strongestOutcome,
@@ -40,6 +41,16 @@ describe("Bash authorization outcomes", () => {
 
   test("finalizes deny evidence as deny", () => {
     expect(finalize([safe(), deny(span)])).toEqual({ kind: "deny", span });
+  });
+
+  test("retains policy evidence observed after the first denial", () => {
+    const outcome = strongestOutcome([
+      policyDeny(span, { name: "gh-api", decision: "deny" }),
+      policyDeny(span, { name: "gh-pr-create", decision: "deny" }),
+    ]);
+
+    expect(outcome.kind).toBe("deny");
+    expect(outcome.policies?.map((policy) => policy.name)).toEqual(["gh-api", "gh-pr-create"]);
   });
 
   test("uses redacted immutable evidence with source provenance", () => {

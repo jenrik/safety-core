@@ -315,7 +315,12 @@ function enabledProfiles(snapshot: BashProfileSnapshot): BashPermissionProfile[]
 }
 
 function selectPermission(snapshot: BashProfileSnapshot, profiles: Readonly<Record<BashPermissionProfile, BashConfiguredPermissionDecision>>): BashConfiguredPermissionDecision {
-  for (const profile of enabledProfiles(snapshot)) {
+  const enabled = enabledProfiles(snapshot);
+  for (const profile of enabled) {
+    const decision = profiles[profile];
+    if (decision?.kind === "deny") return decision;
+  }
+  for (const profile of enabled) {
     const decision = profiles[profile];
     if (decision && decision.kind !== "ignore") return decision;
   }

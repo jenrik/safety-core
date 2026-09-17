@@ -27,6 +27,7 @@ import {
   materializeOutcomeSummary,
   mergeOutcomeSummaries,
   outcomeSummaryIsDeny,
+  dynamicExecutableIndeterminate,
   policyDeny,
   policyIndeterminate,
   safe,
@@ -369,11 +370,7 @@ function executeCommand(
     return;
   }
   if (normalized.executable.kind === "unknown") {
-    complete(addOutcome(withEnvironment(input, endCommandOverlay(normalized.environment)), policyIndeterminate(command.span, {
-      name: "generic-read-only",
-      decision: "defer",
-      readOnly: { tool: "dynamic-executable" },
-    })));
+    complete(addOutcome(withEnvironment(input, endCommandOverlay(normalized.environment)), dynamicExecutableIndeterminate(command.span)));
     return;
   }
 

@@ -12,7 +12,7 @@ import {
   unsetBinding,
   type Environment,
 } from "../environment.js";
-import { indeterminate, type Outcome } from "../outcome.js";
+import { dynamicExecutableIndeterminate, indeterminate, type Outcome } from "../outcome.js";
 
 export interface BuiltinTransition {
   readonly handled: boolean;
@@ -56,7 +56,7 @@ export function transitionBuiltin(
         handled: true,
         environment: taintFrame(environment, { kind: `unsupported-${command.executable.value}` }),
         writes: freezeArray([]),
-        outcome: indeterminate(span),
+        outcome: command.executable.value === "eval" ? indeterminate(span) : dynamicExecutableIndeterminate(span),
         returned: false,
         dispatch: true,
       });

@@ -1,6 +1,6 @@
 import type { CommandHandler } from "../dispatch.js";
 import { isBindingResolvedWord, type ResolvedWord } from "../expand.js";
-import { indeterminate } from "../outcome.js";
+import { dynamicExecutableIndeterminate } from "../outcome.js";
 import { hasUnsafeWrapperEnvelope, taintWrapperResult } from "./wrapper-utils.js";
 
 export const evalHandler: CommandHandler = Object.freeze({
@@ -24,5 +24,5 @@ export function evalArguments(
       route: "eval",
       sourceDerivedFromBinding: args.some(isBindingResolvedWord),
     })
-    : indeterminate(context.span);
+    : dynamicExecutableIndeterminate(context.span);
 }

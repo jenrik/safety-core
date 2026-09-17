@@ -1,5 +1,5 @@
 import type { CommandHandler } from "../dispatch.js";
-import { policyIndeterminate } from "../outcome.js";
+import { dynamicExecutableIndeterminate } from "../outcome.js";
 import { evalArguments } from "./command-eval.js";
 import { continueFrom, taintWrapperResult } from "./wrapper-utils.js";
 
@@ -18,10 +18,6 @@ export const builtinHandler: CommandHandler = Object.freeze({
     if (target?.kind === "known" && EXECUTABLE_TARGETS.has(target.value)) {
       return taintWrapperResult(continueFrom(args, targetIndex, context), context);
     }
-    return policyIndeterminate(context.span, {
-      name: "generic-read-only",
-      decision: "defer",
-      readOnly: { tool: "dynamic-executable" },
-    });
+    return dynamicExecutableIndeterminate(context.span);
   },
 });

@@ -1,7 +1,7 @@
 import type { CommandHandler } from "../dispatch.js";
 import { isBindingResolvedWord, type ResolvedWord } from "../expand.js";
 import { assignBinding, hasBinding, known, lookupBinding, pushPositionalFrame, unknown } from "../environment.js";
-import { indeterminate, policyDeny, policyIndeterminate, strongestOutcome, type Outcome } from "../outcome.js";
+import { dynamicExecutableIndeterminate, indeterminate, policyDeny, strongestOutcome, type Outcome } from "../outcome.js";
 import type { BashDispatchResult } from "../walker.js";
 import { basename } from "../../shell.js";
 import { isSecretPath } from "../../secrets.js";
@@ -34,23 +34,23 @@ function handleShellArguments(
     const initCommands: string[] = [];
     while (index < arguments_.length) {
       const argument = arguments_[index]!;
-      if (argument.kind !== "known") return indeterminate(context.span);
+      if (argument.kind !== "known") return dynamicExecutableIndeterminate(context.span);
       if (argument.value === "--") {
         const script = arguments_[index + 1];
         return script?.kind === "known" && isSecretPath(script.value)
           ? secretScriptDeny(name, script.value, context)
-          : indeterminate(context.span);
+          : dynamicExecutableIndeterminate(context.span);
       }
       if (name === "fish" && (argument.value === "-C" || argument.value === "--init-command")) {
         const command = arguments_[index + 1];
-        if (!command || command.kind !== "known") return indeterminate(context.span);
+        if (!command || command.kind !== "known") return dynamicExecutableIndeterminate(context.span);
         initCommands.push(command.value);
         index += 2;
         continue;
       }
       if (name === "fish" && argument.value === "--init-cmd") {
         const command = arguments_[index + 1];
-        if (!command || command.kind !== "known") return indeterminate(context.span);
+        if (!command || command.kind !== "known") return dynamicExecutableIndeterminate(context.span);
         initCommands.push(command.value);
         index += 2;
         continue;
@@ -63,7 +63,7 @@ function handleShellArguments(
         continue;
       }
       if (name === "fish" && ["-d", "-f", "-p", "-o", "--debug", "--features", "--profile", "--profile-startup", "--debug-output"].includes(argument.value)) {
-        if (arguments_[index + 1]?.kind !== "known") return indeterminate(context.span);
+        if (arguments_[index + 1]?.kind !== "known") return dynamicExecutableIndeterminate(context.span);
         index += 2;
         continue;
       }
@@ -92,10 +92,10 @@ function handleShellArguments(
       if (argument.value === "--command" || cluster?.hasCommand) {
         const scriptIndex = index + 1 + (cluster?.namedOptionCount ?? 0);
         for (let optionIndex = index + 1; optionIndex < scriptIndex; optionIndex++) {
-          if (arguments_[optionIndex]?.kind !== "known") return indeterminate(context.span);
+          if (arguments_[optionIndex]?.kind !== "known") return dynamicExecutableIndeterminate(context.span);
         }
         const script = arguments_[scriptIndex];
-        if (!script || script.kind !== "known") return indeterminate(context.span);
+        if (!script || script.kind !== "known") return dynamicExecutableIndeterminate(context.span);
         return taintWrapperResult(context.continueWith([...initCommands, script.value].join(";\n"), positionalEnvironment(arguments_, scriptIndex + 1, context), {
           route: "shell-command",
           sourceDerivedFromBinding: isBindingResolvedWord(script),
@@ -109,7 +109,7 @@ function handleShellArguments(
       }
       if (cluster) {
         for (let offset = 1; offset <= cluster.namedOptionCount; offset++) {
-          if (arguments_[index + offset]?.kind !== "known") return indeterminate(context.span);
+          if (arguments_[index + offset]?.kind !== "known") return dynamicExecutableIndeterminate(context.span);
         }
         index += 1 + cluster.namedOptionCount;
         continue;
@@ -117,7 +117,7 @@ function handleShellArguments(
       if (argument.value === "--rcfile" || argument.value === "--init-file") {
         startup.detected = true;
         const option = arguments_[index + 1];
-        if (!option || option.kind !== "known") return indeterminate(context.span);
+        if (!option || option.kind !== "known") return dynamicExecutableIndeterminate(context.span);
         if (isSecretPath(option.value)) return secretScriptDeny(name, option.value, context);
         index += 2;
         continue;
@@ -136,11 +136,11 @@ function handleShellArguments(
         index++;
         continue;
       }
-      return isSecretPath(argument.value) ? secretScriptDeny(name, argument.value, context) : indeterminate(context.span);
+      return isSecretPath(argument.value) ? secretScriptDeny(name, argument.value, context) : dynamicExecutableIndeterminate(context.span);
     }
     return initCommands.length > 0
       ? taintWrapperResult(context.continueWith(initCommands.join(";\n"), undefined, { route: "shell-command" }), context)
-      : indeterminate(context.span);
+      : dynamicExecutableIndeterminate(context.span);
 }
 
 function shellStartupEnvironmentRoute(
@@ -165,11 +165,7 @@ function shellStartupEnvironmentRoute(
 }
 
 function deferStartupRoute(result: BashDispatchResult, context: Parameters<CommandHandler["handle"]>[1]): BashDispatchResult {
-  const deferred = policyIndeterminate(context.span, {
-    name: "generic-read-only",
-    decision: "defer",
-    readOnly: { tool: "dynamic-executable" },
-  });
+  const deferred = dynamicExecutableIndeterminate(context.span);
   return "kind" in result
     ? strongestOutcome([result, deferred])
     : Object.freeze({ ...result, outcome: strongestOutcome([result.outcome, deferred]) });

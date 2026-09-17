@@ -89,7 +89,6 @@ export function emptyOutcomeSummary(): OutcomeSummary {
 
 /** Add one outcome without retaining ordinary safe observations or copying prior evidence. */
 export function appendOutcomeSummary(summary: OutcomeSummary, outcome: Outcome): OutcomeSummary {
-  if (summary.strongest.kind === "deny") return summary;
   const candidate = redactOutcome(outcome);
   const strongest = selectStrongest(summary.strongest, candidate);
   if (strongest === summary.strongest && (candidate.policies?.length ?? 0) === 0) return summary;
@@ -104,7 +103,6 @@ export function mergeOutcomeSummaries(summaries: Iterable<OutcomeSummary>): Outc
   let strongest: Outcome = SAFE;
   const events: OutcomeLog[] = [];
   for (const summary of summaries) {
-    if (strongest.kind === "deny") break;
     strongest = selectStrongest(strongest, summary.strongest);
     if (summary.events.kind !== "empty") events.push(summary.events);
   }
@@ -141,6 +139,15 @@ export function indeterminate(span: SourceSpan): IndeterminateOutcome {
 export function policyIndeterminate(span: SourceSpan, policy: PolicyEvidence): IndeterminateOutcome {
   const redacted = redactPolicy(policy);
   return freeze({ kind: "indeterminate", span: copySpan(span), policy: redacted, policies: Object.freeze([redacted]) });
+}
+
+/** Shared evidence for code or an executable route that cannot be inspected structurally. */
+export function dynamicExecutableIndeterminate(span: SourceSpan): IndeterminateOutcome {
+  return policyIndeterminate(span, {
+    name: "generic-read-only",
+    decision: "defer",
+    readOnly: { tool: "dynamic-executable" },
+  });
 }
 
 export function failure(span: SourceSpan): FailureOutcome {
@@ -194,7 +201,6 @@ export function strongestOutcome(outcomes: Iterable<Outcome>): Outcome {
   for (const outcome of outcomes) {
     const redacted = redactOutcome(outcome);
     policies.push(...(redacted.policies ?? []));
-    if (redacted.kind === "deny") return withPolicies(redacted, policies);
     if (rank(redacted) > rank(strongest) || (rank(redacted) === rank(strongest) && "policy" in redacted && redacted.policy)) strongest = redacted;
   }
   return withPolicies(strongest, policies);

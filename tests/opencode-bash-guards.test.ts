@@ -204,13 +204,13 @@ describe("OpenCode single-pass Bash guards", () => {
       await expect(before(bashInput("session-1", "pr"), bashOutput("GH_PROMPT_DISABLED=1 gh pr create --repo github.com/attacker/widgets --fill")))
         .rejects.toThrow("requested repository is not allowlisted");
       await expect(before(bashInput("session-1", "api"), bashOutput("gh api user -X POST")))
-        .rejects.toThrow("gh api --method POST is not read-only");
+        .rejects.toThrow("GitHub API calls are blocked while ghPrCreate is enabled");
       await expect(before(bashInput("session-1", "api-leading-flags"), bashOutput("gh -X POST api user")))
-        .rejects.toThrow("gh api --method POST is not read-only");
+        .rejects.toThrow("GitHub API calls are blocked while ghPrCreate is enabled");
       await expect(before(bashInput("session-1", "pr-leading-flags"), bashOutput("GH_PROMPT_DISABLED=1 gh pr --title x create --body y --repo github.com/attacker/widgets")))
         .rejects.toThrow("requested repository is not allowlisted");
       await expect(before(bashInput("session-1", "api-unresolved-endpoint"), bashOutput('gh -X POST api "$SAFETY_CORE_TEST_ENDPOINT"')))
-        .rejects.toThrow("gh api --method POST is not read-only");
+        .rejects.toThrow("GitHub API calls are blocked while ghPrCreate is enabled");
       await expect(before(bashInput("session-1", "pr-unresolved-title"), bashOutput('GH_PROMPT_DISABLED=1 gh pr -t "$SAFETY_CORE_TEST_TITLE" create -b y -Rgithub.com/attacker/widgets')))
         .rejects.toThrow("cannot be resolved statically");
       expect(calls).toBe(6);

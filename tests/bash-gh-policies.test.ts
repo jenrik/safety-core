@@ -76,6 +76,51 @@ function strictReadOnly(source: string, profile: "dockerReadOnly" | "kubectlRead
 }
 
 describe("walker-backed gh policy compatibility", () => {
+  test("keeps every API denial and makes denial dominate wrapper uncertainty", () => {
+    const result = configured(
+      "strace -o trace.log gh api user -X POST",
+      snapshot({
+        ghApiReadOnly: true,
+        ghReadOnly: true,
+        ghPrCreate: Object.freeze(policy),
+      }),
+      { GH_PAGER: "", GH_PROMPT_DISABLED: "1" },
+    );
+
+    expect(result.profiles.ghPrCreate).toMatchObject({ kind: "deny", profile: "ghPrCreate" });
+    expect(result.profiles.ghApiReadOnly).toMatchObject({ kind: "deny", profile: "ghApiReadOnly" });
+    expect(result.permission).toMatchObject({ kind: "deny", profile: "ghPrCreate" });
+  });
+
+  test("property: opaque shell routes defer every enabled GitHub profile", () => {
+    const profiles = snapshot({
+      ghApiReadOnly: true,
+      ghReadOnly: true,
+      ghPrCreate: Object.freeze(policy),
+    });
+    const staticRoutes = [
+      "bash ./create-pr.sh",
+      "sh -- ./create-pr.sh",
+      "dash ./create-pr.sh",
+      "ksh ./create-pr.sh",
+      "zsh ./create-pr.sh",
+      "fish ./create-pr.fish",
+      "source ./create-pr.sh",
+      ". ./create-pr.sh",
+    ];
+    for (const source of staticRoutes) {
+      const result = configured(source, profiles, { GH_PAGER: "", GH_PROMPT_DISABLED: "1" });
+      expect(result.permission, source).toMatchObject({ kind: "defer" });
+      expect(Object.values(result.profiles).every((decision) => decision.kind === "defer"), source).toBeTrue();
+    }
+
+    for (const source of ['eval "$SCRIPT"', 'bash -c "$SCRIPT"']) {
+      const result = evaluateConfiguredBash({ source, initialEnvironment: { kind: "unavailable" }, profileSnapshot: profiles });
+      expect(result.permission, source).toMatchObject({ kind: "defer" });
+      expect(Object.values(result.profiles).every((decision) => decision.kind === "defer"), source).toBeTrue();
+    }
+  });
+
   test("keeps allowlisted native PR creation prompt-gated through transparent wrappers", () => {
     expect(ghPrCreate(
       "TOOL=gh; strace $TOOL pr create --repo github.com/acme/widgets --fill",

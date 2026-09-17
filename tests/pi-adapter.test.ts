@@ -49,6 +49,10 @@ test("Pi adapter blocks proven GH permission denials through its registered tool
       "builtin builtin command cat credentials.json",
       "builtin builtin command gh api user -X POST",
       "curl -X POST https://API.GITHUB.COM/repos/acme/widgets/pulls",
+      "strace -o trace.log gh api user -X POST",
+      "bash ./create-pr.sh",
+      "source ./create-pr.sh",
+      `eval "$${runnerName}"`,
     ]) {
       const blocked = await handlers.get("tool_call")!({ toolName: "bash", toolCallId: command, input: { command } }, { ui: { notify() {} } });
       expect(blocked, command).toMatchObject({ block: true });
@@ -73,6 +77,12 @@ test("Pi adapter blocks proven GH permission denials through its registered tool
     );
     expect(startupResult).toMatchObject({ block: true });
     expect(prompts).toBe(2);
+    const scriptResult = await handlers.get("tool_call")!(
+      { toolName: "bash", toolCallId: "script-test", input: { command: "bash ./create-pr.sh" } },
+      { hasUI: true, ui: { confirm: async () => { prompts++; return false; }, notify() {} } },
+    );
+    expect(scriptResult).toMatchObject({ block: true });
+    expect(prompts).toBe(3);
   } finally {
     if (originalConfigHome === undefined) delete process.env.SAFETY_CORE_CONFIG_HOME; else process.env.SAFETY_CORE_CONFIG_HOME = originalConfigHome;
     if (originalRunner === undefined) delete process.env[runnerName]; else process.env[runnerName] = originalRunner;
