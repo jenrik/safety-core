@@ -80,7 +80,7 @@ describe("Claude configured Bash policy", () => {
       let names: string[] = [];
       evaluateClaudeBashPolicy(event("gh version"), {
         evaluateConfiguredBash(options) {
-          names = options.initialEnvironment?.kind === "verified" ? Object.keys(options.initialEnvironment.values) : [];
+          names = options.initialEnvironment?.kind === "filtered" ? Object.keys(options.initialEnvironment.values) : [];
           return fakeEvaluation({ permission: Object.freeze({ kind: "defer" }) });
         },
       });
@@ -95,11 +95,33 @@ describe("Claude configured Bash policy", () => {
   test("evaluates valid Bash callbacks once with an unavailable environment", () => {
     const result = evaluate("GH_PAGER= gh api user", snapshot({ ghApiReadOnly: true }));
     expect(result.calls).toBe(1);
-    expect(result.options).toMatchObject({ source: "GH_PAGER= gh api user", initialEnvironment: { kind: "verified" }, profileSnapshot: expect.anything() });
+    expect(result.options).toMatchObject({ source: "GH_PAGER= gh api user", initialEnvironment: { kind: "filtered" }, profileSnapshot: expect.anything() });
     expect(result.decision).toBeUndefined();
     expect(isBashPreToolUse(event("id"))).toBe(true);
     expect(isBashPreToolUse({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "id" } })).toBe(false);
     expect(isBashPreToolUse({ hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { command: "id" } })).toBe(false);
+  });
+
+  test("keeps inherited executable variables unknown and defers enabled profiles", () => {
+    const name = "SAFETY_CORE_TEST_RUNNER";
+    const previous = process.env[name];
+    let permission: string | undefined;
+    try {
+      process.env[name] = "gh";
+      const decision = evaluateClaudeBashPolicy(event(`$${name} api user -X POST`), {
+        evaluateConfiguredBash(options) {
+          expect(options.initialEnvironment).toMatchObject({ kind: "filtered" });
+          if (options.initialEnvironment?.kind === "filtered") expect(options.initialEnvironment.values[name]).toBeUndefined();
+          const evaluation = evaluateConfiguredBash({ ...options, profileSnapshot: snapshot({ ghApiReadOnly: true }) });
+          permission = evaluation.permission.kind;
+          return evaluation;
+        },
+      });
+      expect(permission).toBe("defer");
+      expect(decision).toBeUndefined();
+    } finally {
+      if (previous === undefined) delete process.env[name]; else process.env[name] = previous;
+    }
   });
 
   test("gives proven denials precedence but never auto-allows incomplete analysis", () => {

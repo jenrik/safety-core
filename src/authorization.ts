@@ -1,5 +1,5 @@
 import { createCommandRegistry, dispatchCommand, type PolicyObserver } from "./bash/dispatch.js";
-import { fromInitialEnvironment, fromVerifiedInitialEnvironment } from "./bash/environment.js";
+import { fromFilteredInitialEnvironment, fromInitialEnvironment, fromVerifiedInitialEnvironment } from "./bash/environment.js";
 import { indeterminate, type AnalysisBudget, type AuthorizationVerdict, type PolicyEvidence } from "./bash/outcome.js";
 import { DEFAULT_BASH_ANALYSIS_LIMITS, runSteps, type BashAnalysisLimits, type RunStepsResult } from "./bash/runner.js";
 import { walkProgram } from "./bash/walker.js";
@@ -20,7 +20,12 @@ import { parseBashProgram } from "./shell.js";
 
 export type BashInitialEnvironment =
   | { readonly kind: "unavailable" }
-  | { readonly kind: "verified"; readonly values: Readonly<Record<string, string>> };
+  | { readonly kind: "verified"; readonly values: Readonly<Record<string, string>> }
+  | {
+    readonly kind: "filtered";
+    readonly values: Readonly<Record<string, string>>;
+    readonly unset: readonly string[];
+  };
 
 export interface BashAuthorizationOptions {
   readonly source: string;
@@ -235,9 +240,9 @@ function toEnvironmentBudgets(limits: BashAnalysisLimits | undefined) {
 }
 
 function initialEnvironment(initial: BashInitialEnvironment | undefined, budgets: ReturnType<typeof toEnvironmentBudgets>) {
-  return initial?.kind === "verified"
-    ? fromVerifiedInitialEnvironment(initial.values, budgets)
-    : fromInitialEnvironment({}, budgets);
+  if (initial?.kind === "verified") return fromVerifiedInitialEnvironment(initial.values, budgets);
+  if (initial?.kind === "filtered") return fromFilteredInitialEnvironment(initial.values, initial.unset, budgets);
+  return fromInitialEnvironment({}, budgets);
 }
 
 function isBashGuardDenyEvidence(policy: PolicyEvidence): policy is BashGuardDenyEvidence {
@@ -284,7 +289,9 @@ function profileDecisions(snapshot: BashProfileSnapshot, analysis: BashAuthoriza
 
 function profileDecision(profile: BashPermissionProfile, analysis: BashAuthorizationAnalysis): BashConfiguredPermissionDecision {
   const own = analysis.policies.filter((policy) => belongsToProfile(policy, profile));
-  const sharedDefer = analysis.policies.some((policy) => policy.name === "generic-read-only" && policy.decision === "defer" && policy.readOnly?.tool === "strace");
+  const sharedDefer = analysis.policies.some((policy) => policy.name === "generic-read-only"
+    && policy.decision === "defer"
+    && (policy.readOnly?.tool === "strace" || policy.readOnly?.tool === "dynamic-executable"));
   if (own.length === 0) return sharedDefer ? freeze({ kind: "defer" }) : freeze({ kind: "ignore" });
   const denied = own.find((policy) => policy.decision === "deny");
   if (denied) return freeze({ kind: "deny", profile, reason: denied.reason ?? `${profile} denied the Bash command` });

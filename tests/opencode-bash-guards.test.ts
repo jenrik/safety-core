@@ -63,7 +63,7 @@ describe("OpenCode single-pass Bash guards", () => {
       calls++;
       expect(options).toMatchObject({
         source: "cat README.md",
-        initialEnvironment: { kind: "verified" },
+        initialEnvironment: { kind: "filtered" },
       });
       return evaluateConfiguredBash(options);
     };
@@ -201,6 +201,37 @@ describe("OpenCode single-pass Bash guards", () => {
     } finally {
       if (previous === undefined) delete process.env.SAFETY_CORE_CONFIG_HOME;
       else process.env.SAFETY_CORE_CONFIG_HOME = previous;
+      rmSync(configHome, { force: true, recursive: true });
+    }
+  });
+
+  test("leaves inherited executable variables at the native prompt", async () => {
+    const configHome = mkdtempSync(join(tmpdir(), "safety-core-opencode-filtered-env-"));
+    const previousConfigHome = process.env.SAFETY_CORE_CONFIG_HOME;
+    const name = "SAFETY_CORE_TEST_RUNNER";
+    const previousRunner = process.env[name];
+    try {
+      mkdirSync(join(configHome, "safety-core"));
+      writeFileSync(join(configHome, "safety-core", "profiles.json"), JSON.stringify({ ghApiReadOnly: true }));
+      process.env.SAFETY_CORE_CONFIG_HOME = configHome;
+      process.env[name] = "gh";
+      let permission: string | undefined;
+      const plugin = await createOpenCodePlugin({
+        evaluateConfiguredBash(options) {
+          expect(options.initialEnvironment).toMatchObject({ kind: "filtered" });
+          if (options.initialEnvironment?.kind === "filtered") expect(options.initialEnvironment.values[name]).toBeUndefined();
+          const evaluation = evaluateConfiguredBash(options);
+          permission = evaluation.permission.kind;
+          return evaluation;
+        },
+      });
+      const output = { status: "ask" };
+      await (plugin["permission.ask"] as Function)({ type: "bash", pattern: `$${name} api user -X POST` }, output);
+      expect(permission).toBe("defer");
+      expect(output.status).toBe("ask");
+    } finally {
+      if (previousConfigHome === undefined) delete process.env.SAFETY_CORE_CONFIG_HOME; else process.env.SAFETY_CORE_CONFIG_HOME = previousConfigHome;
+      if (previousRunner === undefined) delete process.env[name]; else process.env[name] = previousRunner;
       rmSync(configHome, { force: true, recursive: true });
     }
   });

@@ -103,8 +103,8 @@ describe("OpenCode read-only CLI profiles", () => {
     const plugin = await createOpenCodePlugin({
       evaluateConfiguredBash(options: BashConfiguredOptions) {
         calls++;
-        environmentNames = options.initialEnvironment?.kind === "verified" ? Object.keys(options.initialEnvironment.values) : [];
-        expect(options).toMatchObject({ source: "gh version", initialEnvironment: { kind: "verified" } });
+        environmentNames = options.initialEnvironment?.kind === "filtered" ? Object.keys(options.initialEnvironment.values) : [];
+        expect(options).toMatchObject({ source: "gh version", initialEnvironment: { kind: "filtered" } });
         return evaluateConfiguredBash(options);
       },
     });

@@ -11,7 +11,7 @@ import {
   type BashProfileSnapshot,
   type GhPrCreatePolicy,
 } from "../src/index.ts";
-import { GH_API_DEFER_ENVIRONMENT_NAMES, GH_GLOBAL_DEFER_ENVIRONMENT_NAMES } from "../src/bash/policy-environment.ts";
+import { GH_API_DEFER_ENVIRONMENT_NAMES, GH_GLOBAL_DEFER_ENVIRONMENT_NAMES, policyInitialEnvironment } from "../src/bash/policy-environment.ts";
 
 const policy: GhPrCreatePolicy = {
   enabled: true,
@@ -81,6 +81,24 @@ describe("walker-backed gh policy compatibility", () => {
       "TOOL=gh; strace $TOOL pr create --repo github.com/acme/widgets --fill",
       policy,
     )).toBe("defer");
+  });
+
+  test("preserves nested GH denials through builtin eval", () => {
+    expect(ghApi("builtin eval 'gh api user -X POST'")).toBe("deny");
+    expect(ghApi("builtin -- eval 'gh api user -X POST'")).toBe("deny");
+    expect(ghPrCreate("builtin eval 'gh api user -X POST'")).toBe("deny");
+    expect(ghPrCreate("builtin eval 'gh pr create --repo github.com/attacker/widgets --fill'")).toBe("deny");
+  });
+
+  test("property: builtin eval spellings preserve every mutating API method denial", () => {
+    for (const separator of ["", " --"]) {
+      for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+        for (const methodFlag of [`-X ${method}`, `--method ${method}`, `--method=${method}`]) {
+          const source = `builtin${separator} eval 'gh api user ${methodFlag}'`;
+          expect(ghApi(source), source).toBe("deny");
+        }
+      }
+    }
   });
 
   test("requires an explicit host after stateful assignment resolution", () => {
@@ -281,6 +299,37 @@ describe("walker-backed gh policy compatibility", () => {
     expect(evaluateConfiguredBash({ source: pr, initialEnvironment: { kind: "unavailable" }, profileSnapshot: prProfile }).permission.kind).toBe("deny");
     expect(evaluateConfiguredBash({ source: "gh api \"$ENDPOINT\"", initialEnvironment: { kind: "unavailable" }, profileSnapshot: prProfile }).permission.kind).toBe("deny");
     expect(evaluateConfiguredBash({ source: "gh issue view \"$NUMBER\"", initialEnvironment: { kind: "unavailable" }, profileSnapshot: prProfile }).permission.kind).toBe("ignore");
+  });
+
+  test("defers inherited executable and argument variables omitted from the filtered snapshot", () => {
+    const apiProfile = snapshot({ ghApiReadOnly: true });
+    for (const [source, environment] of [
+      ["$RUNNER api user -X POST", { RUNNER: "gh" }],
+      ["$SHELL -c 'gh api user -X POST'", { SHELL: "/bin/bash" }],
+      ["gh api user -X $METHOD", { METHOD: "POST", GH_PAGER: "" }],
+    ] as const) {
+      const result = evaluateConfiguredBash({
+        source,
+        initialEnvironment: policyInitialEnvironment(environment),
+        profileSnapshot: apiProfile,
+      });
+      expect(result.permission.kind, source).toBe("defer");
+    }
+  });
+
+  test("property: filtered inherited variables never become known-unset authorization facts", () => {
+    const apiProfile = snapshot({ ghApiReadOnly: true });
+    for (let index = 0; index < 64; index++) {
+      const name = `SAFETY_CORE_RUNNER_${index}`;
+      const initialEnvironment = policyInitialEnvironment({ [name]: `credential-canary-${index}` });
+      const result = evaluateConfiguredBash({
+        source: `$${name} api user -X POST`,
+        initialEnvironment,
+        profileSnapshot: apiProfile,
+      });
+      expect(result.permission.kind, name).toBe("defer");
+      expect(JSON.stringify(initialEnvironment)).not.toContain(`credential-canary-${index}`);
+    }
   });
 
   test("rejects unexported pager and prompt-disable proof variables", () => {

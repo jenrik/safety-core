@@ -110,7 +110,7 @@ export function renderGhReadOnlyAudit(fixture: Fixture): string {
     "",
     "## Environment routes",
     "",
-    "Authentication variables are listed for completeness but their values are never captured by policy analysis. A verified snapshot treats omitted names as unset; present empty values remain explicit empty strings; non-empty defer-causing routes prevent automatic approval; unavailable or dynamically tainted values defer. Captured values are never included in evidence or diagnostics.",
+    "Authentication variables are listed for completeness but their values are never captured by policy analysis. The filtered snapshot explicitly records reviewed absent names as unset while every other omitted name remains unknown; present empty values remain explicit empty strings; non-empty defer-causing routes prevent automatic approval; unavailable or dynamically tainted values defer. Captured values are never included in evidence or diagnostics.",
     "",
     "| Variable | Classification | Scope | Captured | Decision |",
     "| --- | --- | --- | --- | --- |",

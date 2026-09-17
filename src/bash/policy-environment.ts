@@ -106,7 +106,8 @@ export function policyInitialEnvironment(environment: Readonly<Record<string, st
     }
     if (captured.has(name) || /^GIT_CONFIG_KEY_\d+$/.test(name)) values[name] = value;
   }
-  return Object.freeze({ kind: "verified", values: Object.freeze(values) });
+  const unset = [...captured].filter((name) => environment[name] === undefined);
+  return Object.freeze({ kind: "filtered", values: Object.freeze(values), unset: Object.freeze(unset) });
 }
 
 function excludedSecret(name: string): PolicyEnvironmentRoute {

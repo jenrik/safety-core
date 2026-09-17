@@ -145,15 +145,17 @@ describe("policy environment manifest", () => {
       expect(POLICY_ENVIRONMENT_ROUTES.find((route) => route.name === name)).toMatchObject({ disposition: "excluded-secret", capture: false });
     }
     const snapshot = policyInitialEnvironment(Object.fromEntries(secretNames.map((name) => [name, `canary-${name}`])));
-    expect(snapshot).toEqual({ kind: "verified", values: {} });
+    expect(snapshot).toMatchObject({ kind: "filtered", values: {} });
     expect(JSON.stringify(snapshot)).not.toContain("canary");
   });
 
   test("defines present, empty, unset, and unavailable behavior without emitting values", () => {
-    expect(policyInitialEnvironment({ GH_PAGER: "" })).toEqual({ kind: "verified", values: { GH_PAGER: "" } });
+    expect(policyInitialEnvironment({ GH_PAGER: "" })).toMatchObject({ kind: "filtered", values: { GH_PAGER: "" } });
     const pager = policyInitialEnvironment({ PAGER: "less" });
-    expect(pager.kind === "verified" ? Object.keys(pager.values) : []).toEqual(["__SAFETY_CORE_INHERITED_GH_PAGER"]);
-    expect(policyInitialEnvironment({})).toEqual({ kind: "verified", values: {} });
+    expect(pager.kind === "filtered" ? Object.keys(pager.values) : []).toEqual(["__SAFETY_CORE_INHERITED_GH_PAGER"]);
+    const empty = policyInitialEnvironment({});
+    expect(empty).toMatchObject({ kind: "filtered", values: {} });
+    expect(empty.kind === "filtered" ? empty.unset : []).toContain("GH_PAGER");
     expect(POLICY_ENVIRONMENT_ROUTES.every((route) => route.rationale.length > 0)).toBe(true);
     expect(POLICY_ENVIRONMENT_ROUTES.find((route) => route.name === "GH_TELEMETRY_SAMPLE_RATE")).toMatchObject({ disposition: "defer", capture: true });
   });

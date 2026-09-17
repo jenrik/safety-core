@@ -28,6 +28,7 @@ import {
   mergeOutcomeSummaries,
   outcomeSummaryIsDeny,
   policyDeny,
+  policyIndeterminate,
   safe,
   strongestOutcome,
   type Outcome,
@@ -368,7 +369,11 @@ function executeCommand(
     return;
   }
   if (normalized.executable.kind === "unknown") {
-    complete(addOutcome(withEnvironment(input, endCommandOverlay(normalized.environment)), indeterminate(command.span)));
+    complete(addOutcome(withEnvironment(input, endCommandOverlay(normalized.environment)), policyIndeterminate(command.span, {
+      name: "generic-read-only",
+      decision: "defer",
+      readOnly: { tool: "dynamic-executable" },
+    })));
     return;
   }
 
@@ -512,7 +517,7 @@ function isPossiblyStateMutatingBuiltin(executable: string): boolean {
 
 function isBuiltinShellRoute(command: NormalizedCommand): boolean {
   if (command.executable?.kind !== "known" || command.executable.value !== "builtin") return false;
-  const target = command.argv[0];
+  const target = command.argv[0]?.kind === "known" && command.argv[0].value === "--" ? command.argv[1] : command.argv[0];
   return target?.kind === "known" && ["eval", "source", "."].includes(target.value);
 }
 

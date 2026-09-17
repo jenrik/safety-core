@@ -13,6 +13,8 @@ test("Pi adapter blocks proven GH permission denials through its registered tool
   const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-pi-adapter-"));
   const configHome = mkdtempSync(join(tmpdir(), "safety-core-pi-profile-"));
   const originalConfigHome = process.env.SAFETY_CORE_CONFIG_HOME;
+  const runnerName = "SAFETY_CORE_TEST_RUNNER";
+  const originalRunner = process.env[runnerName];
   try {
     mkdirSync(join(wasmDir, "node_modules"));
     copyFileSync(existsSync(join(process.cwd(), "tree-sitter-bash.wasm")) ? join(process.cwd(), "tree-sitter-bash.wasm") : join(process.cwd(), "node_modules", "tree-sitter-bash", "tree-sitter-bash.wasm"), join(wasmDir, "tree-sitter-bash.wasm"));
@@ -21,6 +23,7 @@ test("Pi adapter blocks proven GH permission denials through its registered tool
     mkdirSync(join(configHome, "safety-core"));
     writeFileSync(join(configHome, "safety-core", "profiles.json"), JSON.stringify({ ghApiReadOnly: true, ghPrCreate: { enabled: true, allowedRepositories: [], allowedOrganizations: [] } }));
     process.env.SAFETY_CORE_CONFIG_HOME = configHome;
+    process.env[runnerName] = "gh";
 
     const handlers = new Map<string, Function>();
     const pi = { on: (name: string, handler: Function) => handlers.set(name, handler), registerCommand() {}, registerTool() {} };
@@ -30,8 +33,16 @@ test("Pi adapter blocks proven GH permission denials through its registered tool
     expect(result).toMatchObject({ block: true });
     const apiResult = await handlers.get("tool_call")!({ toolName: "bash", toolCallId: "api-test", input: { command: "gh api user -X POST" } }, { ui: { notify() {} } });
     expect(apiResult).toMatchObject({ block: true });
+    let prompts = 0;
+    const inheritedResult = await handlers.get("tool_call")!(
+      { toolName: "bash", toolCallId: "inherited-test", input: { command: `$${runnerName} api user -X POST` } },
+      { hasUI: true, ui: { confirm: async () => { prompts++; return false; }, notify() {} } },
+    );
+    expect(inheritedResult).toMatchObject({ block: true });
+    expect(prompts).toBe(1);
   } finally {
     if (originalConfigHome === undefined) delete process.env.SAFETY_CORE_CONFIG_HOME; else process.env.SAFETY_CORE_CONFIG_HOME = originalConfigHome;
+    if (originalRunner === undefined) delete process.env[runnerName]; else process.env[runnerName] = originalRunner;
     rmSync(wasmDir, { force: true, recursive: true });
     rmSync(configHome, { force: true, recursive: true });
   }
@@ -57,7 +68,7 @@ test("Pi performs one configured evaluation and reuses its kubectl audit view", 
     createPiExtension(pi as never, {
       evaluateConfiguredBash(options: BashConfiguredOptions) {
         calls++;
-        environmentNames = options.initialEnvironment?.kind === "verified" ? Object.keys(options.initialEnvironment.values) : [];
+        environmentNames = options.initialEnvironment?.kind === "filtered" ? Object.keys(options.initialEnvironment.values) : [];
         return evaluateConfiguredBash(options);
       },
     });

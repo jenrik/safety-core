@@ -33,6 +33,7 @@ describe("walker-backed hard-block compatibility policies", () => {
     expectGuardBlock("xargs cat credentials.json </dev/null", "secret-read");
     expectGuardBlock("find . -maxdepth 0 -exec cat credentials.json {} \\;", "secret-read");
     expectGuardBlock("eval -- 'cat credentials.json'", "secret-read");
+    expectGuardBlock("builtin eval 'cat credentials.json'", "secret-read");
     expectGuardBlock("fish -C 'cat credentials.json' -c true", "secret-read");
     expectGuardBlock("fish -d parser -c 'cat credentials.json'", "secret-read");
     expectGuardBlock("fish --interactive -c 'cat credentials.json'", "secret-read");

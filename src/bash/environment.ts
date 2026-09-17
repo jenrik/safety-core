@@ -109,6 +109,23 @@ export function fromVerifiedInitialEnvironment(
   return fromInitialEnvironment(exported, budgets, "unset");
 }
 
+/** A value-filtered process snapshot where only listed absences are proven unset. */
+export function fromFilteredInitialEnvironment(
+  initial: Readonly<Record<string, string | Binding | BindingValue>> = {},
+  unsetNames: readonly string[] = [],
+  budgets: Partial<Budgets> = {},
+): Environment {
+  const bindings = Object.fromEntries(Object.entries(initial).map(([name, value]) => [name, {
+    value: typeof value === "string" ? known(value) : "value" in value ? value.value : value,
+    exported: true,
+    readonly: false,
+  }])) as Record<string, Binding>;
+  for (const name of unsetNames) {
+    if (!(name in bindings)) bindings[name] = createBinding(unset(), false, false);
+  }
+  return fromInitialEnvironment(bindings, budgets, "unknown");
+}
+
 export function lookupBinding(environment: Environment, name: string): Binding {
   return lookupInFrame(environment.overlay ?? environment.frame, name)
     ?? createBinding(unset(), false, false);

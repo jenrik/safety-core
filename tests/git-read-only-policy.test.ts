@@ -26,7 +26,7 @@ describe("Git read-only policy", () => {
       GITHUB_TOKEN: "never-capture",
       HOME: "/home/agent",
       SECRET_TOKEN: "not-exposed",
-    })).toEqual({ kind: "verified", values: {
+    })).toMatchObject({ kind: "filtered", values: {
       GIT_EXTERNAL_DIFF: "/tmp/diff-helper",
       GIT_CONFIG_COUNT: "1",
       GIT_CONFIG_KEY_0: "diff.external",
@@ -40,15 +40,15 @@ describe("Git read-only policy", () => {
       const key = `GIT_CONFIG_KEY_${index}`;
       const value = `GIT_CONFIG_VALUE_${index}`;
       const environment = policyInitialEnvironment({ [key]: "http.extraHeader", [value]: `credential-canary-${index}` });
-      expect(environment).toEqual({ kind: "verified", values: { [key]: "http.extraHeader" } });
+      expect(environment).toMatchObject({ kind: "filtered", values: { [key]: "http.extraHeader" } });
     }
   });
 
   test("redacts inherited GIT_CONFIG_PARAMETERS while retaining its unsafe presence", () => {
     const canary = "http.extraHeader=Authorization:credential-canary";
     const environment = policyInitialEnvironment({ GIT_CONFIG_PARAMETERS: canary });
-    expect(environment.kind).toBe("verified");
-    if (environment.kind !== "verified") throw new Error("expected verified environment");
+    expect(environment.kind).toBe("filtered");
+    if (environment.kind !== "filtered") throw new Error("expected filtered environment");
     expect(environment.values.GIT_CONFIG_PARAMETERS).not.toBe(canary);
     expect(environment.values.GIT_CONFIG_PARAMETERS).not.toBe("");
   });
@@ -58,7 +58,7 @@ describe("Git read-only policy", () => {
     for (let index = 0; index < 64; index++) {
       const canary = `http.extraHeader=credential-canary-${index}`;
       const environment = policyInitialEnvironment({ GIT_CONFIG_PARAMETERS: canary });
-      if (environment.kind !== "verified") throw new Error("expected verified environment");
+      if (environment.kind !== "filtered") throw new Error("expected filtered environment");
       expect(environment.values.GIT_CONFIG_PARAMETERS).not.toContain(canary);
       captured.add(environment.values.GIT_CONFIG_PARAMETERS!);
     }
