@@ -1,4 +1,5 @@
 import type { PolicyEvidence } from "../outcome.js";
+import { isGithubGraphqlEndpoint } from "../../github.js";
 
 export type GhApiInvocationDecision =
   | { readonly kind: "allow"; readonly reason: string; readonly evidence: PolicyEvidence }
@@ -12,6 +13,7 @@ export function analyzeGhApiInvocation(input: {
   readonly methodAmbiguous?: boolean;
   readonly unsafeOrMalformed?: boolean;
 }): GhApiInvocationDecision {
+  if (input.endpoint && isGithubGraphqlEndpoint(input.endpoint)) return deny("gh api GraphQL endpoints are not permitted by the read-only API profile");
   if (input.methodAmbiguous) return defer();
   if (input.explicitMethod !== undefined) {
     const method = input.explicitMethod.toUpperCase();
@@ -21,7 +23,7 @@ export function analyzeGhApiInvocation(input: {
   if (input.explicitMethod === undefined && input.hasParametersOrBody) {
     return deny("gh api with -f/-F/--input and no explicit --method defaults to POST, not read-only");
   }
-  if (/^\/?graphql(?:\/|\?|$)/.test(input.endpoint) || /^(?:https?:)?\/\//i.test(input.endpoint)) return defer();
+  if (/^(?:https?:)?\/\//i.test(input.endpoint)) return defer();
   if (input.unsafeOrMalformed) return defer();
   if (input.explicitMethod !== undefined) return allow(`gh api --method ${input.explicitMethod.toUpperCase()} auto-allowed (read-only)`);
   return allow("gh api auto-allowed (GET, no parameters)");

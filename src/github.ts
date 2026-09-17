@@ -130,6 +130,12 @@ export function detectBlockedDomain(raw: string): string | null {
   return null;
 }
 
+/** Match relative or absolute GitHub GraphQL endpoint spellings without retaining query data. */
+export function isGithubGraphqlEndpoint(endpoint: string): boolean {
+  const path = endpoint.replace(/^(?:https?:)?\/\/[^/]+/i, "");
+  return /^\/?graphql(?:\/|\?|$)/i.test(path);
+}
+
 function sanitizedBlockedGithubUrl(raw: string): string {
   const domain = detectBlockedDomain(raw);
   if (!domain) return "https://github.com/";

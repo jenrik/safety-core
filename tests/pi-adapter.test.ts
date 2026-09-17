@@ -108,6 +108,12 @@ test("Pi confirms opaque routes when only ghApiReadOnly is enabled", async () =>
     const { createPiExtension } = await import("../adapters/pi.ts");
     createPiExtension(pi as never);
     let prompts = 0;
+    const graphql = await handlers.get("tool_call")!(
+      { toolName: "bash", toolCallId: "graphql", input: { command: "gh -XGET api /graphql" } },
+      { hasUI: true, ui: { confirm: async () => { prompts++; return true; }, notify() {} } },
+    );
+    expect(graphql).toMatchObject({ block: true });
+    expect(prompts).toBe(0);
     for (const command of ["gh create-issue", "gh extension exec mutate", "./create-pr.sh", "python ./create_pr.py"]) {
       const result = await handlers.get("tool_call")!(
         { toolName: "bash", toolCallId: command, input: { command } },

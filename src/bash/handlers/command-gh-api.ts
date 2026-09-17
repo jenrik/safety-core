@@ -25,6 +25,9 @@ export const ghApiHandler: PolicyObserver = Object.freeze({
           unsafeOrMalformed: true,
         }).evidence));
       }
+      if (cursor.invocation.argv.some((argument) => argument.kind === "unknown" && argument.reason.githubGraphqlEndpoint)) {
+        return deniedGraphql(context);
+      }
       const conservative = cursor.invocation.argv.map((argument) => argument.kind === "known" ? argument.value : "safety-core-unresolved-argument");
       const api = parseGhApiArguments(conservative, subcommand.index);
       const decision = analyzeGhApiInvocation({
@@ -78,6 +81,12 @@ function unresolvedGhApiRoute(context: Parameters<PolicyObserver["observe"]>[1])
     hasParametersOrBody: false,
     unsafeOrMalformed: true,
   }).evidence));
+}
+
+function deniedGraphql(context: Parameters<PolicyObserver["observe"]>[1]) {
+  const decision = analyzeGhApiInvocation({ endpoint: "graphql", explicitMethod: "GET", hasParametersOrBody: false });
+  if (decision.kind !== "deny") throw new Error("GraphQL endpoint must be denied");
+  return observePolicy(policyDeny(context.span, decision.evidence));
 }
 
 function hasUnresolvedMethodValue(args: readonly ResolvedWord[]): boolean {

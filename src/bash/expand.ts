@@ -1,5 +1,5 @@
 import { stripQuotes } from "../shell.js";
-import { detectBlockedDomain } from "../github.js";
+import { detectBlockedDomain, isGithubGraphqlEndpoint } from "../github.js";
 import type { BashCommand, BashRedirectKind, BashWord, SourceSpan } from "./cst.js";
 import {
   assignBinding,
@@ -37,6 +37,7 @@ export interface ExpansionUnknownReason {
   readonly span: SourceSpan;
   readonly variable?: string;
   readonly blockedGithubDomain?: string;
+  readonly githubGraphqlEndpoint?: true;
 }
 
 export interface ResolvedUnknownWord {
@@ -199,7 +200,7 @@ function expandStaticText(text: string, span: SourceSpan, environment: Environme
     }
     if (quote !== "single" && character === "`") return unresolved("command-substitution", span);
     if (quote === null && (character === "*" || character === "?" || character === "[")) {
-      return unresolved("globbing", span, undefined, detectBlockedDomain(text) ?? undefined);
+      return unresolved("globbing", span, undefined, detectBlockedDomain(text) ?? undefined, isGithubGraphqlEndpoint(text));
     }
     if (quote === null && character === "$" && text[index + 1] === "'") {
       const end = ansiCQuoteEnd(text, index + 2);
@@ -276,7 +277,7 @@ function resolveVariable(
   }
   if (binding.kind !== "known") return unresolved("unknown-variable", span, variable);
   if (!quoted && context !== "assignment" && changesUnquotedWordShape(binding.value, environment)) {
-    return unresolved("unquoted-expansion", span, variable, detectBlockedDomain(binding.value) ?? undefined);
+    return unresolved("unquoted-expansion", span, variable, detectBlockedDomain(binding.value) ?? undefined, isGithubGraphqlEndpoint(binding.value));
   }
   return { kind: "known", value: resolvedKnown(binding.value, true), next };
 }
@@ -328,6 +329,7 @@ function unresolved(
   span: SourceSpan,
   variable?: string,
   blockedGithubDomain?: string,
+  githubGraphqlEndpoint = false,
 ): ResolvedUnknownWord {
   return freeze({
     kind: "unknown",
@@ -336,6 +338,7 @@ function unresolved(
       span: freeze({ start: span.start, end: span.end }),
       ...(variable ? { variable } : {}),
       ...(blockedGithubDomain ? { blockedGithubDomain } : {}),
+      ...(githubGraphqlEndpoint ? { githubGraphqlEndpoint: true as const } : {}),
     }),
   });
 }

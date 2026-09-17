@@ -238,6 +238,30 @@ describe("walker-backed gh policy compatibility", () => {
     for (const method of methods) for (const source of forms(method)) expect(ghApi(source), source).toBe("deny");
   });
 
+  test("property: GraphQL endpoints are denied for every read method and option ordering", () => {
+    const endpoints = ["graphql", "/graphql", "graphql?query=x", "https://api.github.com/graphql"];
+    for (const endpoint of endpoints) {
+      for (const method of ["GET", "HEAD"]) {
+        for (const source of [
+          `gh api ${endpoint} -X ${method}`,
+          `gh api -X${method} ${endpoint}`,
+          `gh -X${method} api ${endpoint}`,
+          `gh --method=${method} api ${endpoint}`,
+        ]) expect(ghApi(source), source).toBe("deny");
+      }
+    }
+    expect(configured(
+      "gh api $ENDPOINT -X GET",
+      snapshot({ ghApiReadOnly: true }),
+      { GH_PAGER: "", ENDPOINT: "graphql?query=query" },
+    ).permission.kind).toBe("deny");
+    expect(evaluateConfiguredBash({
+      source: 'gh api graphql -X "$METHOD"',
+      initialEnvironment: { kind: "unavailable" },
+      profileSnapshot: snapshot({ ghApiReadOnly: true }),
+    }).permission.kind).toBe("deny");
+  });
+
   test("property: PR flag placement and short clusters preserve repository ownership", () => {
     const repositories = ["github.com/acme/widgets", "github.com/attacker/widgets"];
     const forms = (repository: string) => [
@@ -277,7 +301,7 @@ describe("walker-backed gh policy compatibility", () => {
   test("uses an explicit gh api method ahead of parameter-implied POST", () => {
     expect(ghApi("METHOD=GET; gh api -X $METHOD -f q=x user")).toBe("defer");
     expect(ghApi("gh api -f q=x --method=HEAD user")).toBe("defer");
-    expect(ghApi("gh api -X GET graphql")).toBe("defer");
+    expect(ghApi("gh api -X GET graphql")).toBe("deny");
   });
 
   test("defers gh api host, local-input, output, cache, and unknown routes", () => {
