@@ -1,14 +1,4 @@
 import { readOnlyAllow, readOnlyDefer, type ReadOnlyInvocationDecision } from "./read-only.js";
-import type { BashInitialEnvironment } from "../../authorization.js";
-
-const GIT_EXECUTION_ENVIRONMENT = [
-  "GIT_CONFIG_COUNT",
-  "GIT_CONFIG_GLOBAL",
-  "GIT_CONFIG_PARAMETERS",
-  "GIT_CONFIG_SYSTEM",
-  "GIT_EXTERNAL_DIFF",
-  "GIT_PAGER",
-] as const;
 
 const GIT_READ_ONLY_SUBCOMMANDS = new Set([
   "describe",
@@ -91,20 +81,6 @@ export function analyzeGitReadOnlyInvocation(args: readonly string[]): ReadOnlyI
   return readOnlyDefer("generic-read-only", "git");
 }
 
-/**
- * Supplies only execution-route variables from a harness environment. This
- * keeps process secrets out of Bash analysis while proving these variables are
- * absent when the shared read-only guard evaluates Git. The ambient `PAGER`
- * is part of the harness's normal Git output route; an explicit `PAGER`
- * export in analyzed Bash is still deferred by the shared guard.
- */
-export function gitPolicyInitialEnvironment(environment: Readonly<Record<string, string | undefined>>): BashInitialEnvironment {
-  const values = Object.fromEntries(
-    Object.entries(environment).filter(([name, value]) => value !== undefined && isGitExecutionEnvironment(name)),
-  );
-  return Object.freeze({ kind: "verified", values: Object.freeze(values) });
-}
-
 export function hasUnsafeGitOption(args: readonly string[]): boolean {
   return args.some((argument) => {
     if (!argument.startsWith("--") || argument === "--") return false;
@@ -125,9 +101,4 @@ function isTagListing(args: readonly string[]): boolean {
 
 function isExactSubcommand(args: readonly string[], subcommand: string): boolean {
   return args.length === 1 && args[0] === subcommand;
-}
-
-function isGitExecutionEnvironment(name: string): boolean {
-  return GIT_EXECUTION_ENVIRONMENT.includes(name as typeof GIT_EXECUTION_ENVIRONMENT[number])
-    || /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(name);
 }

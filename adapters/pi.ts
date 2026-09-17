@@ -22,7 +22,7 @@ import {
   createBashProfileSnapshotSource,
   discoverWasmDir,
   evaluateConfiguredBash,
-  gitPolicyInitialEnvironment,
+  policyInitialEnvironment,
   initBashParser,
   isSecretPath,
   appendAuditRecord,
@@ -187,6 +187,22 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
         });
         ctx.ui.notify(block.notification, "warning");
         return { block: true, reason: block.reason };
+      }
+      if (evaluation.permission.kind === "defer") {
+        let approved = false;
+        if (ctx.hasUI && typeof ctx.ui.confirm === "function") {
+          approved = await ctx.ui.confirm(
+            "Safety permission required",
+            "An enabled safety profile could not auto-authorize this command. Allow it once?",
+            { signal: ctx.signal },
+          ).catch(() => false);
+        }
+        if (!approved) {
+          const reason = "Command requires approval from an enabled safety profile";
+          setJudgeVerdict(event.toolCallId, { safe: false, reasoning: reason });
+          ctx.ui.notify(reason, "warning");
+          return { block: true, reason };
+        }
       }
 
       // ── LLM Judge: second pass for secret-adjacent commands ──────────
@@ -470,7 +486,7 @@ function matchesSecretKeyword(command: string): boolean {
 type BashConfiguredEvaluator = (options: BashConfiguredOptions) => BashConfiguredEvaluation;
 
 function evaluateConfigured(command: string, evaluate: BashConfiguredEvaluator, version: BashProfileSnapshotVersion): BashConfiguredEvaluation {
-  return evaluate({ source: command, initialEnvironment: gitPolicyInitialEnvironment(process.env), profileSnapshot: version.snapshot });
+  return evaluate({ source: command, initialEnvironment: policyInitialEnvironment(process.env), profileSnapshot: version.snapshot });
 }
 
 function kubectlSecretAudit(events: BashConfiguredEvaluation["audit"]["events"]): BashConfiguredEvaluation["audit"]["events"][number]["fields"] | null {
@@ -487,21 +503,25 @@ interface PiGuardBlock {
   readonly notification: string;
 }
 
-/** Pi has no native permission mapping: only a proven configured guard may block. */
+/** Pi has no native permission mapping, so every proven core denial blocks here. */
 function piBashGuardBlock(evaluation: BashConfiguredEvaluation): PiGuardBlock | null {
-  if (evaluation.guards.kind === "pass") return null;
-  const { name } = evaluation.guards.policy;
-  const reason = evaluation.guards.reason;
-  switch (name) {
-    case "secret-read":
-      return { reason: SECRET_BLOCK_MESSAGE, annotation: `Blocked: ${reason}`, notification: `Blocked ${reason}` };
-    case "github-http":
-      return { reason, annotation: "Blocked: direct GitHub HTTP request", notification: "Blocked direct GitHub HTTP request" };
-    case "kubectl":
-      return { reason, annotation: "Blocked: kubectl Secret exposure", notification: "Blocked kubectl Secret exposure" };
-    case "gh-pr-create":
-      return { reason, annotation: `Blocked: ${reason}`, notification: `Blocked ${reason}` };
+  if (evaluation.guards.kind === "block") {
+    const { name } = evaluation.guards.policy;
+    const reason = evaluation.guards.reason;
+    switch (name) {
+      case "secret-read":
+        return { reason: SECRET_BLOCK_MESSAGE, annotation: `Blocked: ${reason}`, notification: `Blocked ${reason}` };
+      case "github-http":
+        return { reason, annotation: "Blocked: direct GitHub HTTP request", notification: "Blocked direct GitHub HTTP request" };
+      case "kubectl":
+        return { reason, annotation: "Blocked: kubectl Secret exposure", notification: "Blocked kubectl Secret exposure" };
+      case "gh-pr-create":
+        return { reason, annotation: `Blocked: ${reason}`, notification: `Blocked ${reason}` };
+    }
   }
+  if (evaluation.permission.kind !== "deny") return null;
+  const reason = evaluation.permission.reason;
+  return { reason, annotation: `Blocked: ${reason}`, notification: `Blocked ${reason}` };
 }
 
 interface PiCachedBashEvaluation {

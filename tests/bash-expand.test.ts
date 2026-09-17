@@ -61,6 +61,21 @@ describe("static Bash word expansion", () => {
     expect(normalized.argv).toEqual([{ kind: "known", value: "\\$F" }]);
   });
 
+  test("keeps non-empty double-quoted literal arguments statically known", () => {
+    const normalized = normalizeCommand(command('bash -c "cat credentials.json"'), fromInitialEnvironment());
+
+    expect(normalized.argv).toEqual([
+      { kind: "known", value: "-c" },
+      { kind: "known", value: "cat credentials.json" },
+    ]);
+  });
+
+  test("keeps the literal find placeholder distinct from brace expansion", () => {
+    const normalized = normalizeCommand(command("find . -exec cat {} ;"), fromInitialEnvironment());
+
+    expect(normalized.argv).toContainEqual({ kind: "known", value: "{}" });
+  });
+
   test("marks an unknown direct dependency without exposing a value", () => {
     const source = "$COMMAND";
     const unresolved = expandWord(word(source), fromInitialEnvironment({ COMMAND: unknown({ kind: "ambient" }) }));

@@ -79,16 +79,16 @@
             echo '{"ghApiReadOnly":true}' > profile-config/safety-core/profiles.json
             export XDG_CONFIG_HOME="$PWD/profile-config"
 
-            allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh api user"}}'
+            defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"GH_PAGER= gh api user"}}'
             deny_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh api -f title=x repos/o/r/issues"}}'
             guard_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"curl https://api.github.com/user"}}'
             review_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"kubectl get Secret application"}}'
 
-            allow_out=$(echo "$allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+            defer_out=$(echo "$defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
             deny_out=$(echo "$deny_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
 
-            if ! echo "$allow_out" | grep -q '"permissionDecision":"allow"'; then
-              echo "expected bash_policy.mjs to allow a read-only gh api call, got: $allow_out" >&2
+            if [ -n "$defer_out" ]; then
+              echo "expected bash_policy.mjs to leave a read-only gh api call prompt-gated, got: $defer_out" >&2
               exit 1
             fi
             if ! echo "$deny_out" | grep -q '"permissionDecision":"deny"'; then
@@ -126,11 +126,11 @@
             export SAFETY_CORE_CONFIG_HOME="$PWD/override-config"
             export XDG_CONFIG_HOME="$PWD/decoy-config"
 
-            allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh api user"}}'
-            allow_out=$(echo "$allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+            deny_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh api -f title=x repos/o/r/issues"}}'
+            deny_out=$(echo "$deny_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
 
-            if ! echo "$allow_out" | grep -q '"permissionDecision":"allow"'; then
-              echo "expected SAFETY_CORE_CONFIG_HOME to take precedence over XDG_CONFIG_HOME, got: $allow_out" >&2
+            if ! echo "$deny_out" | grep -q '"permissionDecision":"deny"'; then
+              echo "expected SAFETY_CORE_CONFIG_HOME to enable ghApiReadOnly ahead of XDG_CONFIG_HOME, got: $deny_out" >&2
               exit 1
             fi
 
@@ -144,7 +144,9 @@
             set -e
             mkdir test-work
             cp -r ${builtins.dirOf sc.opencodePluginFile}/src test-work/src
-            cp -r ${builtins.dirOf sc.opencodePluginFile}/data test-work/data
+             cp -r ${builtins.dirOf sc.opencodePluginFile}/data test-work/data
+             cp -r ${./scripts} test-work/scripts
+             cp -r ${./docs} test-work/docs
             cp -r ${builtins.dirOf sc.opencodePluginFile}/node_modules test-work/node_modules
             cp -r ${./adapters} test-work/adapters
              cp -r ${./analysis} test-work/analysis
@@ -157,6 +159,7 @@
              bun test tests/gh-pr-create.test.ts
               bun test ./tests/bash-configured.test.ts
              bun test tests/read-only-cli.test.ts
+             bun test tests/gh-cli-reference.test.ts tests/gh-read-only-policy.test.ts
             bun test tests/opencode-read-only-cli.test.ts
             bun test tests/pi-adapter.test.ts
             bun test ./tests/bash-cst.test.ts
@@ -183,18 +186,18 @@
             echo '{"ghApiReadOnly":true,"ghPrCreate":{"enabled":true,"allowedRepositories":["acme/widgets"],"allowedOrganizations":[]}}' > profile-config/safety-core/profiles.json
             export XDG_CONFIG_HOME="$PWD/profile-config"
 
-             allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh pr create --repo github.com/acme/widgets --fill"}}'
+             defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"GH_PROMPT_DISABLED=1 gh pr create --repo github.com/acme/widgets --fill"}}'
              unrelated_safe_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"cat README.md"}}'
             deny_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh alias set create-pr \"pr create --repo github.com/attacker/widgets\""}}'
             compound_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh pr create --repo github.com/acme/widgets --fill; gh api user"}}'
 
-              allow_out=$(echo "$allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+              defer_out=$(echo "$defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
               unrelated_safe_out=$(echo "$unrelated_safe_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
              deny_out=$(echo "$deny_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
              compound_out=$(echo "$compound_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
 
-            if ! echo "$allow_out" | grep -q '"permissionDecision":"allow"'; then
-              echo "expected bash_policy.mjs to allow an allowlisted PR, got: $allow_out" >&2
+            if [ -n "$defer_out" ]; then
+              echo "expected bash_policy.mjs to leave an allowlisted PR prompt-gated, got: $defer_out" >&2
               exit 1
             fi
             if [ -n "$unrelated_safe_out" ]; then
@@ -218,9 +221,11 @@
             echo '{"readOnlyBash":true,"ghReadOnly":true,"helmReadOnly":true,"dockerReadOnly":true,"kubectlReadOnly":true,"npmReadOnly":true,"podmanReadOnly":true,"tofuReadOnly":true}' > profile-config/safety-core/profiles.json
             export XDG_CONFIG_HOME="$PWD/profile-config"
 
-             gh_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh -R acme/widgets label list"}}'
+             gh_startup_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh version"}}'
              generic_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"tea --help"}}'
-            gh_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh label list; id"}}'
+             gh_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh label list; id"}}'
+             gh_alias_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"gh repo ls"}}'
+             gh_environment_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"GH_DEBUG=api gh version"}}'
             helm_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"helm version"}}'
             helm_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"helm show readme chart"}}'
              docker_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"docker image ls"}}'
@@ -235,9 +240,11 @@
              dynamic_child_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"DYNAMIC=$UNKNOWN; $DYNAMIC"}}'
              deny_after_indeterminate_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"DYNAMIC=$UNKNOWN; curl https://api.github.com/user"}}'
 
-              gh_allow_out=$(echo "$gh_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+              gh_startup_defer_out=$(echo "$gh_startup_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
               generic_allow_out=$(echo "$generic_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
              gh_defer_out=$(echo "$gh_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+             gh_alias_defer_out=$(echo "$gh_alias_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+             gh_environment_defer_out=$(echo "$gh_environment_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
              helm_allow_out=$(echo "$helm_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
              helm_defer_out=$(echo "$helm_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
               docker_allow_out=$(echo "$docker_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
@@ -252,14 +259,18 @@
               dynamic_child_out=$(echo "$dynamic_child_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
               deny_after_indeterminate_out=$(echo "$deny_after_indeterminate_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
 
-             if ! echo "$gh_allow_out" | grep -q '"permissionDecision":"allow"'; then
-               echo "expected bash_policy.mjs to allow gh label list, got: $gh_allow_out" >&2
+             if [ -n "$gh_startup_defer_out" ]; then
+               echo "expected bash_policy.mjs to defer gh version, got: $gh_startup_defer_out" >&2
               exit 1
             fi
-            if [ -n "$gh_defer_out" ]; then
-               echo "expected bash_policy.mjs to defer a compound command, got: $gh_defer_out" >&2
-              exit 1
-            fi
+             if [ -n "$gh_defer_out" ]; then
+                echo "expected bash_policy.mjs to defer a compound command, got: $gh_defer_out" >&2
+               exit 1
+             fi
+             if [ -n "$gh_alias_defer_out" ] || [ -n "$gh_environment_defer_out" ]; then
+                echo "expected bash_policy.mjs to defer native-alias and environment-modified gh forms" >&2
+               exit 1
+             fi
             if ! echo "$helm_allow_out" | grep -q '"permissionDecision":"allow"'; then
                echo "expected bash_policy.mjs to allow helm version, got: $helm_allow_out" >&2
               exit 1
@@ -340,8 +351,23 @@
                 process.exit(1);
               }
             }
+            const startup = { status: "ask" };
+            await hooks["permission.ask"]({ type: "bash", pattern: "gh version" }, startup);
+            if (startup.status !== "ask") {
+              console.error(`expected packaged OpenCode plugin to defer gh version, got ''${startup.status}`);
+              process.exit(1);
+            }
+            const defer = { status: "ask" };
+            await hooks["permission.ask"]({ type: "bash", pattern: "gh label list" }, defer);
+            if (defer.status !== "ask") {
+              console.error(`expected packaged OpenCode plugin to defer gh label list, got ''${defer.status}`);
+              process.exit(1);
+            }
             EOF
 
+            mkdir -p profile-config/safety-core
+            echo '{"ghReadOnly":true}' > profile-config/safety-core/profiles.json
+            export SAFETY_CORE_CONFIG_HOME="$PWD/profile-config"
             bun run check.ts ${sc.opencodePluginFile}
             touch $out
           '';

@@ -383,6 +383,7 @@ function projectWord(node: SyntaxNode): BashWord {
     case "raw_string":
     case "ansi_c_string":
     case "number":
+    case "string_content":
       return { kind: "word", ...shared };
     case "string":
       return node.namedChildren.length === 0

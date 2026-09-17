@@ -16,7 +16,10 @@ function parseTimeout(arguments_: readonly ResolvedWord[], context: StructuralDi
       index += 2;
       continue;
     }
-    if (argument.startsWith("--kill-after=") || argument.startsWith("--signal=") || argument === "--foreground" || argument === "--preserve-status") {
+    const short = parseShortOptions(argument, arguments_[index + 1]);
+    if (short) { index += short; continue; }
+    if (argument.startsWith("--kill-after=") || argument.startsWith("--signal=")
+      || ["-f", "--foreground", "-p", "--preserve-status", "-v", "--verbose"].includes(argument)) {
       index++;
       continue;
     }
@@ -24,6 +27,18 @@ function parseTimeout(arguments_: readonly ResolvedWord[], context: StructuralDi
     return continueFrom(arguments_, index + 1, context);
   }
   return indeterminate(context.span);
+}
+
+function parseShortOptions(argument: string, next: ResolvedWord | undefined): 1 | 2 | undefined {
+  if (!argument.startsWith("-") || argument.startsWith("--") || argument.length < 2) return undefined;
+  const options = argument.slice(1);
+  for (let index = 0; index < options.length; index++) {
+    const option = options[index]!;
+    if (["f", "p", "v"].includes(option)) continue;
+    if (option !== "k" && option !== "s") return undefined;
+    return options.slice(index + 1).length > 0 ? 1 : isKnown(next) ? 2 : undefined;
+  }
+  return 1;
 }
 
 function durationThenChild(arguments_: readonly ResolvedWord[], index: number, context: StructuralDispatchContext) {

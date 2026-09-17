@@ -39,7 +39,7 @@ function snapshot(overrides: Partial<BashProfileSnapshot> = {}): BashProfileSnap
 }
 
 function configured(source: string, profileSnapshot: BashProfileSnapshot) {
-  return evaluateConfiguredBash({ source, initialEnvironment: { kind: "unavailable" }, profileSnapshot });
+  return evaluateConfiguredBash({ source, initialEnvironment: { kind: "verified", values: {} }, profileSnapshot });
 }
 
 function gh(command: string): string {
@@ -77,14 +77,13 @@ function insertBlock(blocks: readonly (readonly string[])[], block: readonly str
 }
 
 describe("gh read-only profile", () => {
-  test("allows credential-safe metadata subcommands without flags", () => {
+  test("defers local metadata and static help because common startup has side effects", () => {
     for (const command of [
-      "gh --help", "gh help issue", "gh completion zsh", "gh licenses", "gh status", "gh auth status",
-      "gh cache list", "gh ext search foo", "gh gpg-key ls", "gh label list",
-      "gh org list", "gh project field-list 1", "gh repo list", "gh rs check", "gh search repos safety",
-      "gh ssh-key ls", "gh workflow view build", "gh -R acme/widgets label list",
-      "gh label --repo acme/widgets list", "gh label list --repo=acme/widgets",
-    ]) expect(gh(command), command).toBe("allow");
+      "gh --version", "gh version",
+      "gh accessibility", "gh actions", "gh environment", "gh exit-codes", "gh formatting", "gh mintty", "gh telemetry",
+      "gh help accessibility", "gh help actions", "gh help environment", "gh help exit-codes", "gh help formatting", "gh help mintty", "gh help telemetry",
+      "gh a11y", "gh accessibility --web",
+    ]) expect(gh(command), command).toBe("defer");
   });
 
   test("defers flags and commands that can expose credentials or remote content", () => {
@@ -95,6 +94,14 @@ describe("gh read-only profile", () => {
       "gh issue list", "gh pr diff", "gh gist view example", "gh repo read-file README", "gh secret list",
       "gh repo view acme/widgets", "gh search code password", "gh search repos safety --limit 10",
       "gh repo autolink create", "gh alias list", "gh alias ls", "gh workflow view credentials.json",
+      "gh --help", "gh help issue", "gh help reference", "gh reference", "gh completion -s zsh", "gh completion zsh",
+      "gh status", "gh auth status", "gh cache list", "gh ext search foo", "gh gpg-key ls", "gh label list",
+      "gh org list", "gh project field-list 1", "gh repo list", "gh rs check", "gh search repos safety",
+      "gh ssh-key ls", "gh workflow view build", "gh -R acme/widgets label list",
+      "gh label --repo acme/widgets list", "gh label list --repo=acme/widgets",
+      "gh licenses",
+      "gh alias import -", "gh secret set NAME --body-file /dev/stdin", "gh variable set NAME --env-file harmless.txt",
+      "gh attestation verify harmless.txt", "gh release verify-asset v1 harmless.txt", "gh repo read-file README --output -",
     ]) expect(gh(command)).toBe("defer");
   });
 
@@ -109,25 +116,25 @@ describe("gh read-only profile", () => {
     ]) expect(gh(command)).toBe("defer");
   });
 
-  test("defers explicit executable paths while allowing statically resolved assignments", () => {
+  test("defers explicit executable paths and statically resolved gh startup", () => {
     for (const command of [
-      "./gh label list", "/usr/bin/gh label list",
+      "./gh version", "/usr/bin/gh version",
     ]) expect(gh(command), command).toBe("defer");
-    for (const command of ["TOOL=gh; $TOOL label list", "TOOL=gh; strace $TOOL label list"]) {
-      expect(gh(command), command).toBe("allow");
+    for (const command of ["TOOL=gh; $TOOL version", "TOOL=gh; strace $TOOL version"]) {
+      expect(gh(command), command).toBe("defer");
     }
   });
 
-  test("property: the repository selector may appear at every argument boundary", () => {
+  test("property: repository selectors never expand a local metadata grammar", () => {
     for (const flag of [["-R", "acme/widgets"], ["-Racme/widgets"], ["--repo=acme/widgets"]]) {
-      for (const args of insertBlock([["label"], ["list"]], flag)) {
-        expect(gh(["gh", ...args].join(" "))).toBe("allow");
+      for (const args of insertBlock([["version"]], flag)) {
+        expect(gh(["gh", ...args].join(" "))).toBe("defer");
       }
     }
   });
 
   test("property: a supported command never permits an injected shell operator", () => {
-    const commands = ["gh label list", "gh repo list", "gh pr diff", "gh --version"];
+    const commands = ["gh version", "gh help environment", "gh pr diff", "gh --version"];
     const operators = ["; id", " && id", " | sh", " > output", " $(id)", " 'quoted'"];
     for (const command of commands) for (const operator of operators) expect(gh(`${command}${operator}`), `${command}${operator}`).toBe("defer");
   });

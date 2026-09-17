@@ -42,6 +42,21 @@ describe("OpenCode single-pass Bash guards", () => {
     expect(openCodeBashGuardBlockReason(evaluate("unknown-command"))).toBeNull();
   });
 
+  test("blocks permission denials before execution without waiting for a native permission event", async () => {
+    const denied = evaluateConfiguredBash({ source: "unknown-command", initialEnvironment: { kind: "unavailable" }, profileSnapshot: defaultSnapshot });
+    const plugin = await createOpenCodePlugin({
+      evaluateConfiguredBash() {
+        return {
+          ...denied,
+          permission: { kind: "deny", profile: "ghApiReadOnly", reason: "permission-only test denial" },
+        };
+      },
+    });
+
+    await expect((plugin["tool.execute.before"] as Function)(bashInput("session-1", "permission-deny"), bashOutput("gh api user -X POST")))
+      .rejects.toThrow("Blocked by OpenCode safety policy: permission-only test denial");
+  });
+
   test("invokes the configured evaluator exactly once through the real callback", async () => {
     let calls = 0;
     const evaluate = (options: BashConfiguredOptions): BashConfiguredEvaluation => {
@@ -165,6 +180,7 @@ describe("OpenCode single-pass Bash guards", () => {
     try {
       mkdirSync(join(configHome, "safety-core"));
       writeFileSync(join(configHome, "safety-core", "profiles.json"), JSON.stringify({
+        ghApiReadOnly: true,
         ghPrCreate: { enabled: true, allowedRepositories: ["acme/widgets"], allowedOrganizations: [] },
       }));
       process.env.SAFETY_CORE_CONFIG_HOME = configHome;
@@ -177,9 +193,11 @@ describe("OpenCode single-pass Bash guards", () => {
       const plugin = await createOpenCodePlugin({ evaluateConfiguredBash: evaluate });
       const before = plugin["tool.execute.before"] as Function;
 
-      await expect(before(bashInput("session-1", "pr"), bashOutput("gh pr create --repo github.com/attacker/widgets --fill")))
+      await expect(before(bashInput("session-1", "pr"), bashOutput("GH_PROMPT_DISABLED=1 gh pr create --repo github.com/attacker/widgets --fill")))
         .rejects.toThrow("requested repository is not allowlisted");
-      expect(calls).toBe(1);
+      await expect(before(bashInput("session-1", "api"), bashOutput("gh api user -X POST")))
+        .rejects.toThrow("gh api --method POST is not read-only");
+      expect(calls).toBe(2);
     } finally {
       if (previous === undefined) delete process.env.SAFETY_CORE_CONFIG_HOME;
       else process.env.SAFETY_CORE_CONFIG_HOME = previous;

@@ -30,6 +30,39 @@ describe("walker-backed hard-block compatibility policies", () => {
   test("detects readers resolved through assignments and transparent wrappers", () => {
     expectGuardBlock("READER=cat; strace $READER credentials.json", "secret-read");
     expectGuardBlock("cat README.md; env -i cat credentials.json", "secret-read");
+    expectGuardBlock("xargs cat credentials.json </dev/null", "secret-read");
+    expectGuardBlock("find . -maxdepth 0 -exec cat credentials.json {} \\;", "secret-read");
+    expectGuardBlock("eval -- 'cat credentials.json'", "secret-read");
+    expectGuardBlock("fish -C 'cat credentials.json' -c true", "secret-read");
+    expectGuardBlock("fish -d parser -c 'cat credentials.json'", "secret-read");
+    expectGuardBlock("fish --interactive -c 'cat credentials.json'", "secret-read");
+    expectGuardBlock("zsh --no-rcs -c 'cat credentials.json'", "secret-read");
+    expectGuardBlock("zsh --no_rcs -c 'cat credentials.json'", "secret-read");
+    expectGuardBlock("fish --init-cmd 'cat credentials.json' -c true", "secret-read");
+    expectGuardBlock("sudo cat credentials.json", "secret-read");
+    expectGuardBlock("sudo -e credentials.json", "secret-read");
+    expectGuardBlock("sudo --edit credentials.json", "secret-read");
+    expectGuardBlock("sudoedit credentials.json", "secret-read");
+    expectGuardBlock("find -files0-from credentials.json -print", "secret-read");
+  });
+
+  test("property: shell script-file modes block protected operands", () => {
+    for (const shell of ["sh", "bash", "dash", "fish", "ksh", "zsh"]) {
+      expectGuardBlock(`${shell} credentials.json`, "secret-read");
+      expectGuardBlock(`${shell} -- credentials.json`, "secret-read");
+    }
+  });
+
+  test("property: xargs arg-file aliases block protected inputs before child analysis", () => {
+    for (const source of [
+      "xargs -a credentials.json echo",
+      "xargs -acredentials.json echo",
+      "xargs --arg-file credentials.json echo",
+      "xargs --arg-file=credentials.json echo",
+      "xargs -racredentials.json echo",
+      "xargs -ra credentials.json echo",
+      "xargs -0acredentials.json echo",
+    ]) expectGuardBlock(source, "secret-read");
   });
 
   test("retains short-circuit path correlations needed for hard blocks", () => {
@@ -41,11 +74,11 @@ describe("walker-backed hard-block compatibility policies", () => {
     );
   });
 
-  test("applies env environment operands to its child command", () => {
+  test("applies env environment operands to its child while keeping the wrapper prompt-gated", () => {
     const blocked = "https://api.github.com/repos/example/project/issues";
 
     expect(analyzeBashAuthorization({ source: "env -i -- sh -c 'curl \"$URL\"'", initialEnvironment: { kind: "verified", values: { URL: blocked } } }).verdict)
-      .toEqual({ kind: "allow" });
+      .toEqual({ kind: "neutral" });
     expect(analyzeBashAuthorization({ source: `env -u URL URL=${blocked} sh -c 'curl \"$URL\"'` }).verdict)
       .toMatchObject({ kind: "deny" });
   });

@@ -10,6 +10,8 @@ import {
   type BashProfileSnapshot,
   type GhPrCreatePolicy,
 } from "../src/index.ts";
+import { ghNativeAliasesForRule } from "../src/bash/handlers/gh-command-line.ts";
+import { GH_READ_ONLY_RULES } from "../src/bash/policies/gh-read-only.ts";
 
 const policy: GhPrCreatePolicy = {
   enabled: true,
@@ -50,16 +52,17 @@ function decision(command: string, activePolicy: GhPrCreatePolicy = policy): str
     ghPrCreate: Object.freeze(activePolicy),
     limits: Object.freeze({ maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 7_500, maxWorkItems: 10_000 }),
   });
-  return evaluateConfiguredBash({ source: command, initialEnvironment: { kind: "unavailable" }, profileSnapshot }).permission.kind;
+  return evaluateConfiguredBash({ source: command, initialEnvironment: { kind: "verified", values: { GH_PROMPT_DISABLED: "1" } }, profileSnapshot }).permission.kind;
 }
 
 describe("gh pr create policy", () => {
-  test("allows exact repository and organization targets regardless of flag placement", () => {
-    expect(decision("gh pr create --repo github.com/acme/widgets --title fix --fill")).toBe("allow");
-    expect(decision("gh --repo=github.com/acme/widgets pr create --fill")).toBe("allow");
-    expect(decision("nice gh pr create -R github.com/trusted-org/any-repo --fill")).toBe("allow");
-    expect(decision("gh pr --repo github.example.com/platform/service create --fill")).toBe("allow");
-    expect(decision("gh pr new --repo github.com/acme/widgets --fill")).toBe("allow");
+  test("keeps allowlisted repository and organization targets prompt-gated", () => {
+    expect(decision("gh pr create --repo github.com/acme/widgets --title fix --fill")).toBe("defer");
+    expect(decision("gh --repo=github.com/acme/widgets pr create --fill")).toBe("defer");
+    expect(decision("nice gh pr create -R github.com/trusted-org/any-repo --fill")).toBe("defer");
+    expect(decision("gh pr --repo github.example.com/platform/service create --fill")).toBe("defer");
+    expect(decision("gh pr new --repo github.com/acme/widgets --fill")).toBe("defer");
+    expect(decision("gh pr create --repo github.com/acme/widgets --title fix --body details")).toBe("defer");
   });
 
   test("denies unscoped, malformed, and non-allowlisted targets", () => {
@@ -71,6 +74,27 @@ describe("gh pr create policy", () => {
     expect(decision("env /usr/bin/gh pr create --repo github.com/attacker/widgets --fill")).toBe("deny");
     expect(decision("g''h pr create --repo github.com/attacker/widgets --fill")).toBe("deny");
     expect(decision("G=gh; $G pr create --repo github.com/attacker/widgets --fill")).toBe("deny");
+  });
+
+  test("denies interactive, external-program, local-input, and malformed creation forms", () => {
+    for (const command of [
+      "GH_EDITOR=printf gh pr create --repo github.com/acme/widgets --editor",
+      "GH_BROWSER=printf gh pr create --repo github.com/acme/widgets --web",
+      "gh pr create --repo github.com/acme/widgets --body-file README.md --title test",
+      "gh pr create --repo github.com/acme/widgets --template pull_request.md --title test",
+      "gh pr create --repo github.com/acme/widgets --recover recovery.txt",
+      "gh pr create --repo github.com/acme/widgets --attach screenshot.png --fill",
+      "gh pr create --repo github.com/acme/widgets --dry-run --fill",
+      "gh pr create --repo github.com/acme/widgets --unknown --fill",
+      "gh pr create --repo github.com/acme/widgets --fill --fill-first",
+      "gh pr create --repo github.com/acme/widgets --title fix",
+      "gh pr create --repo github.com/acme/widgets --body details",
+      "gh pr create --repo github.com/acme/widgets --fill extra",
+      "gh pr create --repo github.com/acme/widgets --repo github.com/acme/widgets --fill",
+      "GH_EDITOR=printf gh pr create --repo github.com/acme/widgets --fill",
+      "/usr/bin/gh pr create --repo github.com/acme/widgets --fill",
+      "gh pr create --repo github.com/acme/widgets --fill > result.txt",
+    ]) expect(decision(command), command).toBe("deny");
   });
 
   test("denies direct gh api calls, including pull-request equivalents", () => {
@@ -101,12 +125,18 @@ describe("gh pr create policy", () => {
     expect(decision("eval 'gh pr create --repo github.com/attacker/widgets --fill'")).toBe("deny");
     expect(decision("gh alias set create-pr 'pr create --repo github.com/attacker/widgets'")).toBe("deny");
     expect(decision("gh alias set 'api create-pr' 'api repos/attacker/widgets/pulls -f title=fix'")).toBe("deny");
+    expect(decision("gh pr create-pr --fill")).toBe("deny");
+    expect(decision("gh repo custom-command")).toBe("deny");
+    expect(decision("gh rs custom-command")).toBe("deny");
     expect(decision("gh alias import aliases.txt")).toBe("deny");
     expect(decision("gh create-pr --fill")).toBe("deny");
     expect(decision("gh extension exec create-pr --fill")).toBe("deny");
     expect(decision("gh ext exec create-pr --fill")).toBe("deny");
     expect(decision("gh extensions exec create-pr --fill")).toBe("deny");
     expect(decision("doas gh pr create --repo github.com/attacker/widgets --fill")).toBe("deny");
+    expect(decision("strace --output=trace.log gh pr create --repo github.com/attacker/widgets --fill")).toBe("deny");
+    expect(decision("timeout --verbose 5s gh pr create --repo github.com/attacker/widgets --fill")).toBe("deny");
+    expect(decision("env --argv0=gh gh pr create --repo github.com/attacker/widgets --fill")).toBe("deny");
     expect(decision("gh pr new --repo github.com/attacker/widgets --fill")).toBe("deny");
     expect(decision("printf '%s\\n' 'gh pr create --repo github.com/attacker/widgets --fill' | bash")).toBe("deny");
     expect(decision("printf '%s\\n' 'g\\h pr create --repo github.com/attacker/widgets --fill' | bash")).toBe("deny");
@@ -114,6 +144,26 @@ describe("gh pr create policy", () => {
     expect(decision("g\\" + "\n" + "h api user")).toBe("ignore");
     expect(decision("gh alias $'set' create-pr 'pr create --repo github.com/attacker/widgets'")).toBe("deny");
     expect(decision("gh ext $'exec' create-pr --fill")).toBe("deny");
+  });
+
+  test("property: unknown children under every native command-group form are denied", () => {
+    for (const rule of GH_READ_ONLY_RULES.filter((candidate) => candidate.kind === "group")) {
+      const forms = [rule.path, ...ghNativeAliasesForRule(rule)];
+      for (const form of forms) {
+        const command = `gh ${form.join(" ")} safety-core-dynamic-child`;
+        expect(decision(command), command).toBe("deny");
+      }
+    }
+  });
+
+  test("property: unresolved children under every native command-group form are denied", () => {
+    for (const rule of GH_READ_ONLY_RULES.filter((candidate) => candidate.kind === "group")) {
+      const forms = [rule.path, ...ghNativeAliasesForRule(rule)];
+      for (const form of forms) {
+        const command = `CHILD=$(printf safety-core-dynamic-child); gh ${form.join(" ")} "$CHILD"`;
+        expect(decision(command), command).toBe("deny");
+      }
+    }
   });
 
   test("denies pipeline-fed interpreters through every transparent wrapper", () => {
@@ -141,8 +191,8 @@ describe("gh pr create policy", () => {
     expect(decision("g\\h pr create --repo github.com/attacker/widgets --fill")).toBe("deny");
   });
 
-  test("allows assignment-resolved and transparently wrapped allowlisted invocations", () => {
-    expect(decision("TOOL=gh; strace $TOOL pr create --repo github.com/acme/widgets --fill")).toBe("allow");
+  test("keeps assignment-resolved and wrapped allowlisted invocations prompt-gated", () => {
+    expect(decision("TOOL=gh; strace $TOOL pr create --repo github.com/acme/widgets --fill")).toBe("defer");
   });
 
   test("does not restrict documented non-PR gh commands", () => {
@@ -152,6 +202,9 @@ describe("gh pr create policy", () => {
     expect(decision("gh skill list")).toBe("ignore");
     expect(decision("gh ext list")).toBe("ignore");
     expect(decision("gh environment")).toBe("ignore");
+    expect(decision("gh pr ls")).toBe("ignore");
+    expect(decision("gh credits")).toBe("ignore");
+    expect(decision("gh send-telemetry --help")).toBe("ignore");
   });
 
   test("property: repository and organization allowlists never admit a different owner or repo", () => {
@@ -179,7 +232,7 @@ describe("gh pr create policy", () => {
         allowedOrganizations: [],
       };
 
-      expect(decision(command, generatedPolicy)).toBe(allowed ? "allow" : "deny");
+      expect(decision(command, generatedPolicy)).toBe(allowed ? "defer" : "deny");
     }
   });
 
@@ -202,7 +255,7 @@ describe("gh pr create policy", () => {
       };
 
       expect(decision(`gh pr create --repo github.com/${targetOrganization}/${repository} --fill`, generatedPolicy))
-        .toBe(allowed ? "allow" : "deny");
+        .toBe(allowed ? "defer" : "deny");
     }
   });
 });

@@ -16,7 +16,7 @@ import {
   createBashProfileSnapshotSource,
   discoverWasmDir,
   evaluateConfiguredBash,
-  gitPolicyInitialEnvironment,
+  policyInitialEnvironment,
   initBashParser,
   isSecretPath,
   setJudgeProvider,
@@ -73,8 +73,8 @@ export async function createOpenCodePlugin(
       // ── Rule-based checks: hard-block clear violations ────────────
       const snapshot = profileSnapshots.reloadIfChanged();
       const evaluation = await evaluateForOpenCode(command, permissionEvaluator, snapshot, client, () => bashResults.shouldNotifyAnalysisFailure(input, command, bashResults.sessionID(input)));
-      const guardReason = openCodeBashGuardBlockReason(evaluation);
-      if (guardReason) throw new Error(guardReason);
+      const blockReason = openCodeBashGuardBlockReason(evaluation);
+      if (blockReason) throw new Error(blockReason);
 
       // ── LLM Judge: second pass for secret-adjacent commands ──────────
       if (shouldInvokeJudge(command)) {
@@ -187,7 +187,7 @@ function matchesSecretKeyword(command: string): boolean {
 type BashConfiguredEvaluator = (options: BashConfiguredOptions) => BashConfiguredEvaluation;
 
 function evaluateConfigured(command: string, evaluate: BashConfiguredEvaluator, version: BashProfileSnapshotVersion): BashConfiguredEvaluation {
-  return evaluate({ source: command, initialEnvironment: gitPolicyInitialEnvironment(process.env), profileSnapshot: version.snapshot });
+  return evaluate({ source: command, initialEnvironment: policyInitialEnvironment(process.env), profileSnapshot: version.snapshot });
 }
 
 async function evaluateForOpenCode(
@@ -233,14 +233,18 @@ function defaultAuditPath(agent: string): string {
   return join(process.env.XDG_STATE_HOME ?? join(process.env.HOME ?? "", ".local", "state"), agent, "kubectl-secret-audit.jsonl");
 }
 
-/** Map one deny-only core guard evaluation to OpenCode's existing messages. */
+/** Map every proven core denial to an OpenCode pre-execution block. */
 export function openCodeBashGuardBlockReason(
   evaluation: BashConfiguredEvaluation,
 ): string | null {
-  if (evaluation.guards.kind === "pass") return null;
-  return evaluation.guards.policy.name === "github-http"
-    ? evaluation.guards.reason
-    : `Blocked by OpenCode safety policy: ${evaluation.guards.reason}`;
+  if (evaluation.guards.kind === "block") {
+    return evaluation.guards.policy.name === "github-http"
+      ? evaluation.guards.reason
+      : `Blocked by OpenCode safety policy: ${evaluation.guards.reason}`;
+  }
+  return evaluation.permission.kind === "deny"
+    ? `Blocked by OpenCode safety policy: ${evaluation.permission.reason}`
+    : null;
 }
 
 interface BashLifecycleInput {

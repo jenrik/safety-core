@@ -24,8 +24,8 @@ mutators, interpreters, and command runners are also excluded.
 The following opt-in Nix options use the shared parser and require one literal
 standalone command. They reject explicit executable paths, leading environment
 assignments, shell syntax, redirects, quoting, expansions, unknown flags, and
-secret-shaped positional paths. The only accepted options are `gh -R/--repo`,
-`kubectl`/`oc -n/--namespace` and `--context`, and npm `--json`. These options
+secret-shaped positional paths. Accepted options are command-specific;
+`kubectl`/`oc -n/--namespace` and `--context`, and npm `--json` are representative examples. These options
 may appear before or after command operands where their CLIs support it. Other
 options remain prompt-gated because these tools commonly use them for
 credentials, output files, configuration selection, execution, or local
@@ -33,7 +33,7 @@ mutation.
 
 | Nix option | Executable | Approved command paths |
 | --- | --- | --- |
-| `ghReadOnly` | `gh` | help/version, account and repository-list metadata, extension/cache/search/project/ruleset/workflow inspection; configured aliases, repository README display, and code search are excluded, and `gh api` remains subject to `ghApiReadOnly` |
+| `ghReadOnly` | `gh` | All audited forms currently defer because common GitHub CLI startup can migrate configuration, check for updates, and launch telemetry before dispatch. `gh api` remains owned by `ghApiReadOnly`, and `gh pr create` remains owned by `ghPrCreate`. See the [exhaustive GitHub CLI 2.100.0 audit](./gh-read-only-command-audit.md). |
 | `helmReadOnly` | `helm` | help/completion, search/chart metadata and documented aliases, verify, version; repository configuration, lint, and chart values/README/CRD contents are excluded because they can expose credentials or chart values |
 | `argocdReadOnly` | `argocd` | account inspection, app/appset/cluster/repository/project lists, project role lists and the `project`/`proj` aliases, version |
 | `cosignReadOnly` | `cosign` | tree, verify variants, version; environment output is excluded |
@@ -53,6 +53,13 @@ mutation.
 | `pipReadOnly` | `pip` | local environment inspection: check, freeze, inspect, list, show, version |
 | `uvReadOnly` | `uv` | environment/package/cache/workspace inspection paths; project `tree` is excluded because it can create or update `uv.lock` |
 | `yarnReadOnly` | `yarn` | package/workspace/plugin inspection paths |
+
+`ghApiReadOnly` still denies mutating methods, and `ghPrCreate` still blocks
+non-allowlisted targets and unsafe forms. Owned API reads and allowlisted PR
+creation remain prompt-gated because GitHub CLI startup can migrate
+configuration, access credential storage, check for updates, and launch
+telemetry before dispatch. Pager and prompt controls remain necessary but are
+not sufficient startup proofs.
 
 `kubeseal` is intentionally not profiled: its primary purpose is reading or
 creating encrypted Secret data. Runtimes and package/tool runners (`bash`,

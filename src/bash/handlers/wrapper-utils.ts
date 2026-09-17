@@ -1,6 +1,6 @@
 import type { CommandHandler, StructuralDispatchContext, InvocationCursor } from "../dispatch.js";
 import { isBindingResolvedWord, type ResolvedWord } from "../expand.js";
-import { indeterminate, type Outcome } from "../outcome.js";
+import { indeterminate, strongestOutcome, type Outcome } from "../outcome.js";
 import type { BashDispatchResult } from "../walker.js";
 
 export type WrapperParser = (arguments_: readonly ResolvedWord[], context: StructuralDispatchContext) => BashDispatchResult;
@@ -9,9 +9,26 @@ export function wrapperHandler(name: string, parse: WrapperParser): CommandHandl
   return Object.freeze({
     name,
     handle(cursor: InvocationCursor, context: StructuralDispatchContext): BashDispatchResult {
-      return parse(cursor.invocation.argv, context);
+      const result = parse(cursor.invocation.argv, context);
+      return hasUnsafeWrapperEnvelope(cursor)
+        ? taintWrapperResult(result, context)
+        : result;
     },
   });
+}
+
+export function hasUnsafeWrapperEnvelope(cursor: InvocationCursor): boolean {
+  const executable = cursor.invocation.executable;
+  return (executable?.kind === "known" && executable.value.includes("/"))
+    || cursor.invocation.assignmentPatch.writes.size > 0
+    || cursor.invocation.redirects.length > 0;
+}
+
+/** Preserve child analysis while preventing unsafe wrapper behavior from authorizing it. */
+export function taintWrapperResult(result: BashDispatchResult, context: StructuralDispatchContext): BashDispatchResult {
+  const uncertain = indeterminate(context.span);
+  if ("kind" in result) return strongestOutcome([result, uncertain]);
+  return Object.freeze({ ...result, outcome: strongestOutcome([result.outcome, uncertain]) });
 }
 
 export function parseOptionChild(

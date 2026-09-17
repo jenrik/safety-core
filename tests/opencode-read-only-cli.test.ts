@@ -53,7 +53,8 @@ describe("OpenCode read-only CLI profiles", () => {
       }),
     );
 
-    expect(await permissionStatus("gh -R acme/widgets label list")).toBe("allow");
+    expect(await permissionStatus("gh version")).toBe("ask");
+    expect(await permissionStatus("gh label list")).toBe("ask");
     expect(await permissionStatus("tea --help")).toBe("allow");
     expect(await permissionStatus("tea pr merge 3 --repo example/project -s merge")).toBe("ask");
     expect(await permissionStatus("git show --no-ext-diff HEAD | sha256sum && git diff --stat origin/main...origin/feature")).toBe("allow");
@@ -65,7 +66,8 @@ describe("OpenCode read-only CLI profiles", () => {
     expect(await permissionStatus("podman network list")).toBe("allow");
     expect(await permissionStatus("tofu providers schema -json")).toBe("ask");
     expect(await permissionStatus("tofu -json providers schema")).toBe("ask");
-    expect(await permissionStatus("gh api user")).toBe("allow");
+    expect(await permissionStatus("gh api user")).toBe("ask");
+    expect(await permissionStatus("GH_PAGER= gh api user")).toBe("ask");
     expect(await permissionStatus("gh issue list; gh repo delete acme/widgets")).toBe("ask");
     expect(await permissionStatus("docker ps")).toBe("ask");
     expect(await permissionStatus("./docker image ls")).toBe("ask");
@@ -93,21 +95,34 @@ describe("OpenCode read-only CLI profiles", () => {
     writeFileSync(join(configHome, "safety-core", "profiles.json"), JSON.stringify({ ghReadOnly: true }));
     const { createOpenCodePlugin } = await import("../adapters/opencode.ts");
     let calls = 0;
+    let environmentNames: string[] = [];
+    const previousDebug = process.env.GH_DEBUG;
+    const previousToken = process.env.GITHUB_TOKEN;
+    process.env.GH_DEBUG = "policy-test";
+    process.env.GITHUB_TOKEN = "excluded-policy-test-token";
     const plugin = await createOpenCodePlugin({
       evaluateConfiguredBash(options: BashConfiguredOptions) {
         calls++;
-        expect(options).toMatchObject({ source: "gh label list", initialEnvironment: { kind: "verified" } });
+        environmentNames = options.initialEnvironment?.kind === "verified" ? Object.keys(options.initialEnvironment.values) : [];
+        expect(options).toMatchObject({ source: "gh version", initialEnvironment: { kind: "verified" } });
         return evaluateConfiguredBash(options);
       },
     });
-    const output = { status: "ask" };
-    await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "gh label list" }, output);
-    expect(output.status).toBe("allow");
-    expect(calls).toBe(1);
+    try {
+      const output = { status: "ask" };
+      await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "gh version" }, output);
+      expect(output.status).toBe("ask");
+      expect(calls).toBe(1);
+      expect(environmentNames).toContain("GH_DEBUG");
+      expect(environmentNames).not.toContain("GITHUB_TOKEN");
+    } finally {
+      if (previousDebug === undefined) delete process.env.GH_DEBUG; else process.env.GH_DEBUG = previousDebug;
+      if (previousToken === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = previousToken;
+    }
   });
 
   test("resolves current OpenCode permission events through the client", async () => {
-    writeFileSync(join(configHome, "safety-core", "profiles.json"), JSON.stringify({ ghReadOnly: true }));
+    writeFileSync(join(configHome, "safety-core", "profiles.json"), JSON.stringify({ readOnlyBash: true }));
     const { createOpenCodePlugin } = await import("../adapters/opencode.ts");
     const replies: unknown[] = [];
     const plugin = await createOpenCodePlugin({}, {
@@ -118,7 +133,7 @@ describe("OpenCode read-only CLI profiles", () => {
     await (plugin.event as Function)({
       event: {
         type: "permission.asked",
-        properties: { id: "request-1", permission: "bash", patterns: ["gh label list"] },
+        properties: { id: "request-1", permission: "bash", patterns: ["tea --help"] },
       },
     });
     expect(replies).toEqual([{ directory: "/workspace", requestID: "request-1", reply: "once" }]);

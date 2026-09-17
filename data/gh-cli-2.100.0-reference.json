@@ -1,0 +1,3055 @@
+{
+  "schemaVersion": 1,
+  "metadata": {
+    "version": "2.100.0",
+    "tag": "v2.100.0",
+    "commit": "45437bc7eeeb3359bbfddd1742f79de7652fd3e2",
+    "capturedAt": "2026-09-16",
+    "source": "https://github.com/cli/cli/tree/45437bc7eeeb3359bbfddd1742f79de7652fd3e2",
+    "captureCommand": "gh help reference; gh help environment; gh help",
+    "referenceSha256": "04c093647206c49bb3cbeb07ebba168d98064eb296417a9e3b6932fc1fc4f4c2",
+    "environmentSha256": "59d6f808e95e7aeabd9ece5f8e3d97733701e5a87ede9e8d0f29232514fdb923",
+    "rootHelpSha256": "8647c5a2d76bfed7a0d94af2b3c30fb1bf0f10bc953951773b3c40710694257b",
+    "fixtureSha256": "f3591a6e27a2332b4abd66923c50730bbb77ecda651d7e9e9036f4ab36dcf146"
+  },
+  "commands": [
+    {
+      "path": [
+        "accessibility"
+      ],
+      "usage": "gh accessibility",
+      "summary": "Built-in route hidden from gh help reference",
+      "aliases": [
+        [
+          "a11y"
+        ]
+      ],
+      "kind": "hidden-command",
+      "preview": false
+    },
+    {
+      "path": [
+        "actions"
+      ],
+      "usage": "gh actions",
+      "summary": "Built-in route hidden from gh help reference",
+      "aliases": [],
+      "kind": "hidden-command",
+      "preview": false
+    },
+    {
+      "path": [
+        "agent-task"
+      ],
+      "usage": "gh agent-task <command>",
+      "summary": "Work with agent tasks (preview)",
+      "aliases": [
+        [
+          "agent-tasks"
+        ],
+        [
+          "agent"
+        ],
+        [
+          "agents"
+        ]
+      ],
+      "kind": "group",
+      "preview": true
+    },
+    {
+      "path": [
+        "agent-task",
+        "create"
+      ],
+      "usage": "gh agent-task create [<task description>] [flags]",
+      "summary": "Create an agent task (preview)",
+      "aliases": [],
+      "kind": "command",
+      "preview": true
+    },
+    {
+      "path": [
+        "agent-task",
+        "list"
+      ],
+      "usage": "gh agent-task list [flags]",
+      "summary": "List agent tasks (preview)",
+      "aliases": [],
+      "kind": "command",
+      "preview": true
+    },
+    {
+      "path": [
+        "agent-task",
+        "view"
+      ],
+      "usage": "gh agent-task view [<session-id> | <pr-number> | <pr-url> | <pr-branch>] [flags]",
+      "summary": "View an agent task session (preview)",
+      "aliases": [],
+      "kind": "command",
+      "preview": true
+    },
+    {
+      "path": [
+        "alias"
+      ],
+      "usage": "gh alias <command>",
+      "summary": "Create command shortcuts",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "alias",
+        "delete"
+      ],
+      "usage": "gh alias delete {<alias> | --all} [flags]",
+      "summary": "Delete set aliases",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "alias",
+        "import"
+      ],
+      "usage": "gh alias import [<filename> | -] [flags]",
+      "summary": "Import aliases from a YAML file",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "alias",
+        "list"
+      ],
+      "usage": "gh alias list",
+      "summary": "List your aliases",
+      "aliases": [
+        [
+          "alias",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "alias",
+        "set"
+      ],
+      "usage": "gh alias set <alias> <expansion> [flags]",
+      "summary": "Create a shortcut for a gh command",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "api"
+      ],
+      "usage": "gh api <endpoint> [flags]",
+      "summary": "Make an authenticated GitHub API request",
+      "aliases": [],
+      "kind": "top-level-command",
+      "preview": false
+    },
+    {
+      "path": [
+        "attestation"
+      ],
+      "usage": "gh attestation [subcommand]",
+      "summary": "Work with artifact attestations",
+      "aliases": [
+        [
+          "at"
+        ]
+      ],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "attestation",
+        "download"
+      ],
+      "usage": "gh attestation download [<file-path> | oci://<image-uri>] [--owner | --repo] [flags]",
+      "summary": "Download an artifact's attestations for offline use",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "attestation",
+        "inspect"
+      ],
+      "usage": "gh attestation inspect",
+      "summary": "Built-in route hidden from gh help reference",
+      "aliases": [],
+      "kind": "hidden-command",
+      "preview": false
+    },
+    {
+      "path": [
+        "attestation",
+        "trusted-root"
+      ],
+      "usage": "gh attestation trusted-root [--tuf-url <url> --tuf-root <file-path>] [--verify-only] [flags]",
+      "summary": "Output trusted_root.jsonl contents, likely for offline verification",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "attestation",
+        "verify"
+      ],
+      "usage": "gh attestation verify [<file-path> | oci://<image-uri>] [--owner | --repo] [flags]",
+      "summary": "Verify an artifact's integrity using attestations",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "auth"
+      ],
+      "usage": "gh auth <command>",
+      "summary": "Authenticate gh and git with GitHub",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "auth",
+        "git-credential"
+      ],
+      "usage": "gh auth git-credential",
+      "summary": "Built-in route hidden from gh help reference",
+      "aliases": [],
+      "kind": "hidden-command",
+      "preview": false
+    },
+    {
+      "path": [
+        "auth",
+        "login"
+      ],
+      "usage": "gh auth login [flags]",
+      "summary": "Log in to a GitHub account",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "auth",
+        "logout"
+      ],
+      "usage": "gh auth logout [flags]",
+      "summary": "Log out of a GitHub account",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "auth",
+        "refresh"
+      ],
+      "usage": "gh auth refresh [flags]",
+      "summary": "Refresh stored authentication credentials",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "auth",
+        "setup-git"
+      ],
+      "usage": "gh auth setup-git [flags]",
+      "summary": "Setup git with GitHub CLI",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "auth",
+        "status"
+      ],
+      "usage": "gh auth status [flags]",
+      "summary": "Display active account and authentication state on each known GitHub host",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "auth",
+        "switch"
+      ],
+      "usage": "gh auth switch [flags]",
+      "summary": "Switch active GitHub account",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "auth",
+        "token"
+      ],
+      "usage": "gh auth token [flags]",
+      "summary": "Print the authentication token gh uses for a hostname and account",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "browse"
+      ],
+      "usage": "gh browse [<number> | <path> | <commit-sha>] [flags]",
+      "summary": "Open repositories, issues, pull requests, and more in the browser",
+      "aliases": [],
+      "kind": "top-level-command",
+      "preview": false
+    },
+    {
+      "path": [
+        "cache"
+      ],
+      "usage": "gh cache <command>",
+      "summary": "Manage GitHub Actions caches",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "cache",
+        "delete"
+      ],
+      "usage": "gh cache delete [<cache-id> | <cache-key> | --all] [flags]",
+      "summary": "Delete GitHub Actions caches",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "cache",
+        "list"
+      ],
+      "usage": "gh cache list [flags]",
+      "summary": "List GitHub Actions caches",
+      "aliases": [
+        [
+          "cache",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "codespace"
+      ],
+      "usage": "gh codespace",
+      "summary": "Connect to and manage codespaces",
+      "aliases": [
+        [
+          "cs"
+        ]
+      ],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "codespace",
+        "code"
+      ],
+      "usage": "gh codespace code [flags]",
+      "summary": "Open a codespace in Visual Studio Code",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "codespace",
+        "cp"
+      ],
+      "usage": "gh codespace cp [-e] [-r] [-- [<scp flags>...]] <sources>... <dest>",
+      "summary": "Copy files between local and remote file systems",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "codespace",
+        "create"
+      ],
+      "usage": "gh codespace create [flags]",
+      "summary": "Create a codespace",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "codespace",
+        "delete"
+      ],
+      "usage": "gh codespace delete [flags]",
+      "summary": "Delete codespaces",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "codespace",
+        "edit"
+      ],
+      "usage": "gh codespace edit [flags]",
+      "summary": "Edit a codespace",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "codespace",
+        "jupyter"
+      ],
+      "usage": "gh codespace jupyter [flags]",
+      "summary": "Open a codespace in JupyterLab",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "codespace",
+        "list"
+      ],
+      "usage": "gh codespace list [flags]",
+      "summary": "List codespaces",
+      "aliases": [
+        [
+          "codespace",
+          "ls"
+        ],
+        [
+          "cs",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "codespace",
+        "logs"
+      ],
+      "usage": "gh codespace logs [flags]",
+      "summary": "Access codespace logs",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "codespace",
+        "ports"
+      ],
+      "usage": "gh codespace ports [flags]",
+      "summary": "List ports in a codespace",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "codespace",
+        "ports",
+        "forward"
+      ],
+      "usage": "gh codespace ports forward <remote-port>:<local-port>... [flags]",
+      "summary": "Forward ports",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "codespace",
+        "ports",
+        "visibility"
+      ],
+      "usage": "gh codespace ports visibility <port>:{public|private|org}...",
+      "summary": "Change the visibility of the forwarded port",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "codespace",
+        "rebuild"
+      ],
+      "usage": "gh codespace rebuild [flags]",
+      "summary": "Rebuild a codespace",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "codespace",
+        "select"
+      ],
+      "usage": "gh codespace select",
+      "summary": "Built-in route hidden from gh help reference",
+      "aliases": [],
+      "kind": "hidden-command",
+      "preview": false
+    },
+    {
+      "path": [
+        "codespace",
+        "ssh"
+      ],
+      "usage": "gh codespace ssh [<flags>...] [-- <ssh-flags>...] [<command>]",
+      "summary": "SSH into a codespace",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "codespace",
+        "stop"
+      ],
+      "usage": "gh codespace stop [flags]",
+      "summary": "Stop a running codespace",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "codespace",
+        "view"
+      ],
+      "usage": "gh codespace view [flags]",
+      "summary": "View details about a codespace",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "completion"
+      ],
+      "usage": "gh completion -s <shell>",
+      "summary": "Generate shell completion scripts",
+      "aliases": [],
+      "kind": "top-level-command",
+      "preview": false
+    },
+    {
+      "path": [
+        "config"
+      ],
+      "usage": "gh config <command>",
+      "summary": "Manage configuration for gh",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "config",
+        "clear-cache"
+      ],
+      "usage": "gh config clear-cache",
+      "summary": "Clear the cli cache",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "config",
+        "get"
+      ],
+      "usage": "gh config get <key> [flags]",
+      "summary": "Print the value of a given configuration key",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "config",
+        "list"
+      ],
+      "usage": "gh config list [flags]",
+      "summary": "Print a list of configuration keys and values",
+      "aliases": [
+        [
+          "config",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "config",
+        "set"
+      ],
+      "usage": "gh config set <key> <value> [flags]",
+      "summary": "Update configuration with a value for the given key",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "copilot"
+      ],
+      "usage": "gh copilot [flags] [args]",
+      "summary": "Run the GitHub Copilot CLI (preview)",
+      "aliases": [],
+      "kind": "top-level-command",
+      "preview": true
+    },
+    {
+      "path": [
+        "credits"
+      ],
+      "usage": "gh credits",
+      "summary": "Built-in route hidden from gh help reference",
+      "aliases": [],
+      "kind": "hidden-command",
+      "preview": false
+    },
+    {
+      "path": [
+        "discussion"
+      ],
+      "usage": "gh discussion <command>",
+      "summary": "Work with GitHub Discussions (preview)",
+      "aliases": [],
+      "kind": "group",
+      "preview": true
+    },
+    {
+      "path": [
+        "discussion",
+        "comment"
+      ],
+      "usage": "gh discussion comment {<number> | <discussion-url> | <comment-id> | <comment-url>} [flags]",
+      "summary": "Add, edit, or delete a comment or a reply on a discussion (preview)",
+      "aliases": [],
+      "kind": "command",
+      "preview": true
+    },
+    {
+      "path": [
+        "discussion",
+        "create"
+      ],
+      "usage": "gh discussion create [flags]",
+      "summary": "Create a new discussion (preview)",
+      "aliases": [],
+      "kind": "command",
+      "preview": true
+    },
+    {
+      "path": [
+        "discussion",
+        "edit"
+      ],
+      "usage": "gh discussion edit {<number> | <discussion-url>} [flags]",
+      "summary": "Edit a discussion (preview)",
+      "aliases": [],
+      "kind": "command",
+      "preview": true
+    },
+    {
+      "path": [
+        "discussion",
+        "list"
+      ],
+      "usage": "gh discussion list [flags]",
+      "summary": "List discussions in a repository (preview)",
+      "aliases": [
+        [
+          "discussion",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": true
+    },
+    {
+      "path": [
+        "discussion",
+        "view"
+      ],
+      "usage": "gh discussion view {<number> | <discussion-url> | <comment-id> | <comment-url>} [flags]",
+      "summary": "View a discussion (preview)",
+      "aliases": [],
+      "kind": "command",
+      "preview": true
+    },
+    {
+      "path": [
+        "extension"
+      ],
+      "usage": "gh extension",
+      "summary": "Manage gh extensions",
+      "aliases": [
+        [
+          "extensions"
+        ],
+        [
+          "ext"
+        ]
+      ],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "extension",
+        "browse"
+      ],
+      "usage": "gh extension browse [flags]",
+      "summary": "Enter a UI for browsing, adding, and removing extensions",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "extension",
+        "create"
+      ],
+      "usage": "gh extension create [<name>] [flags]",
+      "summary": "Create a new extension",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "extension",
+        "exec"
+      ],
+      "usage": "gh extension exec <name> [args]",
+      "summary": "Execute an installed extension",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "extension",
+        "install"
+      ],
+      "usage": "gh extension install <repository> [flags]",
+      "summary": "Install a gh extension from a repository",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "extension",
+        "list"
+      ],
+      "usage": "gh extension list",
+      "summary": "List installed extension commands",
+      "aliases": [
+        [
+          "ext",
+          "ls"
+        ],
+        [
+          "extension",
+          "ls"
+        ],
+        [
+          "extensions",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "extension",
+        "remove"
+      ],
+      "usage": "gh extension remove <name>",
+      "summary": "Remove an installed extension",
+      "aliases": [
+        [
+          "ext",
+          "uninstall"
+        ],
+        [
+          "extension",
+          "uninstall"
+        ],
+        [
+          "extensions",
+          "uninstall"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "extension",
+        "search"
+      ],
+      "usage": "gh extension search [<query>] [flags]",
+      "summary": "Search extensions to the GitHub CLI",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "extension",
+        "upgrade"
+      ],
+      "usage": "gh extension upgrade {<name> | --all} [flags]",
+      "summary": "Upgrade installed extensions",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "gist"
+      ],
+      "usage": "gh gist <command>",
+      "summary": "Manage gists",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "gist",
+        "clone"
+      ],
+      "usage": "gh gist clone <gist> [<directory>] [-- <gitflags>...]",
+      "summary": "Clone a gist locally",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "gist",
+        "create"
+      ],
+      "usage": "gh gist create [<filename>... | <pattern>... | -] [flags]",
+      "summary": "Create a new gist",
+      "aliases": [
+        [
+          "gist",
+          "new"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "gist",
+        "delete"
+      ],
+      "usage": "gh gist delete {<id> | <url>} [flags]",
+      "summary": "Delete a gist",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "gist",
+        "edit"
+      ],
+      "usage": "gh gist edit {<id> | <url>} [<filename>] [flags]",
+      "summary": "Edit one of your gists",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "gist",
+        "list"
+      ],
+      "usage": "gh gist list [flags]",
+      "summary": "List your gists",
+      "aliases": [
+        [
+          "gist",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "gist",
+        "rename"
+      ],
+      "usage": "gh gist rename {<id> | <url>} <old-filename> <new-filename>",
+      "summary": "Rename a file in a gist",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "gist",
+        "view"
+      ],
+      "usage": "gh gist view [<id> | <url>] [flags]",
+      "summary": "View a gist",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "gpg-key"
+      ],
+      "usage": "gh gpg-key <command>",
+      "summary": "Manage GPG keys",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "gpg-key",
+        "add"
+      ],
+      "usage": "gh gpg-key add [<key-file>] [flags]",
+      "summary": "Add a GPG key to your GitHub account",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "gpg-key",
+        "delete"
+      ],
+      "usage": "gh gpg-key delete <key-id> [flags]",
+      "summary": "Delete a GPG key from your GitHub account",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "gpg-key",
+        "list"
+      ],
+      "usage": "gh gpg-key list",
+      "summary": "Lists GPG keys in your GitHub account",
+      "aliases": [
+        [
+          "gpg-key",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "issue"
+      ],
+      "usage": "gh issue <command>",
+      "summary": "Manage issues",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "issue",
+        "close"
+      ],
+      "usage": "gh issue close {<number> | <url>} [flags]",
+      "summary": "Close issue",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "issue",
+        "comment"
+      ],
+      "usage": "gh issue comment {<number> | <url>} [flags]",
+      "summary": "Add a comment to an issue",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "issue",
+        "create"
+      ],
+      "usage": "gh issue create [flags]",
+      "summary": "Create a new issue",
+      "aliases": [
+        [
+          "issue",
+          "new"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "issue",
+        "delete"
+      ],
+      "usage": "gh issue delete {<number> | <url>} [flags]",
+      "summary": "Delete issue",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "issue",
+        "develop"
+      ],
+      "usage": "gh issue develop {<number> | <url>} [flags]",
+      "summary": "Manage linked branches for an issue",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "issue",
+        "edit"
+      ],
+      "usage": "gh issue edit {<numbers> | <urls>} [flags]",
+      "summary": "Edit issues",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "issue",
+        "list"
+      ],
+      "usage": "gh issue list [flags]",
+      "summary": "List issues in a repository",
+      "aliases": [
+        [
+          "issue",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "issue",
+        "lock"
+      ],
+      "usage": "gh issue lock {<number> | <url>} [flags]",
+      "summary": "Lock issue conversation",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "issue",
+        "pin"
+      ],
+      "usage": "gh issue pin {<number> | <url>}",
+      "summary": "Pin an issue",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "issue",
+        "reopen"
+      ],
+      "usage": "gh issue reopen {<number> | <url>} [flags]",
+      "summary": "Reopen issue",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "issue",
+        "status"
+      ],
+      "usage": "gh issue status [flags]",
+      "summary": "Show status of relevant issues",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "issue",
+        "transfer"
+      ],
+      "usage": "gh issue transfer {<number> | <url>} <destination-repo>",
+      "summary": "Transfer issue to another repository",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "issue",
+        "unlock"
+      ],
+      "usage": "gh issue unlock {<number> | <url>}",
+      "summary": "Unlock issue conversation",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "issue",
+        "unpin"
+      ],
+      "usage": "gh issue unpin {<number> | <url>}",
+      "summary": "Unpin an issue",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "issue",
+        "view"
+      ],
+      "usage": "gh issue view {<number> | <url>} [flags]",
+      "summary": "View an issue",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "label"
+      ],
+      "usage": "gh label <command>",
+      "summary": "Manage labels",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "label",
+        "clone"
+      ],
+      "usage": "gh label clone <source-repository> [flags]",
+      "summary": "Clones labels from one repository to another",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "label",
+        "create"
+      ],
+      "usage": "gh label create <name> [flags]",
+      "summary": "Create a new label",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "label",
+        "delete"
+      ],
+      "usage": "gh label delete <name> [flags]",
+      "summary": "Delete a label from a repository",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "label",
+        "edit"
+      ],
+      "usage": "gh label edit <name> [flags]",
+      "summary": "Edit a label",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "label",
+        "list"
+      ],
+      "usage": "gh label list [flags]",
+      "summary": "List labels in a repository",
+      "aliases": [
+        [
+          "label",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "licenses"
+      ],
+      "usage": "gh licenses",
+      "summary": "View third-party license information",
+      "aliases": [],
+      "kind": "top-level-command",
+      "preview": false
+    },
+    {
+      "path": [
+        "org"
+      ],
+      "usage": "gh org <command>",
+      "summary": "Manage organizations",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "org",
+        "list"
+      ],
+      "usage": "gh org list [flags]",
+      "summary": "List organizations for the authenticated user.",
+      "aliases": [
+        [
+          "org",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "pr"
+      ],
+      "usage": "gh pr <command>",
+      "summary": "Manage pull requests",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "pr",
+        "checkout"
+      ],
+      "usage": "gh pr checkout [<number> | <url> | <branch>] [flags]",
+      "summary": "Check out a pull request in git",
+      "aliases": [
+        [
+          "pr",
+          "co"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "pr",
+        "checks"
+      ],
+      "usage": "gh pr checks [<number> | <url> | <branch>] [flags]",
+      "summary": "Show CI status for a single pull request",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "pr",
+        "close"
+      ],
+      "usage": "gh pr close {<number> | <url> | <branch>} [flags]",
+      "summary": "Close a pull request",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "pr",
+        "comment"
+      ],
+      "usage": "gh pr comment [<number> | <url> | <branch>] [flags]",
+      "summary": "Add a comment to a pull request",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "pr",
+        "create"
+      ],
+      "usage": "gh pr create [flags]",
+      "summary": "Create a pull request",
+      "aliases": [
+        [
+          "pr",
+          "new"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "pr",
+        "diff"
+      ],
+      "usage": "gh pr diff [<number> | <url> | <branch>] [flags]",
+      "summary": "View changes in a pull request",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "pr",
+        "edit"
+      ],
+      "usage": "gh pr edit [<number> | <url> | <branch>] [flags]",
+      "summary": "Edit a pull request",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "pr",
+        "list"
+      ],
+      "usage": "gh pr list [flags]",
+      "summary": "List pull requests in a repository",
+      "aliases": [
+        [
+          "pr",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "pr",
+        "lock"
+      ],
+      "usage": "gh pr lock {<number> | <url>} [flags]",
+      "summary": "Lock pull request conversation",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "pr",
+        "merge"
+      ],
+      "usage": "gh pr merge [<number> | <url> | <branch>] [flags]",
+      "summary": "Merge a pull request",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "pr",
+        "ready"
+      ],
+      "usage": "gh pr ready [<number> | <url> | <branch>] [flags]",
+      "summary": "Mark a pull request as ready for review",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "pr",
+        "reopen"
+      ],
+      "usage": "gh pr reopen {<number> | <url> | <branch>} [flags]",
+      "summary": "Reopen a pull request",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "pr",
+        "revert"
+      ],
+      "usage": "gh pr revert {<number> | <url> | <branch>} [flags]",
+      "summary": "Revert a pull request",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "pr",
+        "review"
+      ],
+      "usage": "gh pr review [<number> | <url> | <branch>] [flags]",
+      "summary": "Add a review to a pull request",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "pr",
+        "status"
+      ],
+      "usage": "gh pr status [flags]",
+      "summary": "Show status of relevant pull requests",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "pr",
+        "unlock"
+      ],
+      "usage": "gh pr unlock {<number> | <url>}",
+      "summary": "Unlock pull request conversation",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "pr",
+        "update-branch"
+      ],
+      "usage": "gh pr update-branch [<number> | <url> | <branch>] [flags]",
+      "summary": "Update a pull request branch",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "pr",
+        "view"
+      ],
+      "usage": "gh pr view [<number> | <url> | <branch>] [flags]",
+      "summary": "View a pull request",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "preview"
+      ],
+      "usage": "gh preview <command>",
+      "summary": "Execute previews for gh features",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "preview",
+        "prompter"
+      ],
+      "usage": "gh preview prompter [prompt type]",
+      "summary": "Execute a test program to preview the prompter",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "project"
+      ],
+      "usage": "gh project <command>",
+      "summary": "Work with GitHub Projects.",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "project",
+        "close"
+      ],
+      "usage": "gh project close [<number>] [flags]",
+      "summary": "Close a project",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "project",
+        "copy"
+      ],
+      "usage": "gh project copy [<number>] [flags]",
+      "summary": "Copy a project",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "project",
+        "create"
+      ],
+      "usage": "gh project create [flags]",
+      "summary": "Create a project",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "project",
+        "delete"
+      ],
+      "usage": "gh project delete [<number>] [flags]",
+      "summary": "Delete a project",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "project",
+        "edit"
+      ],
+      "usage": "gh project edit [<number>] [flags]",
+      "summary": "Edit a project",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "project",
+        "field-create"
+      ],
+      "usage": "gh project field-create [<number>] [flags]",
+      "summary": "Create a field in a project",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "project",
+        "field-delete"
+      ],
+      "usage": "gh project field-delete [flags]",
+      "summary": "Delete a field in a project",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "project",
+        "field-list"
+      ],
+      "usage": "gh project field-list [<number>] [flags]",
+      "summary": "List the fields in a project",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "project",
+        "item-add"
+      ],
+      "usage": "gh project item-add [<number>] [flags]",
+      "summary": "Add a pull request or an issue to a project",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "project",
+        "item-archive"
+      ],
+      "usage": "gh project item-archive [<number>] [flags]",
+      "summary": "Archive an item in a project",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "project",
+        "item-create"
+      ],
+      "usage": "gh project item-create [<number>] [flags]",
+      "summary": "Create a draft issue item in a project",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "project",
+        "item-delete"
+      ],
+      "usage": "gh project item-delete [<number>] [flags]",
+      "summary": "Delete an item from a project by ID",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "project",
+        "item-edit"
+      ],
+      "usage": "gh project item-edit [<number>] [flags]",
+      "summary": "Edit an item in a project",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "project",
+        "item-list"
+      ],
+      "usage": "gh project item-list [<number>] [flags]",
+      "summary": "List the items in a project",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "project",
+        "link"
+      ],
+      "usage": "gh project link [<number>] [flags]",
+      "summary": "Link a project to a repository or a team",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "project",
+        "list"
+      ],
+      "usage": "gh project list [flags]",
+      "summary": "List the projects for an owner",
+      "aliases": [
+        [
+          "project",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "project",
+        "mark-template"
+      ],
+      "usage": "gh project mark-template [<number>] [flags]",
+      "summary": "Mark a project as a template",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "project",
+        "unlink"
+      ],
+      "usage": "gh project unlink [<number>] [flags]",
+      "summary": "Unlink a project from a repository or a team",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "project",
+        "view"
+      ],
+      "usage": "gh project view [<number>] [flags]",
+      "summary": "View a project",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "release"
+      ],
+      "usage": "gh release <command>",
+      "summary": "Manage releases",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "release",
+        "create"
+      ],
+      "usage": "gh release create [<tag>] [<filename>... | <pattern>...]",
+      "summary": "Create a new release",
+      "aliases": [
+        [
+          "release",
+          "new"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "release",
+        "delete"
+      ],
+      "usage": "gh release delete <tag> [flags]",
+      "summary": "Delete a release",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "release",
+        "delete-asset"
+      ],
+      "usage": "gh release delete-asset <tag> <asset-name> [flags]",
+      "summary": "Delete an asset from a release",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "release",
+        "download"
+      ],
+      "usage": "gh release download [<tag>] [flags]",
+      "summary": "Download release assets",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "release",
+        "edit"
+      ],
+      "usage": "gh release edit <tag>",
+      "summary": "Edit a release",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "release",
+        "list"
+      ],
+      "usage": "gh release list [flags]",
+      "summary": "List releases in a repository",
+      "aliases": [
+        [
+          "release",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "release",
+        "upload"
+      ],
+      "usage": "gh release upload <tag> <files>... [flags]",
+      "summary": "Upload assets to a release",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "release",
+        "verify"
+      ],
+      "usage": "gh release verify [<tag>] [flags]",
+      "summary": "Verify the attestation for a release",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "release",
+        "verify-asset"
+      ],
+      "usage": "gh release verify-asset [<tag>] <file-path> [flags]",
+      "summary": "Verify that a given asset originated from a release",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "release",
+        "view"
+      ],
+      "usage": "gh release view [<tag>] [flags]",
+      "summary": "View information about a release",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo"
+      ],
+      "usage": "gh repo <command>",
+      "summary": "Manage repositories",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "archive"
+      ],
+      "usage": "gh repo archive [<repository>] [flags]",
+      "summary": "Archive a repository",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "autolink"
+      ],
+      "usage": "gh repo autolink <command>",
+      "summary": "Manage autolink references",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "autolink",
+        "create"
+      ],
+      "usage": "gh repo autolink create <keyPrefix> <urlTemplate> [flags]",
+      "summary": "Create a new autolink reference",
+      "aliases": [
+        [
+          "repo",
+          "autolink",
+          "new"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "autolink",
+        "delete"
+      ],
+      "usage": "gh repo autolink delete <id> [flags]",
+      "summary": "Delete an autolink reference",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "autolink",
+        "list"
+      ],
+      "usage": "gh repo autolink list [flags]",
+      "summary": "List autolink references for a GitHub repository",
+      "aliases": [
+        [
+          "repo",
+          "autolink",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "autolink",
+        "view"
+      ],
+      "usage": "gh repo autolink view <id> [flags]",
+      "summary": "View an autolink reference",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "clone"
+      ],
+      "usage": "gh repo clone <repository> [<directory>] [-- <gitflags>...]",
+      "summary": "Clone a repository locally",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "create"
+      ],
+      "usage": "gh repo create [<name>] [flags]",
+      "summary": "Create a new repository",
+      "aliases": [
+        [
+          "repo",
+          "new"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "credits"
+      ],
+      "usage": "gh repo credits",
+      "summary": "Built-in route hidden from gh help reference",
+      "aliases": [],
+      "kind": "hidden-command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "delete"
+      ],
+      "usage": "gh repo delete [<repository>] [flags]",
+      "summary": "Delete a repository",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "deploy-key"
+      ],
+      "usage": "gh repo deploy-key <command>",
+      "summary": "Manage deploy keys in a repository",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "deploy-key",
+        "add"
+      ],
+      "usage": "gh repo deploy-key add <key-file> [flags]",
+      "summary": "Add a deploy key to a GitHub repository",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "deploy-key",
+        "delete"
+      ],
+      "usage": "gh repo deploy-key delete <key-id>",
+      "summary": "Delete a deploy key from a GitHub repository",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "deploy-key",
+        "list"
+      ],
+      "usage": "gh repo deploy-key list [flags]",
+      "summary": "List deploy keys in a GitHub repository",
+      "aliases": [
+        [
+          "repo",
+          "deploy-key",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "edit"
+      ],
+      "usage": "gh repo edit [<repository>] [flags]",
+      "summary": "Edit repository settings",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "fork"
+      ],
+      "usage": "gh repo fork [<repository>] [-- <gitflags>...] [flags]",
+      "summary": "Create a fork of a repository",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "garden"
+      ],
+      "usage": "gh repo garden",
+      "summary": "Built-in route hidden from gh help reference",
+      "aliases": [],
+      "kind": "hidden-command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "gitignore"
+      ],
+      "usage": "gh repo gitignore <command>",
+      "summary": "List and view available repository gitignore templates",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "gitignore",
+        "list"
+      ],
+      "usage": "gh repo gitignore list",
+      "summary": "List available repository gitignore templates",
+      "aliases": [
+        [
+          "repo",
+          "gitignore",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "gitignore",
+        "view"
+      ],
+      "usage": "gh repo gitignore view <template>",
+      "summary": "View an available repository gitignore template",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "license"
+      ],
+      "usage": "gh repo license <command>",
+      "summary": "Explore repository licenses",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "license",
+        "list"
+      ],
+      "usage": "gh repo license list",
+      "summary": "List common repository licenses",
+      "aliases": [
+        [
+          "repo",
+          "license",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "license",
+        "view"
+      ],
+      "usage": "gh repo license view {<license-key> | <spdx-id>} [flags]",
+      "summary": "View a specific repository license",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "list"
+      ],
+      "usage": "gh repo list [<owner>] [flags]",
+      "summary": "List repositories owned by user or organization",
+      "aliases": [
+        [
+          "repo",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "read-dir"
+      ],
+      "usage": "gh repo read-dir [<path>] [flags]",
+      "summary": "List a directory in a repository (preview)",
+      "aliases": [],
+      "kind": "command",
+      "preview": true
+    },
+    {
+      "path": [
+        "repo",
+        "read-file"
+      ],
+      "usage": "gh repo read-file <path> [flags]",
+      "summary": "Read a file from a repository (preview)",
+      "aliases": [],
+      "kind": "command",
+      "preview": true
+    },
+    {
+      "path": [
+        "repo",
+        "rename"
+      ],
+      "usage": "gh repo rename [<new-name>] [flags]",
+      "summary": "Rename a repository",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "set-default"
+      ],
+      "usage": "gh repo set-default [<repository>] [flags]",
+      "summary": "Configure default repository for this directory",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "sync"
+      ],
+      "usage": "gh repo sync [<destination-repository>] [flags]",
+      "summary": "Sync a repository",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "unarchive"
+      ],
+      "usage": "gh repo unarchive [<repository>] [flags]",
+      "summary": "Unarchive a repository",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "repo",
+        "view"
+      ],
+      "usage": "gh repo view [<repository>] [flags]",
+      "summary": "View a repository",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "ruleset"
+      ],
+      "usage": "gh ruleset <command>",
+      "summary": "View info about repo rulesets",
+      "aliases": [
+        [
+          "rs"
+        ]
+      ],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "ruleset",
+        "check"
+      ],
+      "usage": "gh ruleset check [<branch>] [flags]",
+      "summary": "View rules that would apply to a given branch",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "ruleset",
+        "list"
+      ],
+      "usage": "gh ruleset list [flags]",
+      "summary": "List rulesets for a repository or organization",
+      "aliases": [
+        [
+          "rs",
+          "ls"
+        ],
+        [
+          "ruleset",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "ruleset",
+        "view"
+      ],
+      "usage": "gh ruleset view [<ruleset-id>] [flags]",
+      "summary": "View information about a ruleset",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "run"
+      ],
+      "usage": "gh run <command>",
+      "summary": "View details about workflow runs",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "run",
+        "cancel"
+      ],
+      "usage": "gh run cancel [<run-id>] [flags]",
+      "summary": "Cancel a workflow run",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "run",
+        "delete"
+      ],
+      "usage": "gh run delete [<run-id>]",
+      "summary": "Delete a workflow run",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "run",
+        "download"
+      ],
+      "usage": "gh run download [<run-id>] [flags]",
+      "summary": "Download artifacts generated by a workflow run",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "run",
+        "list"
+      ],
+      "usage": "gh run list [flags]",
+      "summary": "List recent workflow runs",
+      "aliases": [
+        [
+          "run",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "run",
+        "rerun"
+      ],
+      "usage": "gh run rerun [<run-id>] [flags]",
+      "summary": "Rerun a run",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "run",
+        "view"
+      ],
+      "usage": "gh run view [<run-id>] [flags]",
+      "summary": "View a summary of a workflow run",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "run",
+        "watch"
+      ],
+      "usage": "gh run watch <run-id> [flags]",
+      "summary": "Watch a run until it completes, showing its progress",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "search"
+      ],
+      "usage": "gh search <command>",
+      "summary": "Search for repositories, issues, and pull requests",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "search",
+        "code"
+      ],
+      "usage": "gh search code <query> [flags]",
+      "summary": "Search within code",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "search",
+        "commits"
+      ],
+      "usage": "gh search commits [<query>] [flags]",
+      "summary": "Search for commits",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "search",
+        "issues"
+      ],
+      "usage": "gh search issues [<query>] [flags]",
+      "summary": "Search for issues",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "search",
+        "prs"
+      ],
+      "usage": "gh search prs [<query>] [flags]",
+      "summary": "Search for pull requests",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "search",
+        "repos"
+      ],
+      "usage": "gh search repos [<query>] [flags]",
+      "summary": "Search for repositories",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "secret"
+      ],
+      "usage": "gh secret <command>",
+      "summary": "Manage GitHub secrets",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "secret",
+        "delete"
+      ],
+      "usage": "gh secret delete <secret-name> [flags]",
+      "summary": "Delete secrets",
+      "aliases": [
+        [
+          "secret",
+          "remove"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "secret",
+        "list"
+      ],
+      "usage": "gh secret list [flags]",
+      "summary": "List secrets",
+      "aliases": [
+        [
+          "secret",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "secret",
+        "set"
+      ],
+      "usage": "gh secret set <secret-name> [flags]",
+      "summary": "Create or update secrets",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "send-telemetry"
+      ],
+      "usage": "gh send-telemetry",
+      "summary": "Built-in route hidden from gh help reference",
+      "aliases": [],
+      "kind": "hidden-command",
+      "preview": false
+    },
+    {
+      "path": [
+        "skill"
+      ],
+      "usage": "gh skill <command>",
+      "summary": "Install and manage agent skills (preview)",
+      "aliases": [
+        [
+          "skills"
+        ]
+      ],
+      "kind": "group",
+      "preview": true
+    },
+    {
+      "path": [
+        "skill",
+        "install"
+      ],
+      "usage": "gh skill install <repository> [<skill[@version]>] [flags]",
+      "summary": "Install agent skills from a GitHub repository (preview)",
+      "aliases": [
+        [
+          "skill",
+          "add"
+        ],
+        [
+          "skills",
+          "add"
+        ]
+      ],
+      "kind": "command",
+      "preview": true
+    },
+    {
+      "path": [
+        "skill",
+        "list"
+      ],
+      "usage": "gh skill list [flags]",
+      "summary": "List installed skills (preview)",
+      "aliases": [
+        [
+          "skill",
+          "ls"
+        ],
+        [
+          "skills",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": true
+    },
+    {
+      "path": [
+        "skill",
+        "preview"
+      ],
+      "usage": "gh skill preview <repository> [<skill>] [flags]",
+      "summary": "Preview a skill from a GitHub repository (preview)",
+      "aliases": [
+        [
+          "skill",
+          "show"
+        ],
+        [
+          "skills",
+          "show"
+        ]
+      ],
+      "kind": "command",
+      "preview": true
+    },
+    {
+      "path": [
+        "skill",
+        "publish"
+      ],
+      "usage": "gh skill publish [<directory>] [flags]",
+      "summary": "Validate and publish skills to a GitHub repository (preview)",
+      "aliases": [],
+      "kind": "command",
+      "preview": true
+    },
+    {
+      "path": [
+        "skill",
+        "search"
+      ],
+      "usage": "gh skill search <query> [flags]",
+      "summary": "Search for skills across GitHub (preview)",
+      "aliases": [],
+      "kind": "command",
+      "preview": true
+    },
+    {
+      "path": [
+        "skill",
+        "update"
+      ],
+      "usage": "gh skill update [<skill>...] [flags]",
+      "summary": "Update installed skills to their latest versions (preview)",
+      "aliases": [],
+      "kind": "command",
+      "preview": true
+    },
+    {
+      "path": [
+        "ssh-key"
+      ],
+      "usage": "gh ssh-key <command>",
+      "summary": "Manage SSH keys",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "ssh-key",
+        "add"
+      ],
+      "usage": "gh ssh-key add [<key-file>] [flags]",
+      "summary": "Add an SSH key to your GitHub account",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "ssh-key",
+        "delete"
+      ],
+      "usage": "gh ssh-key delete <id> [flags]",
+      "summary": "Delete an SSH key from your GitHub account",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "ssh-key",
+        "list"
+      ],
+      "usage": "gh ssh-key list",
+      "summary": "Lists SSH keys in your GitHub account",
+      "aliases": [
+        [
+          "ssh-key",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "status"
+      ],
+      "usage": "gh status [flags]",
+      "summary": "Print information about relevant issues, pull requests, and notifications across repositories",
+      "aliases": [],
+      "kind": "top-level-command",
+      "preview": false
+    },
+    {
+      "path": [
+        "variable"
+      ],
+      "usage": "gh variable <command>",
+      "summary": "Manage GitHub Actions variables",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "variable",
+        "delete"
+      ],
+      "usage": "gh variable delete <variable-name> [flags]",
+      "summary": "Delete variables",
+      "aliases": [
+        [
+          "variable",
+          "remove"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "variable",
+        "get"
+      ],
+      "usage": "gh variable get <variable-name> [flags]",
+      "summary": "Get variables",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "variable",
+        "list"
+      ],
+      "usage": "gh variable list [flags]",
+      "summary": "List variables",
+      "aliases": [
+        [
+          "variable",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "variable",
+        "set"
+      ],
+      "usage": "gh variable set <variable-name> [flags]",
+      "summary": "Create or update variables",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "version"
+      ],
+      "usage": "gh version",
+      "summary": "Built-in route hidden from gh help reference",
+      "aliases": [],
+      "kind": "hidden-command",
+      "preview": false
+    },
+    {
+      "path": [
+        "workflow"
+      ],
+      "usage": "gh workflow <command>",
+      "summary": "View details about GitHub Actions workflows",
+      "aliases": [],
+      "kind": "group",
+      "preview": false
+    },
+    {
+      "path": [
+        "workflow",
+        "disable"
+      ],
+      "usage": "gh workflow disable [<workflow-id> | <workflow-name>]",
+      "summary": "Disable a workflow",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "workflow",
+        "enable"
+      ],
+      "usage": "gh workflow enable [<workflow-id> | <workflow-name>]",
+      "summary": "Enable a workflow",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "workflow",
+        "list"
+      ],
+      "usage": "gh workflow list [flags]",
+      "summary": "List workflows",
+      "aliases": [
+        [
+          "workflow",
+          "ls"
+        ]
+      ],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "workflow",
+        "run"
+      ],
+      "usage": "gh workflow run [<workflow-id> | <workflow-name>] [flags]",
+      "summary": "Run a workflow by creating a workflow_dispatch event",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    },
+    {
+      "path": [
+        "workflow",
+        "view"
+      ],
+      "usage": "gh workflow view [<workflow-id> | <workflow-name> | <filename>] [flags]",
+      "summary": "View the summary of a workflow",
+      "aliases": [],
+      "kind": "command",
+      "preview": false
+    }
+  ],
+  "helpTopics": [
+    {
+      "name": "environment",
+      "summary": "Environment variables that can be used with gh",
+      "executable": true
+    },
+    {
+      "name": "exit-codes",
+      "summary": "Exit codes used by gh",
+      "executable": true
+    },
+    {
+      "name": "formatting",
+      "summary": "Formatting options for JSON data exported from gh",
+      "executable": true
+    },
+    {
+      "name": "mintty",
+      "summary": "Information about using gh with MinTTY",
+      "executable": true
+    },
+    {
+      "name": "reference",
+      "summary": "A comprehensive reference of all gh commands",
+      "executable": true
+    },
+    {
+      "name": "telemetry",
+      "summary": "Information about telemetry in gh",
+      "executable": true
+    }
+  ],
+  "environment": [
+    {
+      "name": "AppData"
+    },
+    {
+      "name": "BROWSER"
+    },
+    {
+      "name": "CLICOLOR"
+    },
+    {
+      "name": "CLICOLOR_FORCE"
+    },
+    {
+      "name": "DEBUG"
+    },
+    {
+      "name": "DO_NOT_TRACK"
+    },
+    {
+      "name": "EDITOR"
+    },
+    {
+      "name": "GH_ACCESSIBLE_COLORS"
+    },
+    {
+      "name": "GH_ACCESSIBLE_PROMPTER"
+    },
+    {
+      "name": "GH_BROWSER"
+    },
+    {
+      "name": "GH_COLOR_LABELS"
+    },
+    {
+      "name": "GH_CONFIG_DIR"
+    },
+    {
+      "name": "GH_DEBUG"
+    },
+    {
+      "name": "GH_EDITOR"
+    },
+    {
+      "name": "GH_ENTERPRISE_TOKEN"
+    },
+    {
+      "name": "GH_EXTENSION"
+    },
+    {
+      "name": "GH_FORCE_TTY"
+    },
+    {
+      "name": "GH_HOST"
+    },
+    {
+      "name": "GH_MDWIDTH"
+    },
+    {
+      "name": "GH_NO_EXTENSION_UPDATE_NOTIFIER"
+    },
+    {
+      "name": "GH_NO_UPDATE_NOTIFIER"
+    },
+    {
+      "name": "GH_PAGER"
+    },
+    {
+      "name": "GH_PATH"
+    },
+    {
+      "name": "GH_PROMPT_DISABLED"
+    },
+    {
+      "name": "GH_REPO"
+    },
+    {
+      "name": "GH_SPINNER_DISABLED"
+    },
+    {
+      "name": "GH_TELEMETRY"
+    },
+    {
+      "name": "GH_TOKEN"
+    },
+    {
+      "name": "GITHUB_ENTERPRISE_TOKEN"
+    },
+    {
+      "name": "GITHUB_TOKEN"
+    },
+    {
+      "name": "GIT_EDITOR"
+    },
+    {
+      "name": "GLAMOUR_STYLE"
+    },
+    {
+      "name": "HOME"
+    },
+    {
+      "name": "NO_COLOR"
+    },
+    {
+      "name": "PAGER"
+    },
+    {
+      "name": "VISUAL"
+    },
+    {
+      "name": "XDG_CONFIG_HOME"
+    }
+  ],
+  "dynamicRoutes": [
+    {
+      "kind": "configured-alias",
+      "route": "gh <alias>",
+      "rationale": "Aliases are loaded from mutable user configuration and are not native built-ins."
+    },
+    {
+      "kind": "shipped-default-alias",
+      "route": "gh co",
+      "rationale": "The fallback co alias uses the same mutable alias mechanism and is not a native Cobra alias."
+    },
+    {
+      "kind": "installed-extension",
+      "route": "gh <extension>",
+      "rationale": "Installed extensions are unreviewed external programs."
+    },
+    {
+      "kind": "official-extension-stub",
+      "route": "gh aw",
+      "rationale": "This hidden route prompts to install an external GitHub-maintained extension."
+    },
+    {
+      "kind": "official-extension-stub",
+      "route": "gh stack",
+      "rationale": "This hidden route prompts to install an external GitHub-maintained extension."
+    },
+    {
+      "kind": "official-extension-stub",
+      "route": "gh webhook",
+      "rationale": "This hidden route prompts to install an external GitHub-maintained extension."
+    }
+  ]
+}

@@ -10,18 +10,21 @@ export function analyzeGhApiInvocation(input: {
   readonly explicitMethod: string | undefined;
   readonly hasParametersOrBody: boolean;
   readonly methodAmbiguous?: boolean;
+  readonly unsafeOrMalformed?: boolean;
 }): GhApiInvocationDecision {
   if (input.methodAmbiguous) return defer();
-  if (input.endpoint && /^\/?graphql\/?$/.test(input.endpoint)) return defer();
   if (input.explicitMethod !== undefined) {
     const method = input.explicitMethod.toUpperCase();
-    return method === "GET" || method === "HEAD"
-      ? allow(`gh api --method ${method} auto-allowed (read-only)`)
-      : deny(`gh api --method ${method} is not read-only`);
+    if (method !== "GET" && method !== "HEAD") return deny(`gh api --method ${method} is not read-only`);
   }
-  return input.hasParametersOrBody
-    ? deny("gh api with -f/-F/--input and no explicit --method defaults to POST, not read-only")
-    : allow("gh api auto-allowed (GET, no parameters)");
+  if (!input.endpoint) return defer();
+  if (input.explicitMethod === undefined && input.hasParametersOrBody) {
+    return deny("gh api with -f/-F/--input and no explicit --method defaults to POST, not read-only");
+  }
+  if (/^\/?graphql(?:\/|\?|$)/.test(input.endpoint) || /^(?:https?:)?\/\//i.test(input.endpoint)) return defer();
+  if (input.unsafeOrMalformed) return defer();
+  if (input.explicitMethod !== undefined) return allow(`gh api --method ${input.explicitMethod.toUpperCase()} auto-allowed (read-only)`);
+  return allow("gh api auto-allowed (GET, no parameters)");
 }
 
 function evidence(decision: PolicyEvidence["decision"], reason?: string): PolicyEvidence {

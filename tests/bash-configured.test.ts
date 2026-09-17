@@ -40,7 +40,7 @@ function snapshot(overrides: Partial<BashProfileSnapshot> = {}): BashProfileSnap
 }
 
 function evaluate(source: string, profileSnapshot: BashProfileSnapshot) {
-  return evaluateConfiguredBash({ source, initialEnvironment: { kind: "unavailable" }, profileSnapshot });
+  return evaluateConfiguredBash({ source, initialEnvironment: { kind: "verified", values: {} }, profileSnapshot });
 }
 
 describe("configured Bash permissions", () => {
@@ -50,8 +50,8 @@ describe("configured Bash permissions", () => {
       strictProfiles: Object.freeze({ ...snapshot().strictProfiles, dockerReadOnly: true }),
     });
 
-    expect(evaluate("gh label list", profiles).permission).toMatchObject({ kind: "allow", profile: "ghReadOnly" });
-    expect(evaluate("gh label list; gh repo list", profiles).permission).toMatchObject({ kind: "allow", profile: "ghReadOnly" });
+    expect(evaluate("gh version", profiles).permission).toEqual({ kind: "defer" });
+    expect(evaluate("gh --version; gh version", profiles).permission).toEqual({ kind: "defer" });
     expect(evaluate("gh label list; docker image ls", profiles).permission).toEqual({ kind: "defer" });
     expect(evaluate("docker image ls; gh label list", profiles).permission).toEqual({ kind: "defer" });
     expect(evaluate("gh label list; unknown-command", profiles).permission).toEqual({ kind: "defer" });
@@ -75,11 +75,11 @@ describe("configured Bash permissions", () => {
       }),
     });
 
-    expect(evaluate("gh pr create --repo github.com/acme/widgets --fill", profiles).permission)
-      .toMatchObject({ kind: "allow", profile: "ghPrCreate" });
+    expect(evaluate("GH_PROMPT_DISABLED=1 gh pr create --repo github.com/acme/widgets --fill", profiles).permission)
+      .toEqual({ kind: "defer" });
     expect(evaluate("gh api user", profiles).permission).toMatchObject({ kind: "deny", profile: "ghPrCreate" });
     expect(evaluate("gh api user", profiles).guards).toMatchObject({ kind: "block", policy: { name: "gh-pr-create" } });
-    expect(evaluate("gh label list", profiles).permission).toMatchObject({ kind: "allow", profile: "ghReadOnly" });
+    expect(evaluate("gh version", profiles).permission).toEqual({ kind: "defer" });
   });
 
   test("keeps guard, permission, failure, and audit views separate and redacted", () => {
@@ -114,8 +114,8 @@ describe("configured Bash permissions", () => {
 
   test("preserves wrapper coverage and native deferral for incomplete analysis", () => {
     const gh = snapshot({ ghReadOnly: true });
-    expect(evaluate("TOOL=gh; strace $TOOL label list", gh).permission)
-      .toMatchObject({ kind: "allow", profile: "ghReadOnly" });
+    expect(evaluate("TOOL=gh; strace $TOOL version", gh).permission)
+      .toEqual({ kind: "defer" });
     expect(evaluate("strace -o trace.log gh label list", gh).permission).toEqual({ kind: "defer" });
     expect(evaluate("if then", gh).permission.kind).not.toBe("allow");
 
@@ -133,7 +133,7 @@ describe("configured Bash permissions", () => {
       ghReadOnly: true,
       strictProfiles: Object.freeze({ ...snapshot().strictProfiles, dockerReadOnly: true }),
     });
-    const gh = ["gh label list", "gh repo list", "gh auth status"];
+    const gh = ["gh --version", "gh version", "gh help environment"];
     const docker = ["docker image ls", "docker volume ls", "docker network list"];
     for (const left of gh) {
       for (const right of docker) {

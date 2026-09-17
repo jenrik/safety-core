@@ -9,7 +9,8 @@ import { readerHandlers } from "./bash/handlers/readers.js";
 import { ghPrCreateHandler, ghPrCreateInterpreterObservers } from "./bash/handlers/command-gh-pr-create.js";
 import { ghReadOnlyHandler } from "./bash/handlers/command-gh-read-only.js";
 import { straceReadOnlyHandler } from "./bash/handlers/command-strace-read-only.js";
-import { findSubcommand, isPrCreate, knownArguments } from "./bash/handlers/gh-utils.js";
+import { knownArguments } from "./bash/handlers/gh-utils.js";
+import { isGhPrCreateCommand } from "./bash/handlers/gh-command-line.js";
 import { genericReadOnlyHandlers, helmReadOnlyHandlers, strictReadOnlyHandlers } from "./bash/handlers/read-only.js";
 import { ghApiHandler } from "./bash/handlers/command-gh-api.js";
 import { ignorePolicy } from "./bash/dispatch.js";
@@ -269,8 +270,7 @@ const configuredGhReadOnlyHandler: PolicyObserver = Object.freeze({
   name: "gh",
   observe(cursor, context) {
     const args = knownArguments(cursor);
-    const subcommand = args && findSubcommand(args);
-    if (subcommand?.name === "pr" && isPrCreate(args.slice(subcommand.index + 1))) return ignorePolicy();
+    if (args && isGhPrCreateCommand(args)) return ignorePolicy();
     return ghReadOnlyHandler.observe(cursor, context);
   },
 });

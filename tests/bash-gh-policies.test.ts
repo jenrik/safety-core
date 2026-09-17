@@ -11,6 +11,7 @@ import {
   type BashProfileSnapshot,
   type GhPrCreatePolicy,
 } from "../src/index.ts";
+import { GH_API_DEFER_ENVIRONMENT_NAMES, GH_GLOBAL_DEFER_ENVIRONMENT_NAMES } from "../src/bash/policy-environment.ts";
 
 const policy: GhPrCreatePolicy = {
   enabled: true,
@@ -48,16 +49,16 @@ function snapshot(overrides: Partial<BashProfileSnapshot> = {}): BashProfileSnap
   });
 }
 
-function configured(source: string, profiles: BashProfileSnapshot) {
-  return evaluateConfiguredBash({ source, initialEnvironment: { kind: "unavailable" }, profileSnapshot: profiles });
+function configured(source: string, profiles: BashProfileSnapshot, values: Readonly<Record<string, string>> = {}) {
+  return evaluateConfiguredBash({ source, initialEnvironment: { kind: "verified", values }, profileSnapshot: profiles });
 }
 
 function ghApi(source: string): string {
-  return configured(source, snapshot({ ghApiReadOnly: true })).permission.kind;
+  return configured(source, snapshot({ ghApiReadOnly: true }), { GH_PAGER: "" }).permission.kind;
 }
 
 function ghPrCreate(source: string, activePolicy: GhPrCreatePolicy = policy): string {
-  return configured(source, snapshot({ ghPrCreate: Object.freeze(activePolicy) })).permission.kind;
+  return configured(source, snapshot({ ghPrCreate: Object.freeze(activePolicy) }), { GH_PROMPT_DISABLED: "1" }).permission.kind;
 }
 
 function ghReadOnly(source: string): string {
@@ -75,11 +76,11 @@ function strictReadOnly(source: string, profile: "dockerReadOnly" | "kubectlRead
 }
 
 describe("walker-backed gh policy compatibility", () => {
-  test("resolves assignments through transparent wrappers for allowlisted native PR creation", () => {
+  test("keeps allowlisted native PR creation prompt-gated through transparent wrappers", () => {
     expect(ghPrCreate(
       "TOOL=gh; strace $TOOL pr create --repo github.com/acme/widgets --fill",
       policy,
-    )).toBe("allow");
+    )).toBe("defer");
   });
 
   test("requires an explicit host after stateful assignment resolution", () => {
@@ -103,17 +104,118 @@ describe("walker-backed gh policy compatibility", () => {
   });
 
   test("uses an explicit gh api method ahead of parameter-implied POST", () => {
-    expect(ghApi("METHOD=GET; gh api -X $METHOD -f q=x user")).toBe("allow");
-    expect(ghApi("gh api -f q=x --method=HEAD user")).toBe("allow");
+    expect(ghApi("METHOD=GET; gh api -X $METHOD -f q=x user")).toBe("defer");
+    expect(ghApi("gh api -f q=x --method=HEAD user")).toBe("defer");
     expect(ghApi("gh api -X GET graphql")).toBe("defer");
   });
 
-  test("defers repeated or conflicting explicit gh api methods", () => {
+  test("defers gh api host, local-input, output, cache, and unknown routes", () => {
     for (const command of [
-      "gh api -X GET --method POST user",
-      "gh api --method=GET -XPOST user",
-      "gh api -X GET --method GET user",
+      "gh api --hostname attacker.example user",
+      "gh api user --input body.json -X GET",
+      "gh api user --input - -X HEAD",
+      "gh api user -F query=@body.txt --method GET",
+      "gh api user --field=query=@- --method HEAD",
+      "gh api user --cache 1h",
+      "gh api user --verbose",
+      "gh api user --include",
+      "gh api user --header Authorization:value",
+      "gh api user --allow-escape-sequences",
+      "gh api user --paginate",
+      "gh api user --unknown",
+      "gh api user extra",
+      "gh api https://attacker.example/user",
+      "./gh api user",
+      "gh api user > response.json",
+      "UNRELATED=value gh api user",
     ]) expect(ghApi(command), command).toBe("defer");
+  });
+
+  test("property: unsafe gh api options defer at every argument boundary", () => {
+    const unsafe = [
+      ["--hostname", "attacker.example"], ["--input", "body.json"], ["-H", "Authorization:value"],
+      ["--cache", "1h"], ["--verbose"], ["--include"], ["--allow-escape-sequences"], ["--unknown"],
+    ];
+    const safe = [["-X", "GET"], ["user"]];
+    for (const option of unsafe) {
+      for (let index = 0; index <= safe.length; index++) {
+        const args = [...safe.slice(0, index).flat(), ...option, ...safe.slice(index).flat()];
+        expect(ghApi(`gh api ${args.join(" ")}`), args.join(" ")).toBe("defer");
+      }
+    }
+  });
+
+  test("denies explicit mutating gh api methods even beside unsafe options", () => {
+    for (const command of [
+      "gh api user -X POST",
+      "gh api user --input body.json",
+      "gh api --hostname attacker.example user --method DELETE",
+      "gh api graphql -X PATCH",
+      "gh api graphql -f query=mutation",
+      "gh api user -X POST --method POST",
+      "gh api user --method PUT -X DELETE",
+      "bash -lc 'gh api user -X POST'",
+      "bash -euo pipefail -c 'gh api user -X POST'",
+      "bash -c \"gh api user -X POST\"",
+      "bash +O extglob -c 'gh api user -X POST'",
+      "bash -coo pipefail nounset 'gh api user -X POST'",
+      "bash -Ec 'gh api user -X POST'",
+      "bash --debug -c 'gh api user -X POST'",
+      "zsh -dfc 'gh api user -X POST'",
+      "zsh --no-global-rcs -c 'gh api user -X POST'",
+      "zsh +-no-RCS -c 'gh api user -X POST'",
+      "exec -cl gh api user -X POST",
+      "nice -5 gh api user -X POST",
+      "setsid -fw gh api user -X POST",
+      "xargs sh -c 'gh api user -X POST'",
+      "find . -exec sh -c 'gh api user -X POST' _ {} \\;",
+      "eval -- 'gh api user -X POST'",
+      "fish -C true -c 'gh api user -X POST'",
+      "fish --profile-startup /tmp/profile -c 'gh api user -X POST'",
+      "fish --init-cmd true -c 'gh api user -X POST'",
+      "fish --private -c 'gh api user -X POST'",
+      "fish --interactive -c 'gh api user -X POST'",
+      "fish --profile-startup /tmp/profile -c 'gh api user -X POST'",
+      "sudo gh api user -X POST",
+      "sudo -u root -- gh api user -X DELETE",
+      "timeout -vk1s 30s gh api user -X POST",
+      "gh api -iXPOST user",
+      "gh api -iX POST user",
+    ]) expect(ghApi(command), command).toBe("deny");
+  });
+
+  test("uses the last repeated method value, matching gh scalar flag parsing", () => {
+    expect(ghApi("gh api -X GET --method POST user")).toBe("deny");
+    expect(ghApi("gh api --method=GET -XPOST user")).toBe("deny");
+    expect(ghApi("gh api -X POST --method GET user")).toBe("defer");
+    expect(ghApi("gh api -X GET --method GET user")).toBe("defer");
+  });
+
+  test("property: every ordering of repeated mutating methods is denied", () => {
+    const methods = ["POST", "PUT", "PATCH", "DELETE"];
+    for (const first of methods) {
+      for (const second of methods) {
+        expect(ghApi(`gh api user -X ${first} --method ${second}`), `${first}/${second}`).toBe("deny");
+        expect(ghApi(`gh api --method=${second} -X${first} user`), `${second}/${first}`).toBe("deny");
+      }
+    }
+  });
+
+  test("property: the final repeated method controls mixed read/write requests", () => {
+    for (const readMethod of ["GET", "HEAD"]) {
+      for (const writeMethod of ["POST", "PUT", "PATCH", "DELETE"]) {
+        expect(ghApi(`gh api user -X ${readMethod} -X ${writeMethod}`), `${readMethod}/${writeMethod}`).toBe("deny");
+        expect(ghApi(`gh api user -X ${writeMethod} -X ${readMethod}`), `${writeMethod}/${readMethod}`).toBe("defer");
+      }
+    }
+  });
+
+  test("property: include-method shorthand clusters retain mutating method denials", () => {
+    for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+      expect(ghApi(`gh api -iX${method} user`), method).toBe("deny");
+      expect(ghApi(`gh api -iX ${method} user`), method).toBe("deny");
+      expect(ghApi(`gh api user -iX${method}`), method).toBe("deny");
+    }
   });
 
   test("does not let a PR option value masquerade as a repository selector", () => {
@@ -123,8 +225,8 @@ describe("walker-backed gh policy compatibility", () => {
     )).toBe("deny");
   });
 
-  test("keeps preview recognized as a non-PR gh invocation", () => {
-    expect(ghPrCreate("gh preview feature", policy)).toBe("ignore");
+  test("blocks unknown nested preview commands because they may be configured aliases", () => {
+    expect(ghPrCreate("gh preview feature", policy)).toBe("deny");
   });
 
   test("does not deny quoted gh policy examples that are not executed", () => {
@@ -143,7 +245,7 @@ describe("walker-backed gh policy compatibility", () => {
   });
 
   test("migrates gh and helm read-only profiles through assignments and wrappers", () => {
-    expect(ghReadOnly("TOOL=gh; strace $TOOL label list")).toBe("allow");
+    expect(ghReadOnly("TOOL=gh; strace $TOOL version")).toBe("defer");
     expect(helmReadOnly("TOOL=helm; nice $TOOL version")).toBe("allow");
   });
 
@@ -156,14 +258,76 @@ describe("walker-backed gh policy compatibility", () => {
   test("preserves credential-safe allows for unrelated persisted bindings", () => {
     expect(strictReadOnly("LABEL=stable; kubectl get pods", "kubectlReadOnly")).toBe("allow");
     expect(strictReadOnly("TOOL=docker; $TOOL image ls", "dockerReadOnly")).toBe("allow");
-    expect(ghReadOnly("LABEL=stable; gh label list")).toBe("allow");
+    expect(ghReadOnly("LABEL=stable; gh version")).toBe("defer");
+  });
+
+  test("enforces verified, empty, inherited, unavailable, and shell-overridden gh environment facts", () => {
+    const apiProfile = snapshot({ ghApiReadOnly: true });
+    const prProfile = snapshot({ ghPrCreate: Object.freeze(policy) });
+    const api = "gh api user";
+    const pr = "gh pr create --repo github.com/acme/widgets --fill";
+
+    expect(configured(api, apiProfile).permission.kind).toBe("defer");
+    expect(configured(api, apiProfile, { GH_PAGER: "" }).permission.kind).toBe("defer");
+    expect(configured(api, apiProfile, { GH_PAGER: "cat" }).permission.kind).toBe("defer");
+    expect(configured(api, apiProfile, { GH_PAGER: "printf" }).permission.kind).toBe("defer");
+    expect(configured(api, apiProfile, { PAGER: "printf" }).permission.kind).toBe("defer");
+    expect(configured(api, apiProfile, { GH_PAGER: "", GH_HOST: "" }).permission.kind).toBe("defer");
+    expect(configured(api, apiProfile, { GH_PAGER: "", GH_HOST: "attacker.example" }).permission.kind).toBe("defer");
+    expect(configured(pr, prProfile, { GH_PROMPT_DISABLED: "1", GH_PATH: "/tmp/gh" }).permission.kind).toBe("deny");
+    expect(configured(api, apiProfile, { GH_TELEMETRY_SAMPLE_RATE: "100" }).permission.kind).toBe("defer");
+
+    expect(evaluateConfiguredBash({ source: api, initialEnvironment: { kind: "unavailable" }, profileSnapshot: apiProfile }).permission.kind).toBe("defer");
+    expect(evaluateConfiguredBash({ source: pr, initialEnvironment: { kind: "unavailable" }, profileSnapshot: prProfile }).permission.kind).toBe("deny");
+    expect(evaluateConfiguredBash({ source: "gh api \"$ENDPOINT\"", initialEnvironment: { kind: "unavailable" }, profileSnapshot: prProfile }).permission.kind).toBe("deny");
+    expect(evaluateConfiguredBash({ source: "gh issue view \"$NUMBER\"", initialEnvironment: { kind: "unavailable" }, profileSnapshot: prProfile }).permission.kind).toBe("ignore");
+  });
+
+  test("rejects unexported pager and prompt-disable proof variables", () => {
+    const apiProfile = snapshot({ ghApiReadOnly: true });
+    const prProfile = snapshot({ ghPrCreate: Object.freeze(policy) });
+    const pr = "gh pr create --repo github.com/acme/widgets --fill";
+
+    expect(configured("GH_PAGER=; gh api user", apiProfile).permission.kind).toBe("defer");
+    expect(configured("GH_PAGER=cat; gh api user", apiProfile).permission.kind).toBe("defer");
+    expect(configured(`GH_PROMPT_DISABLED=1; ${pr}`, prProfile).permission.kind).toBe("deny");
+  });
+
+  test("property: every accepted gh proof value requires process export", () => {
+    const apiProfile = snapshot({ ghApiReadOnly: true });
+    const prProfile = snapshot({ ghPrCreate: Object.freeze(policy) });
+    const pr = "gh pr create --repo github.com/acme/widgets --fill";
+
+    for (const value of ["", "cat"]) {
+      expect(configured(`GH_PAGER=${value}; gh api user`, apiProfile).permission.kind, `unexported pager ${value}`).toBe("defer");
+      expect(configured(`export GH_PAGER=${value}; gh api user`, apiProfile).permission.kind, `exported pager ${value}`).toBe("defer");
+      expect(configured(`GH_PAGER=${value} gh api user`, apiProfile).permission.kind, `prefix pager ${value}`).toBe("defer");
+    }
+    for (const value of ["", "0", "1", "false"]) {
+      expect(configured(`GH_PROMPT_DISABLED=${value}; ${pr}`, prProfile).permission.kind, `unexported prompt ${value}`).toBe("deny");
+      expect(configured(`export GH_PROMPT_DISABLED=${value}; ${pr}`, prProfile).permission.kind, `exported prompt ${value}`).toBe("defer");
+      expect(configured(`GH_PROMPT_DISABLED=${value} ${pr}`, prProfile).permission.kind, `prefix prompt ${value}`).toBe("defer");
+    }
+  });
+
+  test("property: every applicable non-empty gh environment route prevents ownership approval", () => {
+    const apiProfile = snapshot({ ghApiReadOnly: true });
+    const prProfile = snapshot({ ghPrCreate: Object.freeze(policy) });
+    for (const name of GH_API_DEFER_ENVIRONMENT_NAMES) {
+      expect(configured("gh api user", apiProfile, { GH_PAGER: "", [name]: "policy-test" }).permission.kind, name).toBe("defer");
+      expect(configured("gh api user", apiProfile, { GH_PAGER: "", [name]: "" }).permission.kind, `${name} empty`).toBe("defer");
+    }
+    for (const name of GH_GLOBAL_DEFER_ENVIRONMENT_NAMES) {
+      expect(configured("gh pr create --repo github.com/acme/widgets --fill", prProfile, { GH_PROMPT_DISABLED: "1", [name]: "policy-test" }).permission.kind, name).toBe("deny");
+      expect(configured("gh pr create --repo github.com/acme/widgets --fill", prProfile, { GH_PROMPT_DISABLED: "1", [name]: "" }).permission.kind, `${name} empty`).toBe("defer");
+    }
   });
 
   test("property: gh api explicit method precedence survives every audited flag position through a wrapper", () => {
     const blocks = [["-f", "q=x"], ["user"]];
     for (let index = 0; index <= blocks.length; index++) {
       const args = [...blocks.slice(0, index).flat(), "-X", "GET", ...blocks.slice(index).flat()];
-      expect(ghApi(`strace gh api ${args.join(" ")}`), args.join(" ")).toBe("allow");
+      expect(ghApi(`strace gh api ${args.join(" ")}`), args.join(" ")).toBe("defer");
     }
   });
 
@@ -178,7 +342,7 @@ describe("walker-backed gh policy compatibility", () => {
     for (let index = 0; index < 64; index++) {
       state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
       const args = positions[state % positions.length]!;
-      expect(ghPrCreate(`strace gh ${args.join(" ")}`, policy)).toBe("allow");
+      expect(ghPrCreate(`strace gh ${args.join(" ")}`, policy)).toBe("defer");
     }
   });
 
@@ -205,10 +369,10 @@ describe("walker-backed gh policy compatibility", () => {
     }
   });
 
-  test("property: only same-profile safe prefixes compose to an allow", () => {
-    const ghReads = ["gh label list", "gh repo list", "gh auth status"];
+  test("property: common gh startup forms compose only to a defer", () => {
+    const ghReads = ["gh --version", "gh version", "gh help environment"];
     for (const left of ghReads) {
-      for (const right of ghReads) expect(ghReadOnly(`${left}; ${right}`)).toBe("allow");
+      for (const right of ghReads) expect(ghReadOnly(`${left}; ${right}`)).toBe("defer");
     }
   });
 
@@ -217,7 +381,7 @@ describe("walker-backed gh policy compatibility", () => {
   });
 
   test("keeps raw PR authorization neutral until every reachable command is safe", () => {
-    expect(ghPrCreate("gh pr create --repo github.com/acme/widgets --fill", policy)).toBe("allow");
+    expect(ghPrCreate("gh pr create --repo github.com/acme/widgets --fill", policy)).toBe("defer");
     expect(ghPrCreate("gh pr create --repo github.com/acme/widgets --fill; $UNKNOWN", policy)).toBe("defer");
     expect(ghPrCreate("$UNKNOWN; gh pr create --repo github.com/attacker/widgets --fill", policy)).toBe("deny");
   });

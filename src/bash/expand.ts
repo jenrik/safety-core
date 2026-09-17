@@ -215,7 +215,7 @@ function expandStaticText(text: string, span: SourceSpan, environment: Environme
       continue;
     }
     if (quote === null && character === "~") return unresolved("tilde-expansion", span);
-    if (quote === null && character === "{") return unresolved("brace-expansion", span);
+    if (quote === null && character === "{" && text[index + 1] !== "}") return unresolved("brace-expansion", span);
 
     value += character;
     index++;

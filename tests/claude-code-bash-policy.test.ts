@@ -71,11 +71,32 @@ function fakeEvaluation(overrides: Partial<BashConfiguredEvaluation>): BashConfi
 }
 
 describe("Claude configured Bash policy", () => {
+  test("passes reviewed environment facts without authentication values", () => {
+    const previousDebug = process.env.GH_DEBUG;
+    const previousToken = process.env.GH_TOKEN;
+    try {
+      process.env.GH_DEBUG = "policy-test";
+      process.env.GH_TOKEN = "excluded-policy-test-token";
+      let names: string[] = [];
+      evaluateClaudeBashPolicy(event("gh version"), {
+        evaluateConfiguredBash(options) {
+          names = options.initialEnvironment?.kind === "verified" ? Object.keys(options.initialEnvironment.values) : [];
+          return fakeEvaluation({ permission: Object.freeze({ kind: "defer" }) });
+        },
+      });
+      expect(names).toContain("GH_DEBUG");
+      expect(names).not.toContain("GH_TOKEN");
+    } finally {
+      if (previousDebug === undefined) delete process.env.GH_DEBUG; else process.env.GH_DEBUG = previousDebug;
+      if (previousToken === undefined) delete process.env.GH_TOKEN; else process.env.GH_TOKEN = previousToken;
+    }
+  });
+
   test("evaluates valid Bash callbacks once with an unavailable environment", () => {
-    const result = evaluate("gh api user", snapshot({ ghApiReadOnly: true }));
+    const result = evaluate("GH_PAGER= gh api user", snapshot({ ghApiReadOnly: true }));
     expect(result.calls).toBe(1);
-    expect(result.options).toMatchObject({ source: "gh api user", initialEnvironment: { kind: "verified" }, profileSnapshot: expect.anything() });
-    expect(result.decision).toMatchObject({ kind: "allow" });
+    expect(result.options).toMatchObject({ source: "GH_PAGER= gh api user", initialEnvironment: { kind: "verified" }, profileSnapshot: expect.anything() });
+    expect(result.decision).toBeUndefined();
     expect(isBashPreToolUse(event("id"))).toBe(true);
     expect(isBashPreToolUse({ hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "id" } })).toBe(false);
     expect(isBashPreToolUse({ hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { command: "id" } })).toBe(false);
@@ -113,10 +134,10 @@ describe("Claude configured Bash policy", () => {
     ]) expect(evaluate(command, snapshot()).decision, command).toMatchObject({ kind: "deny" });
 
     expect(evaluate("kubectl get Secret application", snapshot()).decision).toBeUndefined();
-    expect(evaluate("gh pr create --repo github.com/acme/widgets --fill", snapshot({
+    expect(evaluate("GH_PROMPT_DISABLED=1 gh pr create --repo github.com/acme/widgets --fill", snapshot({
       ghPrCreate: Object.freeze({ enabled: true, allowedRepositories: Object.freeze(["acme/widgets"]), allowedOrganizations: Object.freeze([]) }),
-    })).decision).toMatchObject({ kind: "allow" });
-    expect(evaluate("gh pr create --repo github.com/attacker/widgets --fill", snapshot({
+    })).decision).toBeUndefined();
+    expect(evaluate("GH_PROMPT_DISABLED=1 gh pr create --repo github.com/attacker/widgets --fill", snapshot({
       ghPrCreate: Object.freeze({ enabled: true, allowedRepositories: Object.freeze(["acme/widgets"]), allowedOrganizations: Object.freeze([]) }),
     })).decision).toMatchObject({ kind: "deny" });
     expect(evaluate("docker image ls", snapshot({
