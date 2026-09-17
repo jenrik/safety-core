@@ -124,6 +124,27 @@ describe("Claude configured Bash policy", () => {
     }
   });
 
+  test("preserves GH ownership and shell startup guards with inherited values", () => {
+    const previousEndpoint = process.env.SAFETY_CORE_TEST_ENDPOINT;
+    const previousTitle = process.env.SAFETY_CORE_TEST_TITLE;
+    const previousBashEnv = process.env.BASH_ENV;
+    try {
+      process.env.SAFETY_CORE_TEST_ENDPOINT = "user";
+      process.env.SAFETY_CORE_TEST_TITLE = "x";
+      process.env.BASH_ENV = "credentials.json";
+      expect(evaluate('gh -X POST api "$SAFETY_CORE_TEST_ENDPOINT"', snapshot({ ghApiReadOnly: true })).decision)
+        .toMatchObject({ kind: "deny" });
+      expect(evaluate('GH_PROMPT_DISABLED=1 gh pr -t "$SAFETY_CORE_TEST_TITLE" create -b y -Rgithub.com/attacker/widgets', snapshot({
+        ghPrCreate: Object.freeze({ enabled: true, allowedRepositories: Object.freeze(["acme/widgets"]), allowedOrganizations: Object.freeze([]) }),
+      })).decision).toMatchObject({ kind: "deny" });
+      expect(evaluate("bash -c true", snapshot()).decision).toMatchObject({ kind: "deny" });
+    } finally {
+      if (previousEndpoint === undefined) delete process.env.SAFETY_CORE_TEST_ENDPOINT; else process.env.SAFETY_CORE_TEST_ENDPOINT = previousEndpoint;
+      if (previousTitle === undefined) delete process.env.SAFETY_CORE_TEST_TITLE; else process.env.SAFETY_CORE_TEST_TITLE = previousTitle;
+      if (previousBashEnv === undefined) delete process.env.BASH_ENV; else process.env.BASH_ENV = previousBashEnv;
+    }
+  });
+
   test("gives proven denials precedence but never auto-allows incomplete analysis", () => {
     const guard = fakeEvaluation({
       guards: Object.freeze({ kind: "block", reason: "guard denied", policy: { name: "kubectl", decision: "deny", reason: "guard denied" }, policies: Object.freeze([]) }),

@@ -375,6 +375,86 @@ describe("walker-backed gh policy compatibility", () => {
     }
   });
 
+  test("retains GH ownership when pre-subcommand flags contain unresolved values", () => {
+    const apiProfile = snapshot({ ghApiReadOnly: true });
+    const prProfile = snapshot({ ghPrCreate: Object.freeze(policy) });
+    expect(evaluateConfiguredBash({
+      source: 'gh -X POST api "$ENDPOINT"',
+      initialEnvironment: policyInitialEnvironment({ GH_PAGER: "" }),
+      profileSnapshot: apiProfile,
+    }).permission.kind).toBe("deny");
+    expect(evaluateConfiguredBash({
+      source: 'gh -X "$METHOD" api user',
+      initialEnvironment: policyInitialEnvironment({ GH_PAGER: "" }),
+      profileSnapshot: apiProfile,
+    }).permission.kind).toBe("defer");
+    expect(evaluateConfiguredBash({
+      source: 'gh pr -t "$TITLE" create -b y -Rgithub.com/attacker/widgets',
+      initialEnvironment: policyInitialEnvironment({ GH_PROMPT_DISABLED: "1" }),
+      profileSnapshot: prProfile,
+    }).permission.kind).toBe("deny");
+  });
+
+  test("property: unresolved values cannot erase known GH ownership", () => {
+    const apiProfile = snapshot({ ghApiReadOnly: true });
+    const prProfile = snapshot({ ghPrCreate: Object.freeze(policy) });
+    const environment = policyInitialEnvironment({ GH_PAGER: "", GH_PROMPT_DISABLED: "1" });
+    for (const source of [
+      'gh -X POST api "$ENDPOINT"',
+      'gh --method POST api "$ENDPOINT"',
+      'gh -H "$HEADER" -X POST api user',
+      'gh "$COMMAND" user',
+    ]) {
+      expect(evaluateConfiguredBash({ source, initialEnvironment: environment, profileSnapshot: apiProfile }).permission.kind, source)
+        .not.toBe("ignore");
+    }
+    for (const source of [
+      'gh pr -t "$TITLE" create -b y -Rgithub.com/attacker/widgets',
+      'gh -t "$TITLE" pr create -b y -Rgithub.com/attacker/widgets',
+      'gh pr -df create -R"$REPOSITORY"',
+    ]) {
+      expect(evaluateConfiguredBash({ source, initialEnvironment: environment, profileSnapshot: prProfile }).permission.kind, source)
+        .toBe("deny");
+    }
+  });
+
+  test("shell startup inputs hard-block protected paths and defer executable startup routes", () => {
+    const apiProfile = snapshot({ ghApiReadOnly: true });
+    for (const source of [
+      "bash --noprofile --rcfile credentials.json -ic true",
+      "bash --init-file credentials.json -ic true",
+      "BASH_ENV=credentials.json bash -c true",
+    ]) expect(evaluateBashGuards({ source }), source).toMatchObject({ kind: "block", policy: { name: "secret-read", decision: "deny" } });
+
+    for (const [source, environment] of [
+      ["bash --rcfile setup.sh -ic true", policyInitialEnvironment({})],
+      ["bash -c true", policyInitialEnvironment({ BASH_ENV: "setup.sh" })],
+      ["sh -c true", policyInitialEnvironment({ ENV: "setup.sh" })],
+      ["zsh -c true", policyInitialEnvironment({ ZDOTDIR: "/tmp/zsh" })],
+    ] as const) {
+      expect(evaluateConfiguredBash({ source, initialEnvironment: environment, profileSnapshot: apiProfile }).permission.kind, source)
+        .toBe("defer");
+    }
+  });
+
+  test("property: shell startup-file spellings preserve hard blocks and profile deferral", () => {
+    const apiProfile = snapshot({ ghApiReadOnly: true });
+    for (const path of ["credentials.json", ".env", "id_rsa"]) {
+      for (const source of [
+        `bash --rcfile ${path} -ic true`,
+        `bash --rcfile=${path} -ic true`,
+        `bash --init-file ${path} -ic true`,
+        `BASH_ENV=${path} bash -c true`,
+      ]) expect(evaluateBashGuards({ source }), source).toMatchObject({ kind: "block", policy: { name: "secret-read", decision: "deny" } });
+    }
+    for (let index = 0; index < 64; index++) {
+      const path = `startup-${index}.sh`;
+      const source = index % 2 === 0 ? `bash --rcfile=${path} -ic true` : `bash --init-file ${path} -ic true`;
+      expect(evaluateConfiguredBash({ source, initialEnvironment: policyInitialEnvironment({}), profileSnapshot: apiProfile }).permission.kind, source)
+        .toBe("defer");
+    }
+  });
+
   test("property: filtered inherited variables never become known-unset authorization facts", () => {
     const apiProfile = snapshot({ ghApiReadOnly: true });
     for (let index = 0; index < 64; index++) {

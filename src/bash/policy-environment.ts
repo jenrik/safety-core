@@ -59,6 +59,9 @@ export const POLICY_ENVIRONMENT_ROUTES: readonly PolicyEnvironmentRoute[] = Obje
   gitDefer("GIT_CONFIG_SYSTEM", "Redirects system Git configuration."),
   gitDefer("GIT_EXTERNAL_DIFF", "Executes an external diff helper."),
   gitDefer("GIT_PAGER", "Executes an explicit Git pager command."),
+  sharedDefer("BASH_ENV", "Loads and executes a Bash startup file."),
+  sharedDefer("ENV", "Loads and executes a POSIX or Korn shell startup file."),
+  sharedDefer("ZDOTDIR", "Redirects zsh startup-file discovery."),
 ]);
 
 export const GH_DEFER_ENVIRONMENT_NAMES: readonly string[] = Object.freeze([
@@ -120,6 +123,10 @@ function ghDefer(name: string, rationale: string): PolicyEnvironmentRoute {
 
 function gitDefer(name: string, rationale: string): PolicyEnvironmentRoute {
   return Object.freeze({ name, disposition: "defer", scope: "git", rationale, capture: true });
+}
+
+function sharedDefer(name: string, rationale: string): PolicyEnvironmentRoute {
+  return Object.freeze({ name, disposition: "defer", scope: "shared", rationale, capture: true });
 }
 
 function trusted(name: string, rationale: string): PolicyEnvironmentRoute {

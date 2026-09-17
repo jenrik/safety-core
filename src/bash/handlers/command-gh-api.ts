@@ -1,8 +1,9 @@
 import { ignorePolicy, observePolicy, type PolicyObserver } from "../dispatch.js";
+import type { ResolvedWord } from "../expand.js";
 import { policyDeny, policyIndeterminate } from "../outcome.js";
 import { analyzeGhApiInvocation } from "../policies/gh-api.js";
 import { GH_API_DEFER_ENVIRONMENT_NAMES } from "../policy-environment.js";
-import { findSubcommand, knownArguments } from "./gh-utils.js";
+import { findResolvedSubcommand, findSubcommand, knownArguments } from "./gh-utils.js";
 import { hasDisabledGhPager, hasUnsafeGhEnvironmentBinding } from "./read-only-utils.js";
 
 export const ghApiHandler: PolicyObserver = Object.freeze({
@@ -10,9 +11,28 @@ export const ghApiHandler: PolicyObserver = Object.freeze({
   observe(cursor, context) {
     const args = knownArguments(cursor);
     if (!args) {
-      return cursor.invocation.argv[0]?.kind === "known" && cursor.invocation.argv[0].value === "api"
-        ? observePolicy(policyIndeterminate(context.span, analyzeGhApiInvocation({ endpoint: undefined, explicitMethod: undefined, hasParametersOrBody: false, unsafeOrMalformed: true }).evidence))
-        : ignorePolicy();
+      const subcommand = findResolvedSubcommand(cursor.invocation.argv);
+      if (!subcommand || (subcommand.kind === "known" && subcommand.name !== "api")) return ignorePolicy();
+      if (subcommand.kind === "unknown") {
+        return observePolicy(policyIndeterminate(context.span, analyzeGhApiInvocation({
+          endpoint: undefined,
+          explicitMethod: undefined,
+          hasParametersOrBody: false,
+          unsafeOrMalformed: true,
+        }).evidence));
+      }
+      const conservative = cursor.invocation.argv.map((argument) => argument.kind === "known" ? argument.value : "safety-core-unresolved-argument");
+      const api = parseGhApiArguments(conservative, subcommand.index);
+      const decision = analyzeGhApiInvocation({
+        endpoint: api.endpoint,
+        explicitMethod: api.explicitMethod,
+        hasParametersOrBody: api.hasParametersOrBody,
+        methodAmbiguous: api.methodAmbiguous || hasUnresolvedMethodValue(cursor.invocation.argv),
+        unsafeOrMalformed: true,
+      });
+      return observePolicy(decision.kind === "deny"
+        ? policyDeny(context.span, decision.evidence)
+        : policyIndeterminate(context.span, decision.evidence));
     }
     const subcommand = findSubcommand(args);
     if (!subcommand || subcommand.name !== "api") return ignorePolicy();
@@ -40,6 +60,15 @@ export const ghApiHandler: PolicyObserver = Object.freeze({
       : policyIndeterminate(context.span, decision.evidence));
   },
 });
+
+function hasUnresolvedMethodValue(args: readonly ResolvedWord[]): boolean {
+  for (let index = 0; index < args.length; index++) {
+    const argument = args[index];
+    if (argument?.kind !== "known") continue;
+    if ((argument.value === "-X" || argument.value === "--method") && args[index + 1]?.kind !== "known") return true;
+  }
+  return false;
+}
 
 interface ParsedGhApiArguments {
   readonly endpoint: string | undefined;

@@ -21,6 +21,9 @@ export function ghPrCreateHandler(policy: GhPrCreatePolicy): PolicyObserver {
           return denied(context, "Pull-request creation is blocked when its command path or arguments cannot be resolved statically");
         }
         const conservativeArgs = cursor.invocation.argv.map((argument) => argument.kind === "known" ? argument.value : "safety-core-unresolved-command");
+        if (isGhPrCreateCommand(conservativeArgs)) {
+          return denied(context, "Pull-request creation is blocked when its command path or arguments cannot be resolved statically");
+        }
         if (hasUnknownNestedGhCommand(conservativeArgs)) {
           return denied(context, "Unknown nested gh command blocked: it could be a configured alias that bypasses the ghPrCreate policy; use a native gh command instead");
         }

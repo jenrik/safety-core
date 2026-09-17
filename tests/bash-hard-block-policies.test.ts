@@ -49,6 +49,9 @@ describe("walker-backed hard-block compatibility policies", () => {
     expectGuardBlock("sudo --edit credentials.json", "secret-read");
     expectGuardBlock("sudoedit credentials.json", "secret-read");
     expectGuardBlock("find -files0-from credentials.json -print", "secret-read");
+    expectGuardBlock("bash --noprofile --rcfile credentials.json -ic true", "secret-read");
+    expectGuardBlock("bash --init-file=credentials.json -ic true", "secret-read");
+    expectGuardBlock("BASH_ENV=credentials.json bash -c true", "secret-read");
   });
 
   test("property: shell script-file modes block protected operands", () => {

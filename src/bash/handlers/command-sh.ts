@@ -1,7 +1,8 @@
 import type { CommandHandler } from "../dispatch.js";
 import { isBindingResolvedWord, type ResolvedWord } from "../expand.js";
-import { assignBinding, known, pushPositionalFrame, unknown } from "../environment.js";
-import { indeterminate, policyDeny } from "../outcome.js";
+import { assignBinding, hasBinding, known, lookupBinding, pushPositionalFrame, unknown } from "../environment.js";
+import { indeterminate, policyDeny, policyIndeterminate, strongestOutcome, type Outcome } from "../outcome.js";
+import type { BashDispatchResult } from "../walker.js";
 import { basename } from "../../shell.js";
 import { isSecretPath } from "../../secrets.js";
 import { taintWrapperResult } from "./wrapper-utils.js";
@@ -15,6 +16,19 @@ export const shHandler: CommandHandler = Object.freeze({
 });
 
 function handleShell(name: string, cursor: Parameters<CommandHandler["handle"]>[0], context: Parameters<CommandHandler["handle"]>[1]) {
+  const inheritedStartup = shellStartupEnvironmentRoute(name, cursor, context);
+  if (typeof inheritedStartup !== "boolean") return inheritedStartup;
+  const startup = { detected: inheritedStartup };
+  const result = handleShellArguments(name, cursor, context, startup);
+  return startup.detected ? deferStartupRoute(result, context) : result;
+}
+
+function handleShellArguments(
+  name: string,
+  cursor: Parameters<CommandHandler["handle"]>[0],
+  context: Parameters<CommandHandler["handle"]>[1],
+  startup: { detected: boolean },
+) {
     const arguments_ = cursor.invocation.argv;
     let index = 0;
     const initCommands: string[] = [];
@@ -101,12 +115,17 @@ function handleShell(name: string, cursor: Parameters<CommandHandler["handle"]>[
         continue;
       }
       if (argument.value === "--rcfile" || argument.value === "--init-file") {
+        startup.detected = true;
         const option = arguments_[index + 1];
         if (!option || option.kind !== "known") return indeterminate(context.span);
+        if (isSecretPath(option.value)) return secretScriptDeny(name, option.value, context);
         index += 2;
         continue;
       }
       if (argument.value.startsWith("--rcfile=") || argument.value.startsWith("--init-file=")) {
+        startup.detected = true;
+        const path = argument.value.slice(argument.value.indexOf("=") + 1);
+        if (isSecretPath(path)) return secretScriptDeny(name, path, context);
         index++;
         continue;
       }
@@ -122,6 +141,38 @@ function handleShell(name: string, cursor: Parameters<CommandHandler["handle"]>[
     return initCommands.length > 0
       ? taintWrapperResult(context.continueWith(initCommands.join(";\n"), undefined, { route: "shell-command" }), context)
       : indeterminate(context.span);
+}
+
+function shellStartupEnvironmentRoute(
+  name: string,
+  cursor: Parameters<CommandHandler["handle"]>[0],
+  context: Parameters<CommandHandler["handle"]>[1],
+): boolean | Outcome {
+  const names = name === "bash" ? ["BASH_ENV", "ENV"] : ["sh", "dash", "ksh"].includes(name) ? ["ENV"] : name === "zsh" ? ["ZDOTDIR"] : [];
+  for (const environmentName of names) {
+    const environment = cursor.invocation.environment;
+    if (!hasBinding(environment, environmentName)) {
+      if (environment.missingBindings === "unknown") return true;
+      continue;
+    }
+    const value = lookupBinding(environment, environmentName).value;
+    if (value.kind === "unknown") return true;
+    if (value.kind !== "known" || value.value.length === 0) continue;
+    if (isSecretPath(value.value)) return secretScriptDeny(name, value.value, context);
+    return true;
+  }
+  return false;
+}
+
+function deferStartupRoute(result: BashDispatchResult, context: Parameters<CommandHandler["handle"]>[1]): BashDispatchResult {
+  const deferred = policyIndeterminate(context.span, {
+    name: "generic-read-only",
+    decision: "defer",
+    readOnly: { tool: "dynamic-executable" },
+  });
+  return "kind" in result
+    ? strongestOutcome([result, deferred])
+    : Object.freeze({ ...result, outcome: strongestOutcome([result.outcome, deferred]) });
 }
 
 function secretScriptDeny(name: string, path: string, context: Parameters<CommandHandler["handle"]>[1]) {

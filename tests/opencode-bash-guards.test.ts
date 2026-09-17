@@ -177,6 +177,8 @@ describe("OpenCode single-pass Bash guards", () => {
   test("uses one evaluator for enabled ghPrCreate enforcement", async () => {
     const configHome = mkdtempSync(join(tmpdir(), "safety-core-opencode-gh-pr-"));
     const previous = process.env.SAFETY_CORE_CONFIG_HOME;
+    const previousEndpoint = process.env.SAFETY_CORE_TEST_ENDPOINT;
+    const previousTitle = process.env.SAFETY_CORE_TEST_TITLE;
     try {
       mkdirSync(join(configHome, "safety-core"));
       writeFileSync(join(configHome, "safety-core", "profiles.json"), JSON.stringify({
@@ -184,6 +186,8 @@ describe("OpenCode single-pass Bash guards", () => {
         ghPrCreate: { enabled: true, allowedRepositories: ["acme/widgets"], allowedOrganizations: [] },
       }));
       process.env.SAFETY_CORE_CONFIG_HOME = configHome;
+      process.env.SAFETY_CORE_TEST_ENDPOINT = "user";
+      process.env.SAFETY_CORE_TEST_TITLE = "x";
 
       let calls = 0;
       const evaluate = (options: BashConfiguredOptions): BashConfiguredEvaluation => {
@@ -201,10 +205,16 @@ describe("OpenCode single-pass Bash guards", () => {
         .rejects.toThrow("gh api --method POST is not read-only");
       await expect(before(bashInput("session-1", "pr-leading-flags"), bashOutput("GH_PROMPT_DISABLED=1 gh pr --title x create --body y --repo github.com/attacker/widgets")))
         .rejects.toThrow("requested repository is not allowlisted");
-      expect(calls).toBe(4);
+      await expect(before(bashInput("session-1", "api-unresolved-endpoint"), bashOutput('gh -X POST api "$SAFETY_CORE_TEST_ENDPOINT"')))
+        .rejects.toThrow("gh api --method POST is not read-only");
+      await expect(before(bashInput("session-1", "pr-unresolved-title"), bashOutput('GH_PROMPT_DISABLED=1 gh pr -t "$SAFETY_CORE_TEST_TITLE" create -b y -Rgithub.com/attacker/widgets')))
+        .rejects.toThrow("cannot be resolved statically");
+      expect(calls).toBe(6);
     } finally {
       if (previous === undefined) delete process.env.SAFETY_CORE_CONFIG_HOME;
       else process.env.SAFETY_CORE_CONFIG_HOME = previous;
+      if (previousEndpoint === undefined) delete process.env.SAFETY_CORE_TEST_ENDPOINT; else process.env.SAFETY_CORE_TEST_ENDPOINT = previousEndpoint;
+      if (previousTitle === undefined) delete process.env.SAFETY_CORE_TEST_TITLE; else process.env.SAFETY_CORE_TEST_TITLE = previousTitle;
       rmSync(configHome, { force: true, recursive: true });
     }
   });

