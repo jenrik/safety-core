@@ -30,6 +30,19 @@ const ROOT_VALUE_OPTIONS: readonly GhFlagGrammar[] = Object.freeze([
   Object.freeze({ long: "--repo", short: "-R", takesValue: true, forms: ["separate", "equals", "attached"] as const }),
   Object.freeze({ long: "--hostname", takesValue: true, forms: ["separate", "equals"] as const }),
 ]);
+const API_DISCOVERY_FLAGS: readonly GhFlagGrammar[] = Object.freeze([
+  Object.freeze({ long: "--method", short: "-X", takesValue: true, forms: ["separate", "equals", "attached"] as const }),
+  Object.freeze({ long: "--raw-field", short: "-f", takesValue: true, forms: ["separate", "equals", "attached"] as const }),
+  Object.freeze({ long: "--field", short: "-F", takesValue: true, forms: ["separate", "equals", "attached"] as const }),
+  Object.freeze({ long: "--header", short: "-H", takesValue: true, forms: ["separate", "equals", "attached"] as const }),
+  Object.freeze({ long: "--input", takesValue: true, forms: ["separate", "equals"] as const }),
+  Object.freeze({ long: "--cache", takesValue: true, forms: ["separate", "equals"] as const }),
+  Object.freeze({ long: "--preview", short: "-p", takesValue: true, forms: ["separate", "equals", "attached"] as const }),
+  Object.freeze({ long: "--jq", short: "-q", takesValue: true, forms: ["separate", "equals", "attached"] as const }),
+  Object.freeze({ long: "--template", short: "-t", takesValue: true, forms: ["separate", "equals", "attached"] as const }),
+  ...["--include", "--paginate", "--slurp", "--silent", "--verbose", "--allow-escape-sequences"].map((long) => Object.freeze({ long, takesValue: false, forms: ["separate"] as const })),
+  Object.freeze({ short: "-i", takesValue: false, forms: ["separate"] as const }),
+]);
 
 interface CommandForm {
   readonly words: readonly string[];
@@ -47,6 +60,7 @@ export function parseGhCommandLine(args: readonly string[]): ParsedGhCommandLine
   const words: string[] = [];
   const options: ParsedGhOption[] = [];
   let exact: CommandForm | undefined;
+  let possibleForms = [...COMMAND_FORMS];
   for (let index = 0; index < args.length; index++) {
     const argument = args[index]!;
     if (argument === "--") {
@@ -60,18 +74,28 @@ export function parseGhCommandLine(args: readonly string[]): ParsedGhCommandLine
         index = parsed.lastIndex;
         continue;
       }
+      if (exact && !hasLongerForm(words, exact.rule)) return commandResult(exact, words, args.slice(index), options);
+      const commandOption = parseLeadingCommandOption(args, index, possibleForms);
+      if (commandOption) {
+        options.push(...commandOption.options);
+        possibleForms = commandOption.forms;
+        exact = possibleForms.find((form) => form.words.length === words.length);
+        index = commandOption.lastIndex;
+        continue;
+      }
       if (!exact || hasLongerForm(words, exact.rule)) return Object.freeze({ kind: "invalid" });
       return commandResult(exact, words, args.slice(index), options);
     }
 
     const candidate = [...words, argument];
-    const possible = COMMAND_FORMS.filter((form) => isPrefix(candidate, form.words));
+    const possible = possibleForms.filter((form) => isPrefix(candidate, form.words));
     if (possible.length === 0) {
       if (!exact) return Object.freeze({ kind: "invalid" });
       return commandResult(exact, words, args.slice(index), options);
     }
     words.push(argument);
-    exact = possible.find((form) => form.words.length === words.length) ?? exact;
+    possibleForms = possible;
+    exact = possible.find((form) => form.words.length === words.length);
   }
 
   return exact ? commandResult(exact, words, [], options) : Object.freeze({ kind: "invalid" });
@@ -184,12 +208,12 @@ function commandResult(
       positional.push(argument);
       continue;
     }
-    const parsed = parseOption(operands, index, exact.rule.flags, "command");
+    const parsed = parseOptions(operands, index, exact.rule.flags, "command");
     if (!parsed) {
       commandOptions.push(Object.freeze({ identity: argument, spelling: argument, position: index, scope: "command" }));
       continue;
     }
-    commandOptions.push(parsed.option);
+    commandOptions.push(...parsed.options);
     index = parsed.lastIndex;
   }
   return Object.freeze({
@@ -242,6 +266,58 @@ function parseOption(
     }
   }
   return undefined;
+}
+
+function parseOptions(
+  args: readonly string[],
+  index: number,
+  grammar: readonly GhFlagGrammar[],
+  scope: ParsedGhOption["scope"],
+): { readonly options: readonly ParsedGhOption[]; readonly lastIndex: number } | undefined {
+  const single = parseOption(args, index, grammar, scope);
+  if (single) return { options: Object.freeze([single.option]), lastIndex: single.lastIndex };
+  const argument = args[index]!;
+  if (!argument.startsWith("-") || argument.startsWith("--") || argument.length < 3) return undefined;
+
+  const options: ParsedGhOption[] = [];
+  for (let offset = 1; offset < argument.length; offset++) {
+    const identity = `-${argument[offset]!}`;
+    const flag = grammar.find((candidate) => candidate.short === identity);
+    if (!flag) return undefined;
+    if (!flag.takesValue) {
+      options.push(Object.freeze({ identity, spelling: identity, position: index, scope }));
+      continue;
+    }
+    const attachedValue = argument.slice(offset + 1).replace(/^=/, "");
+    if (attachedValue && flag.forms.includes("attached")) {
+      options.push(Object.freeze({ identity, spelling: identity, value: attachedValue, position: index, scope }));
+      return { options: Object.freeze(options), lastIndex: index };
+    }
+    const separateValue = args[index + 1];
+    if (!flag.forms.includes("separate") || !separateValue || separateValue.startsWith("-")) return undefined;
+    options.push(Object.freeze({ identity, spelling: identity, value: separateValue, position: index, scope }));
+    return { options: Object.freeze(options), lastIndex: index + 1 };
+  }
+  return options.length > 0 ? { options: Object.freeze(options), lastIndex: index } : undefined;
+}
+
+function parseLeadingCommandOption(
+  args: readonly string[],
+  index: number,
+  forms: readonly CommandForm[],
+): { readonly options: readonly ParsedGhOption[]; readonly lastIndex: number; readonly forms: readonly CommandForm[] } | undefined {
+  const matches: Array<{ readonly form: CommandForm; readonly parsed: ReturnType<typeof parseOptions> }> = [];
+  for (const form of forms) {
+    const grammar = form.rule.path.join(" ") === "api" ? API_DISCOVERY_FLAGS : form.rule.flags;
+    const parsed = parseOptions(args, index, grammar, "command");
+    if (parsed) matches.push({ form, parsed });
+  }
+  if (matches.length === 0) return undefined;
+  const first = matches[0]!.parsed!;
+  const compatible = matches.filter(({ parsed }) => parsed!.lastIndex === first.lastIndex
+    && JSON.stringify(parsed!.options) === JSON.stringify(first.options));
+  if (compatible.length !== matches.length) return undefined;
+  return Object.freeze({ options: first.options, lastIndex: first.lastIndex, forms: Object.freeze(compatible.map(({ form }) => form)) });
 }
 
 function buildCommandForms(): readonly CommandForm[] {

@@ -33,6 +33,15 @@ test("Pi adapter blocks proven GH permission denials through its registered tool
     expect(result).toMatchObject({ block: true });
     const apiResult = await handlers.get("tool_call")!({ toolName: "bash", toolCallId: "api-test", input: { command: "gh api user -X POST" } }, { ui: { notify() {} } });
     expect(apiResult).toMatchObject({ block: true });
+    for (const command of [
+      "builtin command cat credentials.json",
+      "builtin command gh api user -X POST",
+      "gh -X POST api user",
+      "gh pr --title x create --body y --repo github.com/attacker/widgets",
+    ]) {
+      const blocked = await handlers.get("tool_call")!({ toolName: "bash", toolCallId: command, input: { command } }, { ui: { notify() {} } });
+      expect(blocked, command).toMatchObject({ block: true });
+    }
     let prompts = 0;
     const inheritedResult = await handlers.get("tool_call")!(
       { toolName: "bash", toolCallId: "inherited-test", input: { command: `$${runnerName} api user -X POST` } },

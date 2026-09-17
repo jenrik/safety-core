@@ -197,7 +197,11 @@ describe("OpenCode single-pass Bash guards", () => {
         .rejects.toThrow("requested repository is not allowlisted");
       await expect(before(bashInput("session-1", "api"), bashOutput("gh api user -X POST")))
         .rejects.toThrow("gh api --method POST is not read-only");
-      expect(calls).toBe(2);
+      await expect(before(bashInput("session-1", "api-leading-flags"), bashOutput("gh -X POST api user")))
+        .rejects.toThrow("gh api --method POST is not read-only");
+      await expect(before(bashInput("session-1", "pr-leading-flags"), bashOutput("GH_PROMPT_DISABLED=1 gh pr --title x create --body y --repo github.com/attacker/widgets")))
+        .rejects.toThrow("requested repository is not allowlisted");
+      expect(calls).toBe(4);
     } finally {
       if (previous === undefined) delete process.env.SAFETY_CORE_CONFIG_HOME;
       else process.env.SAFETY_CORE_CONFIG_HOME = previous;

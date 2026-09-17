@@ -518,7 +518,7 @@ function isPossiblyStateMutatingBuiltin(executable: string): boolean {
 function isBuiltinShellRoute(command: NormalizedCommand): boolean {
   if (command.executable?.kind !== "known" || command.executable.value !== "builtin") return false;
   const target = command.argv[0]?.kind === "known" && command.argv[0].value === "--" ? command.argv[1] : command.argv[0];
-  return target?.kind === "known" && ["eval", "source", "."].includes(target.value);
+  return target?.kind === "known" && ["command", "eval", "exec", "source", "."].includes(target.value);
 }
 
 function normalizeDispatchResult(result: BashDispatchResult): { readonly outcome: Outcome; readonly continuations?: readonly BashDispatchContinuation[] } {

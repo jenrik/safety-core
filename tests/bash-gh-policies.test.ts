@@ -90,6 +90,13 @@ describe("walker-backed gh policy compatibility", () => {
     expect(ghPrCreate("builtin eval 'gh pr create --repo github.com/attacker/widgets --fill'")).toBe("deny");
   });
 
+  test("preserves nested GH denials through executable builtin targets", () => {
+    expect(ghApi("builtin command gh api user -X POST")).toBe("deny");
+    expect(ghApi("builtin -- command -- gh api user -X POST")).toBe("deny");
+    expect(ghPrCreate("builtin exec gh api user -X POST")).toBe("deny");
+    expect(ghPrCreate("builtin command gh pr create --repo github.com/attacker/widgets --fill")).toBe("deny");
+  });
+
   test("property: builtin eval spellings preserve every mutating API method denial", () => {
     for (const separator of ["", " --"]) {
       for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
@@ -97,6 +104,57 @@ describe("walker-backed gh policy compatibility", () => {
           const source = `builtin${separator} eval 'gh api user ${methodFlag}'`;
           expect(ghApi(source), source).toBe("deny");
         }
+      }
+    }
+  });
+
+  test("property: builtin command and exec preserve every mutating API method denial", () => {
+    for (const target of ["command", "exec"]) {
+      for (const delimiter of ["", " --"]) {
+        for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+          const source = `builtin ${target}${delimiter} gh api user -X ${method}`;
+          expect(ghApi(source), source).toBe("deny");
+        }
+      }
+    }
+  });
+
+  test("owns API methods and PR creation flags before their subcommands", () => {
+    expect(ghApi("gh -X POST api user")).toBe("deny");
+    expect(ghApi("gh --method POST api user")).toBe("deny");
+    expect(ghPrCreate("gh -X POST api user")).toBe("deny");
+    expect(ghPrCreate("gh pr --title x create --body y --repo github.com/attacker/widgets")).toBe("deny");
+    expect(ghPrCreate("gh pr -t x create -b y -Rgithub.com/attacker/widgets")).toBe("deny");
+    expect(ghPrCreate("gh pr -df create -Rgithub.com/acme/widgets")).toBe("defer");
+    expect(ghPrCreate("gh -t x -b y -Rgithub.com/acme/widgets pr create")).toBe("defer");
+  });
+
+  test("property: API method placement cannot change mutation ownership", () => {
+    const methods = ["POST", "PUT", "PATCH", "DELETE"];
+    const forms = (method: string) => [
+      `gh -X ${method} api user`,
+      `gh -X${method} api user`,
+      `gh -iX${method} api user`,
+      `gh --method ${method} api user`,
+      `gh --method=${method} api user`,
+      `gh api -X ${method} user`,
+      `gh api user --method=${method}`,
+    ];
+    for (const method of methods) for (const source of forms(method)) expect(ghApi(source), source).toBe("deny");
+  });
+
+  test("property: PR flag placement and short clusters preserve repository ownership", () => {
+    const repositories = ["github.com/acme/widgets", "github.com/attacker/widgets"];
+    const forms = (repository: string) => [
+      `gh pr --title x create --body y --repo ${repository}`,
+      `gh pr -t x create -b y -R${repository}`,
+      `gh pr -df create -R${repository}`,
+      `gh -R${repository} pr -df create`,
+      `gh -t x -b y -R${repository} pr create`,
+    ];
+    for (const repository of repositories) {
+      for (const source of forms(repository)) {
+        expect(ghPrCreate(source), source).toBe(repository.includes("/acme/") ? "defer" : "deny");
       }
     }
   });

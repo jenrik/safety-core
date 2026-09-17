@@ -62,7 +62,8 @@ function parseGhApiArguments(args: readonly string[], apiIndex: number): ParsedG
   let hasParametersOrBody = false;
   let unsafeOrMalformed = apiIndex !== 0;
 
-  for (let index = apiIndex + 1; index < args.length; index++) {
+  for (let index = 0; index < args.length; index++) {
+    if (index === apiIndex) continue;
     const argument = args[index]!;
     if (!argument.startsWith("-") || argument === "-") {
       endpoints.push(argument);

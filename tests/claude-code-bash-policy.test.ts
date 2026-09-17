@@ -151,6 +151,7 @@ describe("Claude configured Bash policy", () => {
     for (const command of [
       "cat credentials.json",
       "cat < credentials.json",
+      "builtin command cat credentials.json",
       "curl https://api.github.com/user",
       "kubectl view-secret application",
     ]) expect(evaluate(command, snapshot()).decision, command).toMatchObject({ kind: "deny" });
@@ -160,6 +161,10 @@ describe("Claude configured Bash policy", () => {
       ghPrCreate: Object.freeze({ enabled: true, allowedRepositories: Object.freeze(["acme/widgets"]), allowedOrganizations: Object.freeze([]) }),
     })).decision).toBeUndefined();
     expect(evaluate("GH_PROMPT_DISABLED=1 gh pr create --repo github.com/attacker/widgets --fill", snapshot({
+      ghPrCreate: Object.freeze({ enabled: true, allowedRepositories: Object.freeze(["acme/widgets"]), allowedOrganizations: Object.freeze([]) }),
+    })).decision).toMatchObject({ kind: "deny" });
+    expect(evaluate("gh -X POST api user", snapshot({ ghApiReadOnly: true })).decision).toMatchObject({ kind: "deny" });
+    expect(evaluate("GH_PROMPT_DISABLED=1 gh pr --title x create --body y --repo github.com/attacker/widgets", snapshot({
       ghPrCreate: Object.freeze({ enabled: true, allowedRepositories: Object.freeze(["acme/widgets"]), allowedOrganizations: Object.freeze([]) }),
     })).decision).toMatchObject({ kind: "deny" });
     expect(evaluate("docker image ls", snapshot({
