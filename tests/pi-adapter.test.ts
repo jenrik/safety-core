@@ -255,8 +255,12 @@ test("property: supported guard wrappers still block Pi", async () => {
       (command: string) => `strace -f ${command}`,
       (command: string) => `sh -c '${command}'`,
       (command: string) => `time ${command}`,
+      (command: string) => `time MODE=1 ${command}`,
+      (command: string) => `time -pv ${command}`,
       (command: string) => `coproc ${command}`,
+      (command: string) => `coproc MODE=1 ${command}`,
       (command: string) => `watch ${command}`,
+      (command: string) => `watch -tx ${command}`,
     ];
     for (const violation of violations) {
       for (const wrap of wrappers) {

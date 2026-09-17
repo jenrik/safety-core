@@ -218,11 +218,18 @@ describe("walker-backed gh policy compatibility", () => {
     const wrappers = [
       (command: string) => `time ${command}`,
       (command: string) => `time -p ${command}`,
+      (command: string) => `time MODE=1 ${command}`,
+      (command: string) => `time -pv ${command}`,
       (command: string) => `coproc ${command}`,
+      (command: string) => `coproc MODE=1 ${command}`,
       (command: string) => `coproc JOB ${command}`,
+      (command: string) => `coproc JOB MODE=1 ${command}`,
       (command: string) => `coproc JOB { ${command}; }`,
+      (command: string) => `coproc JOB { MODE=1 ${command}; }`,
       (command: string) => `watch ${command}`,
       (command: string) => `watch --exec ${command}`,
+      (command: string) => `watch -tx ${command}`,
+      (command: string) => `watch -txn1 ${command}`,
     ];
     for (const wrap of wrappers) {
       expect(ghApi(wrap("gh api user -X POST")), wrap("gh api user -X POST")).toBe("deny");

@@ -34,7 +34,15 @@ describe("OpenCode single-pass Bash guards", () => {
   test("maps baseline policies to their existing OpenCode messages", () => {
     expect(openCodeBashGuardBlockReason(evaluate("cat credentials.json")))
       .toBe("Blocked by OpenCode safety policy: bash `cat` on 'credentials.json'");
-    for (const command of ["time cat credentials.json", "coproc cat credentials.json", "watch cat credentials.json"]) {
+    for (const command of [
+      "time cat credentials.json",
+      "time MODE=1 cat credentials.json",
+      "time -pv cat credentials.json",
+      "coproc cat credentials.json",
+      "coproc MODE=1 cat credentials.json",
+      "watch cat credentials.json",
+      "watch -tx cat credentials.json",
+    ]) {
       expect(openCodeBashGuardBlockReason(evaluate(command)), command)
         .toBe("Blocked by OpenCode safety policy: bash `cat` on 'credentials.json'");
     }
