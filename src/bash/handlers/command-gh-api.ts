@@ -3,8 +3,9 @@ import type { ResolvedWord } from "../expand.js";
 import { policyDeny, policyIndeterminate } from "../outcome.js";
 import { analyzeGhApiInvocation } from "../policies/gh-api.js";
 import { GH_API_DEFER_ENVIRONMENT_NAMES } from "../policy-environment.js";
+import { isKnownGhTopLevel } from "./gh-command-line.js";
 import { findResolvedSubcommand, findSubcommand, knownArguments } from "./gh-utils.js";
-import { hasDisabledGhPager, hasUnsafeGhEnvironmentBinding } from "./read-only-utils.js";
+import { hasDisabledGhPager, hasInheritedExecutableFunction, hasUnsafeGhEnvironmentBinding } from "./read-only-utils.js";
 
 export const ghApiHandler: PolicyObserver = Object.freeze({
   name: "gh",
@@ -12,7 +13,10 @@ export const ghApiHandler: PolicyObserver = Object.freeze({
     const args = knownArguments(cursor);
     if (!args) {
       const subcommand = findResolvedSubcommand(cursor.invocation.argv);
-      if (!subcommand || (subcommand.kind === "known" && subcommand.name !== "api")) return ignorePolicy();
+      if (!subcommand) return ignorePolicy();
+      if (subcommand.kind === "known" && subcommand.name !== "api") {
+        return isOpaqueGhRoute(subcommand.name) ? unresolvedGhApiRoute(context) : ignorePolicy();
+      }
       if (subcommand.kind === "unknown") {
         return observePolicy(policyIndeterminate(context.span, analyzeGhApiInvocation({
           endpoint: undefined,
@@ -35,7 +39,8 @@ export const ghApiHandler: PolicyObserver = Object.freeze({
         : policyIndeterminate(context.span, decision.evidence));
     }
     const subcommand = findSubcommand(args);
-    if (!subcommand || subcommand.name !== "api") return ignorePolicy();
+    if (!subcommand) return ignorePolicy();
+    if (subcommand.name !== "api") return isOpaqueGhRoute(subcommand.name) ? unresolvedGhApiRoute(context) : ignorePolicy();
     const api = parseGhApiArguments(args, subcommand.index);
     const executable = cursor.invocation.executable;
     const assignmentWrites = cursor.invocation.assignmentPatch.writes;
@@ -48,6 +53,7 @@ export const ghApiHandler: PolicyObserver = Object.freeze({
         || (executable?.kind === "known" && executable.value.includes("/"))
         || [...assignmentWrites].some((name) => name !== "GH_PAGER")
         || cursor.invocation.redirects.length > 0
+        || hasInheritedExecutableFunction(cursor, "gh")
         || !hasDisabledGhPager(cursor)
         || hasUnsafeGhEnvironmentBinding(cursor, GH_API_DEFER_ENVIRONMENT_NAMES),
     });
@@ -60,6 +66,19 @@ export const ghApiHandler: PolicyObserver = Object.freeze({
       : policyIndeterminate(context.span, decision.evidence));
   },
 });
+
+function isOpaqueGhRoute(name: string): boolean {
+  return !isKnownGhTopLevel(name) || ["alias", "extension", "ext", "extensions"].includes(name);
+}
+
+function unresolvedGhApiRoute(context: Parameters<PolicyObserver["observe"]>[1]) {
+  return observePolicy(policyIndeterminate(context.span, analyzeGhApiInvocation({
+    endpoint: undefined,
+    explicitMethod: undefined,
+    hasParametersOrBody: false,
+    unsafeOrMalformed: true,
+  }).evidence));
+}
 
 function hasUnresolvedMethodValue(args: readonly ResolvedWord[]): boolean {
   for (let index = 0; index < args.length; index++) {

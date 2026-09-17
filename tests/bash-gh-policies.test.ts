@@ -121,6 +121,48 @@ describe("walker-backed gh policy compatibility", () => {
     }
   });
 
+  test("defers opaque GitHub and script routes without claiming known non-API commands", () => {
+    const apiProfile = snapshot({ ghApiReadOnly: true });
+    for (const source of [
+      "gh create-issue",
+      "gh extension exec mutate",
+      "./create-pr.sh",
+      "python ./create_pr.py",
+      "node ./create-pr.js",
+    ]) {
+      expect(configured(source, apiProfile, { GH_PAGER: "" }).permission.kind, source).toBe("defer");
+    }
+    expect(configured("gh issue create", apiProfile, { GH_PAGER: "" }).permission.kind).toBe("ignore");
+  });
+
+  test("defers inherited configuration and imported Bash function shadowing", () => {
+    const dockerProfile = snapshot({
+      strictProfiles: Object.freeze({ ...snapshot().strictProfiles, dockerReadOnly: true }),
+    });
+    const kubectlProfile = snapshot({
+      strictProfiles: Object.freeze({ ...snapshot().strictProfiles, kubectlReadOnly: true }),
+    });
+    const cases = [
+      ["docker image ls", dockerProfile, { DOCKER_CONFIG: "/tmp/docker-config" }],
+      ["kubectl get pods", kubectlProfile, { KUBECONFIG: "/tmp/kubeconfig" }],
+      ["docker image ls", dockerProfile, { "BASH_FUNC_docker%%": "() { credential-canary; }" }],
+      ["kubectl get pods", kubectlProfile, { "BASH_FUNC_kubectl%%": "() { credential-canary; }" }],
+    ] as const;
+    for (const [source, profile, environment] of cases) {
+      const result = evaluateConfiguredBash({ source, initialEnvironment: policyInitialEnvironment(environment), profileSnapshot: profile });
+      expect(result.permission.kind, source).toBe("defer");
+      expect(JSON.stringify(result)).not.toContain("credential-canary");
+    }
+
+    const pr = evaluateConfiguredBash({
+      source: "gh pr create --repo github.com/acme/widgets --fill",
+      initialEnvironment: policyInitialEnvironment({ GH_PROMPT_DISABLED: "1", "BASH_FUNC_gh%%": "() { credential-canary; }" }),
+      profileSnapshot: snapshot({ ghPrCreate: Object.freeze(policy) }),
+    });
+    expect(pr.permission).toMatchObject({ kind: "deny", profile: "ghPrCreate" });
+    expect(JSON.stringify(pr)).not.toContain("credential-canary");
+  });
+
   test("keeps allowlisted native PR creation prompt-gated through transparent wrappers", () => {
     expect(ghPrCreate(
       "TOOL=gh; strace $TOOL pr create --repo github.com/acme/widgets --fill",

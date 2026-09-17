@@ -382,6 +382,8 @@ Authentication variables are listed for completeness but their values are never 
 | `GIT_CONFIG_SYSTEM` | defer | git | yes | Redirects system Git configuration. |
 | `GIT_EXTERNAL_DIFF` | defer | git | yes | Executes an external diff helper. |
 | `GIT_PAGER` | defer | git | yes | Executes an explicit Git pager command. |
+| `DOCKER_CONFIG` | defer | shared | yes | Redirects Docker configuration and credential discovery. |
+| `KUBECONFIG` | defer | shared | yes | Redirects Kubernetes configuration and credential discovery. |
 | `BASH_ENV` | defer | shared | yes | Loads and executes a Bash startup file. |
 | `ENV` | defer | shared | yes | Loads and executes a POSIX or Korn shell startup file. |
 | `ZDOTDIR` | defer | shared | yes | Redirects zsh startup-file discovery. |

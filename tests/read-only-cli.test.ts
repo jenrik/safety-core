@@ -240,6 +240,22 @@ describe("generic read-only Bash profile", () => {
     }
   });
 
+  test("property: strace never auto-allows credential-capable read-only clients", () => {
+    const profiles = [
+      { command: "git diff --stat origin/main...origin/feature", analyze: generic },
+      { command: "gh label list", analyze: gh },
+      { command: "helm version", analyze: helm },
+      { command: "docker image ls", analyze: (command: string) => strict(command, "docker") },
+      { command: "kubectl get pods", analyze: (command: string) => strict(command, "kubectl") },
+    ];
+    for (const profile of profiles) {
+      for (const options of ["-f", "--read=all --string-limit=65535", "--write=all", "-s 65535"]) {
+        const command = `strace ${options} ${profile.command}`;
+        expect(profile.analyze(command), command).toBe("defer");
+      }
+    }
+  });
+
   test("property: strace redirects defer every parsed read-only profile", () => {
     const profiles = [
       { command: "git diff --stat origin/main...origin/feature", analyze: generic },

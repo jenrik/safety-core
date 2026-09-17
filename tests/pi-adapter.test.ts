@@ -92,6 +92,37 @@ test("Pi adapter blocks proven GH permission denials through its registered tool
   }
 });
 
+test("Pi confirms opaque routes when only ghApiReadOnly is enabled", async () => {
+  const { initBashParser } = await import("../src/index.ts");
+  const wasmDir = await parserFixture();
+  const configHome = mkdtempSync(join(tmpdir(), "safety-core-pi-api-profile-"));
+  const originalConfigHome = process.env.SAFETY_CORE_CONFIG_HOME;
+  try {
+    await initBashParser(wasmDir);
+    mkdirSync(join(configHome, "safety-core"));
+    writeFileSync(join(configHome, "safety-core", "profiles.json"), JSON.stringify({ ghApiReadOnly: true }));
+    process.env.SAFETY_CORE_CONFIG_HOME = configHome;
+
+    const handlers = new Map<string, Function>();
+    const pi = { on: (name: string, handler: Function) => handlers.set(name, handler), registerCommand() {}, registerTool() {} };
+    const { createPiExtension } = await import("../adapters/pi.ts");
+    createPiExtension(pi as never);
+    let prompts = 0;
+    for (const command of ["gh create-issue", "gh extension exec mutate", "./create-pr.sh", "python ./create_pr.py"]) {
+      const result = await handlers.get("tool_call")!(
+        { toolName: "bash", toolCallId: command, input: { command } },
+        { hasUI: true, ui: { confirm: async () => { prompts++; return false; }, notify() {} } },
+      );
+      expect(result, command).toMatchObject({ block: true, reason: "Command requires approval from an enabled safety profile" });
+    }
+    expect(prompts).toBe(4);
+  } finally {
+    if (originalConfigHome === undefined) delete process.env.SAFETY_CORE_CONFIG_HOME; else process.env.SAFETY_CORE_CONFIG_HOME = originalConfigHome;
+    rmSync(wasmDir, { force: true, recursive: true });
+    rmSync(configHome, { force: true, recursive: true });
+  }
+});
+
 test("Pi performs one configured evaluation and reuses its kubectl audit view", async () => {
   const { evaluateConfiguredBash, initBashParser, setJudgeProvider } = await import("../src/index.ts");
   const wasmDir = await parserFixture();

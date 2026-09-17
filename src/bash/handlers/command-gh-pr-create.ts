@@ -4,7 +4,7 @@ import { analyzeGhPrCreateInvocation, denyGhPrCreate, type GhPrCreatePolicy } fr
 import { GH_GLOBAL_DEFER_ENVIRONMENT_NAMES } from "../policy-environment.js";
 import { ghPrCreateRepositoryValues, hasUnknownNestedGhCommand, isGhPrCreateCommand, isKnownGhTopLevel } from "./gh-command-line.js";
 import { commandScript, findSubcommand, knownArguments } from "./gh-utils.js";
-import { hasDisabledGhPrompts, hasUnsafeGhEnvironmentBinding } from "./read-only-utils.js";
+import { hasDisabledGhPrompts, hasInheritedExecutableFunction, hasUnsafeGhEnvironmentBinding } from "./read-only-utils.js";
 
 export function ghPrCreateHandler(policy: GhPrCreatePolicy): PolicyObserver {
   return Object.freeze({
@@ -59,6 +59,9 @@ export function ghPrCreateHandler(policy: GhPrCreatePolicy): PolicyObserver {
       }
       if (hasUnsafeGhEnvironmentBinding(cursor, GH_GLOBAL_DEFER_ENVIRONMENT_NAMES)) {
         return denied(context, "GitHub CLI execution is blocked because an inherited or shell-assigned environment variable can redirect authentication, configuration, output, or external execution");
+      }
+      if (hasInheritedExecutableFunction(cursor, "gh")) {
+        return denied(context, "Pull-request creation is blocked because an inherited Bash function can replace the gh executable");
       }
       if (context.provenance.route.some((route) => route === "eval" || route === "shell-command" || route === "binding-derived-script")) {
         return denied(context, "Pull-request creation is blocked through a shell interpreter; invoke native gh pr create as a standalone command instead");

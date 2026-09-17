@@ -229,7 +229,8 @@
             helm_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"helm version"}}'
             helm_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"helm show readme chart"}}'
              docker_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"docker image ls"}}'
-             wrapper_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"TOOL=docker; strace $TOOL image ls"}}'
+             wrapper_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"TOOL=docker; nice $TOOL image ls"}}'
+             strace_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"TOOL=docker; strace --read=all --string-limit=65535 $TOOL image ls"}}'
              docker_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"./docker image ls"}}'
             docker_content_defer_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"docker ps"}}'
             kubectl_allow_payload='{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"kubectl get pods -n default"}}'
@@ -248,7 +249,8 @@
              helm_allow_out=$(echo "$helm_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
              helm_defer_out=$(echo "$helm_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
               docker_allow_out=$(echo "$docker_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
-              wrapper_allow_out=$(echo "$wrapper_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+               wrapper_allow_out=$(echo "$wrapper_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
+               strace_defer_out=$(echo "$strace_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
              docker_defer_out=$(echo "$docker_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
              docker_content_defer_out=$(echo "$docker_content_defer_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
              kubectl_allow_out=$(echo "$kubectl_allow_payload" | ${pkgs.nodejs_22}/bin/node ${sc.claudeCodeHooks}/bash_policy.mjs)
@@ -288,9 +290,13 @@
                exit 1
              fi
               if ! echo "$wrapper_allow_out" | grep -q '"permissionDecision":"allow"'; then
-                echo "expected bash_policy.mjs to allow a stateful assignment through a wrapper, got: $wrapper_allow_out" >&2
-               exit 1
-             fi
+                 echo "expected bash_policy.mjs to allow a stateful assignment through a wrapper, got: $wrapper_allow_out" >&2
+                exit 1
+              fi
+              if [ -n "$strace_defer_out" ]; then
+                 echo "expected bash_policy.mjs to defer credential-capable strace output, got: $strace_defer_out" >&2
+                exit 1
+              fi
             if [ -n "$docker_defer_out" ]; then
                echo "expected bash_policy.mjs to defer an explicit Docker path, got: $docker_defer_out" >&2
               exit 1

@@ -92,7 +92,7 @@ export function run(main: () => Promise<void> | void): void {
       try {
         process.stderr.write(`[safety-hook] internal error: ${err}\n`);
       } catch {}
-      process.exit(isBashParserFailure(err) ? 1 : 0);
+      process.exit(isBashParserFailure(err) ? 2 : 0);
     });
 }
 

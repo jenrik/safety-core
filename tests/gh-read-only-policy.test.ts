@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 
 import { ghCommandGrammarMatches, ghNativeAliasesForRule, parseGhCommandLine } from "../src/bash/handlers/gh-command-line.ts";
-import { POLICY_ENVIRONMENT_ROUTES, policyInitialEnvironment } from "../src/bash/policy-environment.ts";
+import { BASH_FUNCTIONS_CAPTURED_FACT, POLICY_ENVIRONMENT_ROUTES, policyInitialEnvironment } from "../src/bash/policy-environment.ts";
 import {
   GH_HELP_TOPIC_RULES,
   GH_READ_ONLY_RULES,
@@ -152,9 +152,9 @@ describe("policy environment manifest", () => {
   test("defines present, empty, unset, and unavailable behavior without emitting values", () => {
     expect(policyInitialEnvironment({ GH_PAGER: "" })).toMatchObject({ kind: "filtered", values: { GH_PAGER: "" } });
     const pager = policyInitialEnvironment({ PAGER: "less" });
-    expect(pager.kind === "filtered" ? Object.keys(pager.values) : []).toEqual(["__SAFETY_CORE_INHERITED_GH_PAGER"]);
+    expect(pager.kind === "filtered" ? Object.keys(pager.values) : []).toEqual([BASH_FUNCTIONS_CAPTURED_FACT, "__SAFETY_CORE_INHERITED_GH_PAGER"]);
     const empty = policyInitialEnvironment({});
-    expect(empty).toMatchObject({ kind: "filtered", values: {} });
+    expect(empty).toMatchObject({ kind: "filtered", values: { [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT" } });
     expect(empty.kind === "filtered" ? empty.unset : []).toContain("GH_PAGER");
     expect(POLICY_ENVIRONMENT_ROUTES.every((route) => route.rationale.length > 0)).toBe(true);
     expect(POLICY_ENVIRONMENT_ROUTES.find((route) => route.name === "GH_TELEMETRY_SAMPLE_RATE")).toMatchObject({ disposition: "defer", capture: true });

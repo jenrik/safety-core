@@ -12,6 +12,7 @@ export interface PolicyEnvironmentRoute {
 
 /** Internal fact used so gh can inspect inherited PAGER without changing Git's accepted ambient pager boundary. */
 export const GH_INHERITED_PAGER_FACT = "__SAFETY_CORE_INHERITED_GH_PAGER";
+export const BASH_FUNCTIONS_CAPTURED_FACT = "__SAFETY_CORE_BASH_FUNCTIONS_CAPTURED";
 const PRESENT_REDACTED_VALUE = "__SAFETY_CORE_PRESENT";
 
 export const POLICY_ENVIRONMENT_ROUTES: readonly PolicyEnvironmentRoute[] = Object.freeze([
@@ -59,6 +60,8 @@ export const POLICY_ENVIRONMENT_ROUTES: readonly PolicyEnvironmentRoute[] = Obje
   gitDefer("GIT_CONFIG_SYSTEM", "Redirects system Git configuration."),
   gitDefer("GIT_EXTERNAL_DIFF", "Executes an external diff helper."),
   gitDefer("GIT_PAGER", "Executes an explicit Git pager command."),
+  sharedDefer("DOCKER_CONFIG", "Redirects Docker configuration and credential discovery."),
+  sharedDefer("KUBECONFIG", "Redirects Kubernetes configuration and credential discovery."),
   sharedDefer("BASH_ENV", "Loads and executes a Bash startup file."),
   sharedDefer("ENV", "Loads and executes a POSIX or Korn shell startup file."),
   sharedDefer("ZDOTDIR", "Redirects zsh startup-file discovery."),
@@ -96,9 +99,14 @@ export const GH_API_DEFER_ENVIRONMENT_NAMES: readonly string[] = Object.freeze([
  */
 export function policyInitialEnvironment(environment: Readonly<Record<string, string | undefined>>): BashInitialEnvironment {
   const captured = new Set(POLICY_ENVIRONMENT_ROUTES.filter((route) => route.capture).map((route) => route.name));
-  const values: Record<string, string> = {};
+  const values: Record<string, string> = { [BASH_FUNCTIONS_CAPTURED_FACT]: PRESENT_REDACTED_VALUE };
   for (const [name, value] of Object.entries(environment)) {
     if (value === undefined) continue;
+    const bashFunction = /^BASH_FUNC_(.+)%%$/.exec(name);
+    if (bashFunction) {
+      values[inheritedBashFunctionFact(bashFunction[1]!)] = PRESENT_REDACTED_VALUE;
+      continue;
+    }
     if (name === "PAGER") {
       values[GH_INHERITED_PAGER_FACT] = value;
       continue;
@@ -111,6 +119,11 @@ export function policyInitialEnvironment(environment: Readonly<Record<string, st
   }
   const unset = [...captured].filter((name) => environment[name] === undefined);
   return Object.freeze({ kind: "filtered", values: Object.freeze(values), unset: Object.freeze(unset) });
+}
+
+/** Synthetic, value-free fact proving an executable name is shadowed by an imported Bash function. */
+export function inheritedBashFunctionFact(executable: string): string {
+  return `__SAFETY_CORE_BASH_FUNCTION_${executable}`;
 }
 
 function excludedSecret(name: string): PolicyEnvironmentRoute {

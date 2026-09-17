@@ -269,7 +269,7 @@ test("Claude Bash policy entrypoint fails fatally when its parser assets are una
       encoding: "utf8",
       env: { ...process.env, SAFETY_CORE_CONFIG_HOME: configHome },
     });
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(2);
     expect(result.stderr).toContain("Bash parser initialization failed");
   } finally {
     rmSync(configHome, { force: true, recursive: true });
