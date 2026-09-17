@@ -1,5 +1,6 @@
 import type { StructuralDispatchContext } from "../dispatch.js";
 import type { ResolvedWord } from "../expand.js";
+import { assignBinding, known as knownBinding, setExported } from "../environment.js";
 import { indeterminate, policyDeny } from "../outcome.js";
 import { basename } from "../../shell.js";
 import { isSecretPath } from "../../secrets.js";
@@ -17,10 +18,11 @@ export const sudoeditHandler = wrapperHandler("sudoedit", parseSudoEdit);
 
 function parseSudo(arguments_: readonly ResolvedWord[], context: StructuralDispatchContext) {
   let index = 0;
+  let environment = context.environment;
   while (index < arguments_.length) {
     const argument = known(arguments_[index]!, context);
     if (typeof argument !== "string") return argument;
-    if (argument === "--") return taintWrapperResult(continueFrom(arguments_, index + 1, context), context);
+    if (argument === "--") return taintWrapperResult(continueFrom(arguments_, index + 1, context, environment), context);
     if (argument === "-e" || argument === "--edit") return parseSudoEdit(arguments_.slice(index + 1), context);
     if (NO_EXEC_OPTIONS.has(argument)) return indeterminate(context.span);
     if (VALUE_OPTIONS.has(argument) || LONG_VALUE_OPTIONS.has(argument)) {
@@ -34,11 +36,21 @@ function parseSudo(arguments_: readonly ResolvedWord[], context: StructuralDispa
     const short = parseShortOptions(argument, arguments_[index + 1]);
     if (short?.noExec) return argument.includes("e") ? parseSudoEdit(arguments_.slice(index + short.consumed), context) : indeterminate(context.span);
     if (short) { index += short.consumed; continue; }
-    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(argument)) { index++; continue; }
+    const assigned = assignment(argument);
+    if (assigned) {
+      environment = setExported(assignBinding(environment, assigned.name, knownBinding(assigned.value)), assigned.name, true);
+      index++;
+      continue;
+    }
     if (argument.startsWith("-")) return indeterminate(context.span);
-    return taintWrapperResult(continueFrom(arguments_, index, context), context);
+    return taintWrapperResult(continueFrom(arguments_, index, context, environment), context);
   }
   return indeterminate(context.span);
+}
+
+function assignment(value: string): { readonly name: string; readonly value: string } | undefined {
+  const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s.exec(value);
+  return match ? { name: match[1]!, value: match[2]! } : undefined;
 }
 
 function parseSudoEdit(arguments_: readonly ResolvedWord[], context: StructuralDispatchContext) {

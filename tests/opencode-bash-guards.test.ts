@@ -40,6 +40,10 @@ describe("OpenCode single-pass Bash guards", () => {
       .toBe("Blocked by OpenCode safety policy: kubectl view-secret is blocked: it decodes and displays Secret values in plaintext.");
     expect(openCodeBashGuardBlockReason(evaluate("kubectl get Secret application"))).toBeNull();
     expect(openCodeBashGuardBlockReason(evaluate("unknown-command"))).toBeNull();
+    const canary = "safety-core-auth-canary";
+    const redacted = openCodeBashGuardBlockReason(evaluate(`curl 'https://${canary}@API.GITHUB.COM/user?access_token=${canary}'`));
+    expect(redacted).toStartWith("Blocked: https://api.github.com/user");
+    expect(redacted).not.toContain(canary);
   });
 
   test("blocks permission denials before execution without waiting for a native permission event", async () => {

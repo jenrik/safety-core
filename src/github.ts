@@ -7,8 +7,8 @@ import { BLOCKED_GITHUB_DOMAINS } from "./patterns.js";
 import { GITHUB_GENERIC_HINT } from "./messages.js";
 
 const RAW_URL_RE =
-  /https?:\/\/raw\.githubusercontent\.com\/([^/\s"']+)\/([^/\s"']+)\/([^/\s"']+)\/([^\s"'#?]+)/;
-const API_URL_RE = /https?:\/\/api\.github\.com(\/[^\s"'#?]*)?/;
+  /https?:\/\/raw\.githubusercontent\.com\/([^/\s"']+)\/([^/\s"']+)\/([^/\s"']+)\/([^\s"'#?]+)/i;
+const API_URL_RE = /https?:\/\/api\.github\.com(\/[^\s"'#?]*)?/i;
 
 // API path → native gh command, tried in order. First match wins. Fail-open:
 // if the mapping throws, callers get the generic hint.
@@ -85,14 +85,15 @@ function buildApiSuggestion(url: string): string {
 
 /** Build the operator-facing block message for a specific blocked URL. */
 export function buildGithubSuggestion(url: string): string {
-  return url.includes("raw.githubusercontent.com")
-    ? buildRawSuggestion(url)
-    : buildApiSuggestion(url);
+  const safeUrl = sanitizedBlockedGithubUrl(url);
+  return safeUrl.includes("raw.githubusercontent.com")
+    ? buildRawSuggestion(safeUrl)
+    : buildApiSuggestion(safeUrl);
 }
 
 /** True iff `url` targets one of the blocked GitHub domains. */
 export function isBlockedGithubUrl(url: string): boolean {
-  return BLOCKED_GITHUB_DOMAINS.some((d) => url.includes(d));
+  return detectBlockedDomain(url) !== null;
 }
 
 /** Return reason string for a blocked WebFetch URL, or null. */
@@ -115,8 +116,27 @@ export function buildFallbackGithubBlock(domain: string): string {
 
 /** True iff any blocked domain appears anywhere in `raw`. */
 export function detectBlockedDomain(raw: string): string | null {
+  try {
+    const parsed = new URL(raw);
+    const hostname = parsed.hostname.toLowerCase().replace(/\.$/, "");
+    if ((parsed.protocol === "http:" || parsed.protocol === "https:") && BLOCKED_GITHUB_DOMAINS.includes(hostname)) return hostname;
+  } catch {
+    // Command arguments may contain a URL alongside flags or other text.
+  }
   for (const domain of BLOCKED_GITHUB_DOMAINS) {
-    if (raw.includes(domain)) return domain;
+    const escaped = domain.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`(?:^|[^a-z0-9.-])${escaped}(?=$|[^a-z0-9.-])`, "i").test(raw)) return domain;
   }
   return null;
+}
+
+function sanitizedBlockedGithubUrl(raw: string): string {
+  const domain = detectBlockedDomain(raw);
+  if (!domain) return "https://github.com/";
+  try {
+    const parsed = new URL(raw);
+    return `https://${domain}${parsed.pathname || "/"}`;
+  } catch {
+    return `https://${domain}/`;
+  }
 }

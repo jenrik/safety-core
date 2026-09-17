@@ -51,6 +51,15 @@ test("Claude GitHub handler limits parsing and fallback enforcement to WebFetch"
   expect(webFetch.stdout).toContain('"permissionDecision":"deny"');
   expect(webFetch.stderr).toBe("");
 
+  const canary = "safety-core-auth-canary";
+  const redacted = runHook("adapters/claude-code/github_raw_redirect.ts", {
+    hook_event_name: "PreToolUse",
+    tool_name: "WebFetch",
+    tool_input: { url: `https://API.GITHUB.COM/user?access_token=${canary}#${canary}` },
+  });
+  expect(redacted.stdout).toContain('"permissionDecision":"deny"');
+  expect(redacted.stdout).not.toContain(canary);
+
   const malformed = spawnSync(process.execPath, ["adapters/claude-code/github_raw_redirect.ts"], {
     cwd: process.cwd(),
     input: "not-json https://raw.githubusercontent.com/acme/widgets/main/README.md",

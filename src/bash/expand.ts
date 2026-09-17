@@ -1,4 +1,5 @@
 import { stripQuotes } from "../shell.js";
+import { detectBlockedDomain } from "../github.js";
 import type { BashCommand, BashRedirectKind, BashWord, SourceSpan } from "./cst.js";
 import {
   assignBinding,
@@ -35,6 +36,7 @@ export interface ExpansionUnknownReason {
     | "unsupported-word";
   readonly span: SourceSpan;
   readonly variable?: string;
+  readonly blockedGithubDomain?: string;
 }
 
 export interface ResolvedUnknownWord {
@@ -197,7 +199,7 @@ function expandStaticText(text: string, span: SourceSpan, environment: Environme
     }
     if (quote !== "single" && character === "`") return unresolved("command-substitution", span);
     if (quote === null && (character === "*" || character === "?" || character === "[")) {
-      return unresolved("globbing", span);
+      return unresolved("globbing", span, undefined, detectBlockedDomain(text) ?? undefined);
     }
     if (quote === null && character === "$" && text[index + 1] === "'") {
       const end = ansiCQuoteEnd(text, index + 2);
@@ -274,7 +276,7 @@ function resolveVariable(
   }
   if (binding.kind !== "known") return unresolved("unknown-variable", span, variable);
   if (!quoted && context !== "assignment" && changesUnquotedWordShape(binding.value, environment)) {
-    return unresolved("unquoted-expansion", span, variable);
+    return unresolved("unquoted-expansion", span, variable, detectBlockedDomain(binding.value) ?? undefined);
   }
   return { kind: "known", value: resolvedKnown(binding.value, true), next };
 }
@@ -321,13 +323,19 @@ function bindingValue(word: ResolvedWord) {
     : unknown({ kind: word.reason.kind, span: word.reason.span });
 }
 
-function unresolved(kind: ExpansionUnknownReason["kind"], span: SourceSpan, variable?: string): ResolvedUnknownWord {
+function unresolved(
+  kind: ExpansionUnknownReason["kind"],
+  span: SourceSpan,
+  variable?: string,
+  blockedGithubDomain?: string,
+): ResolvedUnknownWord {
   return freeze({
     kind: "unknown",
     reason: freeze({
       kind,
       span: freeze({ start: span.start, end: span.end }),
       ...(variable ? { variable } : {}),
+      ...(blockedGithubDomain ? { blockedGithubDomain } : {}),
     }),
   });
 }

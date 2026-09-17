@@ -119,6 +119,14 @@ describe("walker-backed gh policy compatibility", () => {
     }
   });
 
+  test("property: repeated builtin dispatch preserves GitHub mutation denials", () => {
+    for (let depth = 1; depth <= 16; depth++) {
+      const prefix = "builtin ".repeat(depth);
+      expect(ghApi(`${prefix}command gh api user -X POST`)).toBe("deny");
+      expect(ghPrCreate(`${prefix}command gh pr create --repo github.com/attacker/widgets --fill`)).toBe("deny");
+    }
+  });
+
   test("owns API methods and PR creation flags before their subcommands", () => {
     expect(ghApi("gh -X POST api user")).toBe("deny");
     expect(ghApi("gh --method POST api user")).toBe("deny");

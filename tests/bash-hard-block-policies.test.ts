@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
   analyzeBashAuthorization,
+  checkWebfetchUrl,
   evaluateBashGuards,
   initBashParser,
 } from "../src/index.ts";
@@ -52,6 +53,10 @@ describe("walker-backed hard-block compatibility policies", () => {
     expectGuardBlock("bash --noprofile --rcfile credentials.json -ic true", "secret-read");
     expectGuardBlock("bash --init-file=credentials.json -ic true", "secret-read");
     expectGuardBlock("BASH_ENV=credentials.json bash -c true", "secret-read");
+    expectGuardBlock("sudo BASH_ENV=credentials.json bash -c true", "secret-read");
+    expectGuardBlock("strace -E BASH_ENV=credentials.json bash -c true", "secret-read");
+    expectGuardBlock("strace --env=BASH_ENV=credentials.json bash -c true", "secret-read");
+    expectGuardBlock("strace -fEBASH_ENV=credentials.json bash -c true", "secret-read");
   });
 
   test("property: shell script-file modes block protected operands", () => {
@@ -120,6 +125,58 @@ describe("walker-backed hard-block compatibility policies", () => {
     expectGuardBlock("curl https://api.github.com/repos/o/r/issues", "github-http", "Use the native gh command");
     expectGuardBlock("curl https://example.test; strace curl https://api.github.com/repos/o/r/issues", "github-http", "Use the native gh command");
     expectGuardBlock("(curl https://api.github.com/repos/o/r/issues) > trace.log", "github-http", "Use the native gh command");
+  });
+
+  test("normalizes GitHub host casing and redacts URL authentication material", () => {
+    const canary = "safety-core-auth-canary";
+    const analysis = evaluateBashGuards({ source: `curl 'https://${canary}@API.GITHUB.COM/user?access_token=${canary}#${canary}'` });
+    expect(analysis).toMatchObject({ kind: "block", policy: { name: "github-http", decision: "deny" } });
+    expect(JSON.stringify(analysis)).not.toContain(canary);
+
+    const unquoted = evaluateBashGuards({ source: `curl https://API.GITHUB.COM/user?access_token=${canary}` });
+    expect(unquoted).toMatchObject({ kind: "block", policy: { name: "github-http", decision: "deny" } });
+    expect(JSON.stringify(unquoted)).not.toContain(canary);
+
+    const expanded = analyzeBashAuthorization({
+      source: "curl $URL",
+      initialEnvironment: { kind: "verified", values: { URL: `https://API.GITHUB.COM/user?access_token=${canary}` } },
+    });
+    expect(expanded.verdict.kind).toBe("deny");
+    expect(JSON.stringify(expanded)).not.toContain(canary);
+
+    const webfetch = checkWebfetchUrl(`https://API.GITHUB.COM/user?access_token=${canary}#${canary}`);
+    expect(webfetch).not.toBeNull();
+    expect(webfetch).not.toContain(canary);
+  });
+
+  test("property: GitHub host matching is case-insensitive and hostname-boundary-aware", () => {
+    for (const host of ["API.GITHUB.COM", "Api.GitHub.Com", "API.GITHUB.COM.", "RAW.GITHUBUSERCONTENT.COM", "Raw.GithubUserContent.Com"]) {
+      const result = evaluateBashGuards({ source: `curl https://${host}/owner/repository/main/file` });
+      expect(result, host).toMatchObject({ kind: "block", policy: { name: "github-http", decision: "deny" } });
+    }
+    for (const host of ["evilapi.github.com", "api.github.com.example.test", "raw.githubusercontent.com.example.test"]) {
+      expect(evaluateBashGuards({ source: `curl https://${host}/user` }), host).toMatchObject({ kind: "pass" });
+      expect(checkWebfetchUrl(`https://${host}/user`), host).toBeNull();
+    }
+  });
+
+  test("property: environment-setting wrappers preserve protected startup-file denials", () => {
+    const wrappers = [
+      (path: string) => `sudo BASH_ENV=${path} bash -c true`,
+      (path: string) => `strace -E BASH_ENV=${path} bash -c true`,
+      (path: string) => `strace -EBASH_ENV=${path} bash -c true`,
+      (path: string) => `strace -fE BASH_ENV=${path} bash -c true`,
+      (path: string) => `strace --env=BASH_ENV=${path} bash -c true`,
+    ];
+    for (const path of ["credentials.json", ".env", "id_rsa"]) {
+      for (const wrap of wrappers) expectGuardBlock(wrap(path), "secret-read");
+    }
+  });
+
+  test("property: repeated builtin dispatch preserves nested hard denials", () => {
+    for (let depth = 1; depth <= 16; depth++) {
+      expectGuardBlock(`${"builtin ".repeat(depth)}command cat credentials.json`, "secret-read");
+    }
   });
 
   test("recognizes ANSI-C executable quoting and shell long options before --command", () => {
