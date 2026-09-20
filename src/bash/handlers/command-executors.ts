@@ -2,10 +2,11 @@ import type { StructuralDispatchContext } from "../dispatch.js";
 import { isBindingResolvedWord, type ResolvedWord } from "../expand.js";
 import { dynamicExecutableIndeterminate, strongestOutcome } from "../outcome.js";
 import type { BashDispatchResult } from "../walker.js";
-import { continueFrom, isKnown, known, wrapperHandler } from "./wrapper-utils.js";
+import { continueFrom, isKnown, known, resolveLongOption, wrapperHandler } from "./wrapper-utils.js";
 
 const TIME_VALUE_OPTIONS = new Set(["-f", "--format", "-o", "--output"]);
 const TIME_FLAGS = new Set(["-a", "--append", "-p", "--portability", "-v", "--verbose", "--quiet", "-V", "--version", "--help"]);
+const TIME_LONG_OPTIONS = [...TIME_VALUE_OPTIONS, ...TIME_FLAGS].filter((option) => option.startsWith("--"));
 const WATCH_VALUE_OPTIONS = new Set(["-n", "--interval", "-q", "--equexit", "-s", "--shotsdir"]);
 const WATCH_FLAGS = new Set([
   "-b", "--beep", "-c", "--color", "-C", "--no-color", "-d", "--differences", "-e", "--errexit",
@@ -13,6 +14,7 @@ const WATCH_FLAGS = new Set([
   "-p", "--precise", "-r", "--no-rerun", "-t", "--no-title", "-w", "--no-wrap", "-x", "--exec",
   "-h", "--help", "-v", "--version",
 ]);
+const WATCH_LONG_OPTIONS = [...WATCH_VALUE_OPTIONS, ...WATCH_FLAGS].filter((option) => option.startsWith("--"));
 
 export const timeHandler = wrapperHandler("time", parseTime);
 export const coprocHandler = wrapperHandler("coproc", parseCoproc);
@@ -24,6 +26,18 @@ function parseTime(arguments_: readonly ResolvedWord[], context: StructuralDispa
     const argument = known(arguments_[index]!, context);
     if (typeof argument !== "string") return dynamic(context);
     if (argument === "--") return dynamic(context, continueExecutorChild(arguments_, index + 1, context));
+    const long = resolveLongOption(argument, TIME_LONG_OPTIONS);
+    if (long) {
+      if (long.kind === "ambiguous") return dynamic(context);
+      if (TIME_VALUE_OPTIONS.has(long.option)) {
+        if (long.value === undefined && !isKnown(arguments_[index + 1])) return dynamic(context);
+        index += long.value === undefined ? 2 : 1;
+      } else {
+        if (long.value !== undefined) return dynamic(context);
+        index++;
+      }
+      continue;
+    }
     if (TIME_VALUE_OPTIONS.has(argument)) {
       if (!isKnown(arguments_[index + 1])) return dynamic(context);
       index += 2;
@@ -53,6 +67,19 @@ function parseWatch(arguments_: readonly ResolvedWord[], context: StructuralDisp
     const argument = known(arguments_[index]!, context);
     if (typeof argument !== "string") return dynamic(context);
     if (argument === "--") return watchChild(arguments_, index + 1, direct, context);
+    const long = resolveLongOption(argument, WATCH_LONG_OPTIONS);
+    if (long) {
+      if (long.kind === "ambiguous") return dynamic(context);
+      if (WATCH_VALUE_OPTIONS.has(long.option)) {
+        if (long.value === undefined && !isKnown(arguments_[index + 1])) return dynamic(context);
+        index += long.value === undefined ? 2 : 1;
+      } else {
+        if (long.value !== undefined && long.option !== "--differences") return dynamic(context);
+        if (long.option === "--exec") direct = true;
+        index++;
+      }
+      continue;
+    }
     if (WATCH_VALUE_OPTIONS.has(argument)) {
       if (!isKnown(arguments_[index + 1])) return dynamic(context);
       index += 2;

@@ -185,6 +185,8 @@ describe("Claude configured Bash policy", () => {
       ghPrCreate: Object.freeze({ enabled: true, allowedRepositories: Object.freeze(["acme/widgets"]), allowedOrganizations: Object.freeze([]) }),
     })).decision).toMatchObject({ kind: "deny" });
     expect(evaluate("gh -X POST api user", snapshot({ ghApiReadOnly: true })).decision).toMatchObject({ kind: "deny" });
+    expect(evaluate("gh api https://github.example.test/api/graphql -X GET", snapshot({ ghApiReadOnly: true })).decision)
+      .toMatchObject({ kind: "deny" });
     expect(evaluate("GH_PROMPT_DISABLED=1 gh pr --title x create --body y --repo github.com/attacker/widgets", snapshot({
       ghPrCreate: Object.freeze({ enabled: true, allowedRepositories: Object.freeze(["acme/widgets"]), allowedOrganizations: Object.freeze([]) }),
     })).decision).toMatchObject({ kind: "deny" });
@@ -232,12 +234,17 @@ describe("Claude configured Bash policy", () => {
       (command: string) => `time ${command}`,
       (command: string) => `time MODE=1 ${command}`,
       (command: string) => `time -pv ${command}`,
+      (command: string) => `time ( ${command} )`,
+      (command: string) => `command time --verb ${command}`,
       (command: string) => `coproc ${command}`,
       (command: string) => `coproc MODE=1 ${command}`,
       (command: string) => `coproc worker_1 { ${command}; }`,
+      (command: string) => `coproc wOrKeR_1 ( ${command} )`,
       (command: string) => `watch ${command}`,
       (command: string) => `watch -tx ${command}`,
       (command: string) => `watch --no-color --follow -d=permanent ${command}`,
+      (command: string) => `watch --no-col ${command}`,
+      (command: string) => `strace --follow ${command}`,
       (command: string) => `sh -c '${command}'`,
       (command: string) => `if true; then ${command}; fi`,
       (command: string) => `(${command}) | true`,

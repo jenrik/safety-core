@@ -103,6 +103,42 @@ describe("parseBashProgram", () => {
     });
   });
 
+  test("retains executor-owned subshell bodies", () => {
+    for (const source of [
+      "time ( nested-time )",
+      "coproc ( nested-coproc )",
+      "coproc worker_1 ( nested-named-coproc )",
+      "coproc wOrKeR_1 ( nested-mixed-case-coproc )",
+    ]) {
+      expect(programFor(source).statements, source).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: expect.stringMatching(/^(?:list|command)$/) }),
+      ]));
+      expect(JSON.stringify(programFor(source)), source).toContain("nested-");
+    }
+  });
+
+  test("retains executor-owned compound bodies across grammar forms", () => {
+    for (const source of [
+      "time { nested-group; }",
+      "time if true; then nested-if; fi",
+      "time for item in one; do nested-for; done",
+      "time while true; do nested-while; done",
+      "time until false; do nested-until; done",
+      "time case item in item) nested-case;; esac",
+      "coproc worker if true; then nested-coproc-if; fi",
+      "coproc worker case item in item) nested-coproc-case;; esac",
+      "echo café; time ( nested-unicode-offset )",
+    ]) {
+      const program = programFor(source);
+      expect(JSON.stringify(program), source).toContain("nested-");
+      expect(JSON.stringify(program), source).toContain("Retained executor compound body");
+    }
+  });
+
+  test("does not use executor recovery to accept unrelated syntax errors", () => {
+    expect(parseBashProgram("time case item in item) nested-case;; esac )")).toMatchObject({ kind: "parse-failure" });
+  });
+
   test("preserves unsupported syntax as a source-provenanced statement", () => {
     const source = "for item in one; do echo $item; done";
     const program = programFor(source);

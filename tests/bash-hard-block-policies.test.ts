@@ -41,12 +41,16 @@ describe("walker-backed hard-block compatibility policies", () => {
     expectGuardBlock("builtin exec cat credentials.json", "secret-read");
     expectGuardBlock("time cat credentials.json", "secret-read");
     expectGuardBlock("time MODE=1 cat credentials.json", "secret-read");
+    expectGuardBlock("time ( cat credentials.json )", "secret-read");
     expectGuardBlock("coproc cat credentials.json", "secret-read");
+    expectGuardBlock("coproc ( cat credentials.json )", "secret-read");
     expectGuardBlock("coproc MODE=1 cat credentials.json", "secret-read");
     expectGuardBlock("coproc READER cat credentials.json", "secret-read");
     expectGuardBlock("coproc READER MODE=1 cat credentials.json", "secret-read");
     expectGuardBlock("coproc READER { cat credentials.json; }", "secret-read");
     expectGuardBlock("coproc worker_1 { cat credentials.json; }", "secret-read");
+    expectGuardBlock("coproc worker_1 ( cat credentials.json )", "secret-read");
+    expectGuardBlock("coproc wOrKeR_1 ( cat credentials.json )", "secret-read");
     expectGuardBlock("coproc READER { MODE=1 cat credentials.json; }", "secret-read");
     expectGuardBlock("watch cat credentials.json", "secret-read");
     expectGuardBlock("watch --exec cat credentials.json", "secret-read");
@@ -68,17 +72,34 @@ describe("walker-backed hard-block compatibility policies", () => {
     expectGuardBlock("strace -E BASH_ENV=credentials.json bash -c true", "secret-read");
     expectGuardBlock("strace --env=BASH_ENV=credentials.json bash -c true", "secret-read");
     expectGuardBlock("strace -fEBASH_ENV=credentials.json bash -c true", "secret-read");
+    expectGuardBlock("strace --follow cat credentials.json", "secret-read");
   });
 
   test("property: executor short-option forms preserve protected-read denials", () => {
     for (const options of ["-q", "-pv", "-apv", "-f%s"]) {
       expectGuardBlock(`time ${options} cat credentials.json`, "secret-read");
     }
+    expectGuardBlock("command time --verb cat credentials.json", "secret-read");
     for (const options of [
       "-tx", "-txn1", "-tn 1 -x", "-Cfx", "--no-color", "--follow", "-d=permanent", "-dpermanent",
     ]) {
       expectGuardBlock(`watch ${options} cat credentials.json`, "secret-read");
     }
+    expectGuardBlock("watch --no-col cat credentials.json", "secret-read");
+  });
+
+  test("property: executor compound forms preserve protected-read denials", () => {
+    for (const source of [
+      "time { cat credentials.json; }",
+      "time if true; then cat credentials.json; fi",
+      "time for item in one; do cat credentials.json; done",
+      "time while true; do cat credentials.json; done",
+      "time until false; do cat credentials.json; done",
+      "time case item in item) cat credentials.json;; esac",
+      "coproc worker if true; then cat credentials.json; fi",
+      "coproc worker while true; do cat credentials.json; done",
+      "coproc worker case item in item) cat credentials.json;; esac",
+    ]) expectGuardBlock(source, "secret-read");
   });
 
   test("property: shell script-file modes block protected operands", () => {

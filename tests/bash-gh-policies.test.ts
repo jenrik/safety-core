@@ -220,22 +220,43 @@ describe("walker-backed gh policy compatibility", () => {
       (command: string) => `time -p ${command}`,
       (command: string) => `time MODE=1 ${command}`,
       (command: string) => `time -pv ${command}`,
+      (command: string) => `command time --verb ${command}`,
+      (command: string) => `time ( ${command} )`,
       (command: string) => `coproc ${command}`,
+      (command: string) => `coproc ( ${command} )`,
       (command: string) => `coproc MODE=1 ${command}`,
       (command: string) => `coproc JOB ${command}`,
       (command: string) => `coproc JOB MODE=1 ${command}`,
       (command: string) => `coproc JOB { ${command}; }`,
       (command: string) => `coproc JOB { MODE=1 ${command}; }`,
       (command: string) => `coproc worker_1 { ${command}; }`,
+      (command: string) => `coproc worker_1 ( ${command} )`,
+      (command: string) => `coproc wOrKeR_1 ( ${command} )`,
       (command: string) => `watch ${command}`,
       (command: string) => `watch --exec ${command}`,
       (command: string) => `watch -tx ${command}`,
       (command: string) => `watch -txn1 ${command}`,
       (command: string) => `watch --no-color --follow -d=permanent ${command}`,
+      (command: string) => `watch --no-col ${command}`,
+      (command: string) => `strace --follow ${command}`,
     ];
     for (const wrap of wrappers) {
       expect(ghApi(wrap("gh api user -X POST")), wrap("gh api user -X POST")).toBe("deny");
       expect(ghPrCreate(wrap("gh pr create --repo github.com/attacker/widgets --fill")), wrap("gh pr create --repo github.com/attacker/widgets --fill")).toBe("deny");
+    }
+  });
+
+  test("property: executor control compounds preserve GitHub mutation denials", () => {
+    for (const source of [
+      "time if true; then gh api user -X POST; fi",
+      "time for item in one; do gh api user -X POST; done",
+      "time case item in item) gh api user -X POST;; esac",
+      "coproc worker if true; then gh api user -X POST; fi",
+      "coproc worker while true; do gh api user -X POST; done",
+      "coproc worker case item in item) gh api user -X POST;; esac",
+    ]) {
+      expect(ghApi(source), source).toBe("deny");
+      expect(ghPrCreate(source), source).toBe("deny");
     }
   });
 
@@ -264,7 +285,14 @@ describe("walker-backed gh policy compatibility", () => {
   });
 
   test("property: GraphQL endpoints are denied for every read method and option ordering", () => {
-    const endpoints = ["graphql", "/graphql", "graphql?query=x", "https://api.github.com/graphql"];
+    const endpoints = [
+      "graphql",
+      "/graphql",
+      "graphql?query=x",
+      "https://api.github.com/graphql",
+      "https://github.example.test/api/graphql",
+      "https://github.example.test/API/GRAPHQL?query=x#section",
+    ];
     for (const endpoint of endpoints) {
       for (const method of ["GET", "HEAD"]) {
         for (const source of [

@@ -114,6 +114,12 @@ test("Pi confirms opaque routes when only ghApiReadOnly is enabled", async () =>
     );
     expect(graphql).toMatchObject({ block: true });
     expect(prompts).toBe(0);
+    const ghesGraphql = await handlers.get("tool_call")!(
+      { toolName: "bash", toolCallId: "ghes-graphql", input: { command: "gh api https://github.example.test/api/graphql#section -X HEAD" } },
+      { hasUI: true, ui: { confirm: async () => { prompts++; return true; }, notify() {} } },
+    );
+    expect(ghesGraphql).toMatchObject({ block: true });
+    expect(prompts).toBe(0);
     for (const command of ["gh create-issue", "gh extension exec mutate", "./create-pr.sh", "python ./create_pr.py"]) {
       const result = await handlers.get("tool_call")!(
         { toolName: "bash", toolCallId: command, input: { command } },
@@ -257,12 +263,17 @@ test("property: supported guard wrappers still block Pi", async () => {
       (command: string) => `time ${command}`,
       (command: string) => `time MODE=1 ${command}`,
       (command: string) => `time -pv ${command}`,
+      (command: string) => `time ( ${command} )`,
+      (command: string) => `command time --verb ${command}`,
       (command: string) => `coproc ${command}`,
       (command: string) => `coproc MODE=1 ${command}`,
       (command: string) => `coproc worker_1 { ${command}; }`,
+      (command: string) => `coproc wOrKeR_1 ( ${command} )`,
       (command: string) => `watch ${command}`,
       (command: string) => `watch -tx ${command}`,
       (command: string) => `watch --no-color --follow -d=permanent ${command}`,
+      (command: string) => `watch --no-col ${command}`,
+      (command: string) => `strace --follow ${command}`,
     ];
     for (const violation of violations) {
       for (const wrap of wrappers) {

@@ -2,7 +2,7 @@ import type { StructuralDispatchContext } from "../dispatch.js";
 import type { ResolvedWord } from "../expand.js";
 import { assignBinding, known as knownBinding, setExported, unsetBinding } from "../environment.js";
 import { indeterminate } from "../outcome.js";
-import { continueFrom, isKnown, known, taintWrapperResult, wrapperHandler } from "./wrapper-utils.js";
+import { continueFrom, isKnown, known, resolveLongOption, taintWrapperResult, wrapperHandler } from "./wrapper-utils.js";
 
 const VALUE_OPTIONS = new Set([
   "-e", "-o", "-p", "-P", "-s", "-u", "-E", "-a", "-I", "-b", "-X", "-O", "-S", "-U", "-Y",
@@ -23,6 +23,13 @@ const OPTIONAL_VALUE_OPTIONS = [
   "--daemonize", "--color", "--stack-trace", "--quiet", "--relative-timestamps", "--absolute-timestamps",
   "--syscall-times", "--strings-in-hex", "--decode-fds", "--tips",
 ] as const;
+const UNSAFE_FLAGS = new Set(["--output-append-mode", "--output-separately"]);
+const LONG_OPTIONS = [
+  ...VALUE_OPTIONS,
+  ...FLAGS,
+  ...OPTIONAL_VALUE_OPTIONS,
+  ...UNSAFE_FLAGS,
+].filter((option) => option.startsWith("--"));
 const UNSAFE_VALUE_OPTIONS = new Set(["-o", "-u", "-E", "--output", "--user", "--env", "--argv0", "--inject", "--fault"]);
 
 export const straceHandler = wrapperHandler("strace", parseStrace);
@@ -38,6 +45,28 @@ function parseStrace(arguments_: readonly ResolvedWord[], context: StructuralDis
       const result = continueFrom(arguments_, index + 1, context, environment);
       return unsafe ? taintWrapperResult(result, context) : result;
     }
+    const long = resolveLongOption(argument, LONG_OPTIONS);
+    if (long) {
+      if (long.kind === "ambiguous") return indeterminate(context.span);
+      const option = long.option;
+      if (VALUE_OPTIONS.has(option)) {
+        if (long.value === undefined && !isKnown(arguments_[index + 1])) return indeterminate(context.span);
+        const value = long.value ?? arguments_[index + 1]!.value;
+        if (UNSAFE_VALUE_OPTIONS.has(option) || (option === "--trace" && /^(?:inject|fault)=/.test(value))) unsafe = true;
+        if (option === "--env") environment = applyEnvironment(environment, value);
+        if (option === "--attach") return indeterminate(context.span);
+        index += long.value === undefined ? 2 : 1;
+        continue;
+      }
+      if (FLAGS.has(option) || UNSAFE_FLAGS.has(option)) {
+        if (long.value !== undefined) return indeterminate(context.span);
+        if (UNSAFE_FLAGS.has(option)) unsafe = true;
+        index++;
+        continue;
+      }
+      index++;
+      continue;
+    }
     if (VALUE_OPTIONS.has(argument)) {
       if (!isKnown(arguments_[index + 1])) return indeterminate(context.span);
       if (UNSAFE_VALUE_OPTIONS.has(argument) || (argument === "-e" && /^(?:inject|fault)=/.test(arguments_[index + 1]!.value))) unsafe = true;
@@ -50,7 +79,7 @@ function parseStrace(arguments_: readonly ResolvedWord[], context: StructuralDis
       index++;
       continue;
     }
-    if (argument === "-ff" || argument === "-A" || argument === "--output-append-mode" || argument === "--output-separately") {
+    if (argument === "-ff" || argument === "-A" || UNSAFE_FLAGS.has(argument)) {
       unsafe = true;
       index++;
       continue;

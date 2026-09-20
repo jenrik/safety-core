@@ -81,6 +81,24 @@ export function isKnown(argument: ResolvedWord | undefined): argument is Extract
   return argument?.kind === "known";
 }
 
+export function resolveLongOption(argument: string, options: readonly string[]):
+  | { readonly kind: "known"; readonly option: string; readonly value?: string }
+  | { readonly kind: "ambiguous" }
+  | undefined {
+  if (!argument.startsWith("--") || argument === "--") return undefined;
+  const equals = argument.indexOf("=");
+  const name = equals < 0 ? argument : argument.slice(0, equals);
+  const exact = options.includes(name) ? name : undefined;
+  const matches = exact ? [exact] : options.filter((option) => option.startsWith(name));
+  if (matches.length === 0) return undefined;
+  if (matches.length > 1) return { kind: "ambiguous" };
+  return {
+    kind: "known",
+    option: matches[0]!,
+    ...(equals < 0 ? {} : { value: argument.slice(equals + 1) }),
+  };
+}
+
 function quote(value: string): string {
   return `'${value.replaceAll("'", "'\\\"'\\\"'")}'`;
 }
