@@ -84,7 +84,9 @@ export function runSteps(initial: Step, limits: BashAnalysisLimits = DEFAULT_BAS
           break;
         }
         const successor = runTarget(step.target, step.state, evidence);
-        if (successor) agenda.push(successor);
+        if (successor?.kind === "result") {
+          if (record(evidence, successor.outcome)) return complete(evidence);
+        } else if (successor) agenda.push(successor);
         if (hasDeny(evidence)) return complete(evidence);
         break;
       }

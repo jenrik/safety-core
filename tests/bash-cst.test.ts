@@ -103,21 +103,22 @@ describe("parseBashProgram", () => {
     });
   });
 
-  test("retains executor-owned subshell bodies", () => {
-    for (const source of [
-      "time ( nested-time )",
-      "coproc ( nested-coproc )",
-      "coproc worker_1 ( nested-named-coproc )",
-      "coproc wOrKeR_1 ( nested-mixed-case-coproc )",
-    ]) {
-      expect(programFor(source).statements, source).toEqual(expect.arrayContaining([
-        expect.objectContaining({ kind: expect.stringMatching(/^(?:list|command)$/) }),
-      ]));
-      expect(JSON.stringify(programFor(source)), source).toContain("nested-");
+  test("projects executor-owned subshell bodies exactly once", () => {
+    for (const [source, kind, name] of [
+      ["time ( nested-time )", "time", undefined],
+      ["coproc ( nested-coproc )", "coproc", null],
+      ["coproc worker_1 ( nested-named-coproc )", "coproc", "worker_1"],
+      ["coproc wOrKeR_1 ( nested-mixed-case-coproc )", "coproc", "wOrKeR_1"],
+    ] as const) {
+      const statement = programFor(source).statements[0]!;
+      expect(statement.kind, source).toBe(kind);
+      expect(statement, source).toMatchObject({ body: { kind: "subshell" } });
+      if (name !== undefined) expect(statement, source).toMatchObject({ name });
+      expect(JSON.stringify(statement).match(/nested-/g), source).toHaveLength(1);
     }
   });
 
-  test("retains executor-owned compound bodies across grammar forms", () => {
+  test("projects executor-owned compound bodies across grammar forms", () => {
     for (const source of [
       "time { nested-group; }",
       "time if true; then nested-if; fi",
@@ -131,12 +132,79 @@ describe("parseBashProgram", () => {
     ]) {
       const program = programFor(source);
       expect(JSON.stringify(program), source).toContain("nested-");
-      expect(JSON.stringify(program), source).toContain("Retained executor compound body");
+      expect(program.statements.at(-1), source).toMatchObject({ kind: source.startsWith("coproc") ? "coproc" : "time" });
+      expect(JSON.stringify(program), source).not.toContain("Retained executor compound body");
+    }
+  });
+
+  test("distinguishes Bash time syntax from an external time invocation", () => {
+    for (const source of [
+      "time -p nested-time",
+      "time -p ! nested-time",
+      "time -p { nested-time; }",
+      "time -p ( nested-time )",
+      "time -p nested-time | next-time",
+      "time -p time -p nested-time",
+    ]) {
+      const statement = programFor(source).statements[0];
+      expect(statement, source).toMatchObject({ kind: "time", posix: true });
+      expect(JSON.stringify(statement).match(/nested-time/g), source).toHaveLength(1);
+      expect(JSON.stringify(statement), source).not.toContain('"text":"-p"');
+    }
+    expect(programFor("command time -p nested-time").statements[0]).toMatchObject({ kind: "command" });
+  });
+
+  test("property: time portability syntax never projects -p into the timed command", () => {
+    for (let index = 0; index < 64; index++) {
+      const source = `time -p nested-${index} argument-${index}`;
+      const statement = programFor(source).statements[0];
+      expect(statement, source).toMatchObject({
+        kind: "time",
+        posix: true,
+        body: { kind: "command", words: [{ text: `nested-${index}` }, { text: `argument-${index}` }] },
+      });
     }
   });
 
   test("does not use executor recovery to accept unrelated syntax errors", () => {
     expect(parseBashProgram("time case item in item) nested-case;; esac )")).toMatchObject({ kind: "parse-failure" });
+  });
+
+  test("returns complete root statements before malformed syntax with explicit failure metadata", () => {
+    for (const [source, names] of [
+      ["first; second; if", ["first", "second"]],
+      ["first\nsecond\necho $(", ["first", "second"]],
+      ["first & if", ["first"]],
+      ["first # retained comment\nif", ["first"]],
+      ["first; second &&", ["first"]],
+      ["first; fn(){ nested", ["first"]],
+    ] as const) {
+      const result = parseBashProgram(source);
+      expect(result.kind, source).toBe("parse-failure");
+      if (result.kind !== "parse-failure") continue;
+      expect(result.program.statements.map((statement) =>
+        statement.kind === "command" && statement.words[0]?.kind === "word" ? statement.words[0].text : statement.kind
+      ), source).toEqual(names);
+      expect(result.reason, source).not.toContain(source);
+      expect(result.span.start, source).toBeGreaterThanOrEqual(0);
+      assertProjectionData(result, source);
+    }
+  });
+
+  test("property: malformed nested regions never fabricate prefix statements", () => {
+    for (let index = 0; index < 64; index++) {
+      const first = `prefix-${index}`;
+      for (const suffix of ["if true; then nested", "echo $(nested", "fn(){ nested", "bad &&"] as const) {
+        const result = parseBashProgram(`${first}; ${suffix}`);
+        expect(result.kind, suffix).toBe("parse-failure");
+        if (result.kind !== "parse-failure") continue;
+        expect(result.program.statements, suffix).toHaveLength(1);
+        expect(result.program.statements[0], suffix).toMatchObject({
+          kind: "command",
+          words: [{ kind: "word", text: first }],
+        });
+      }
+    }
   });
 
   test("preserves unsupported syntax as a source-provenanced statement", () => {

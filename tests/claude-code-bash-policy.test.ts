@@ -233,7 +233,7 @@ describe("Claude configured Bash policy", () => {
       (command: string) => `strace -f ${command}`,
       (command: string) => `time ${command}`,
       (command: string) => `time MODE=1 ${command}`,
-      (command: string) => `time -pv ${command}`,
+      (command: string) => `command time -pv ${command}`,
       (command: string) => `time ( ${command} )`,
       (command: string) => `command time --verb ${command}`,
       (command: string) => `coproc ${command}`,

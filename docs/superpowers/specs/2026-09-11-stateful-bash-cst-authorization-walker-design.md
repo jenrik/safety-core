@@ -112,6 +112,156 @@ child; `sh -c "$COMMAND"` recurses only if `COMMAND` is known; and `xargs` or
 `find -exec` emits an indeterminate child execution when its actual child cannot
 be derived conservatively.
 
+### Execution targets and process effects
+
+Child representation and process creation are independent dimensions. The
+authorization model must not equate every command that eventually runs another
+program with a shell source interpreter, nor equate every Bash construct that
+contains a command with a new process boundary.
+
+Handlers and Bash syntax constructs produce a typed execution target:
+
+```ts
+type ExecutionTarget =
+  | {
+      kind: "invocation";
+      invocation: NormalizedCommand;
+      environment: Environment;
+    }
+  | {
+      kind: "statements";
+      statements: readonly BashStatement[];
+      scope: "current" | "subshell";
+    }
+  | {
+      kind: "source";
+      source: string;
+      dialect: "bash" | "sh" | "fish" | "zsh";
+      environment: Environment;
+    }
+  | {
+      kind: "opaque";
+      reason: ExecutionUnknownReason;
+    };
+```
+
+Each target has a separate process effect:
+
+```ts
+type ProcessEffect =
+  | "none"
+  | "exec-replace"
+  | "spawn-and-wait"
+  | "spawn-async"
+  | "spawn-repeated"
+  | "unknown";
+
+interface ChildExecution {
+  readonly target: ExecutionTarget;
+  readonly process: ProcessEffect;
+}
+```
+
+The process effect describes the reviewed semantic process boundary, not a
+promise about a specific kernel entry point. An implementation may use `fork`,
+`vfork`, `clone`, `posix_spawn`, or an optimized direct `execve` depending on
+the shell, executable version, platform, and surrounding control flow. Exact
+syscall identification requires a separately pinned implementation contract;
+the common authorization model records the portable process-creation effect.
+
+The principal execution classes are:
+
+| Form | Target | Process effect |
+| --- | --- | --- |
+| `env`, `nice`, or another exec-style argv transformer | `invocation` | `exec-replace` |
+| `strace`, `timeout`, or external GNU `time` | `invocation` | `spawn-and-wait` |
+| `watch --exec` | `invocation` | `spawn-repeated` |
+| default `watch` | `source` | `spawn-repeated` |
+| `bash -c`, `sh -c`, or `eval` | `source` | determined by the interpreter envelope |
+| Bash `time` reserved-word form | `statements` | `none`; inherit effects from the timed body |
+| Bash `coproc` | `statements` with subshell scope | `spawn-async` |
+| unresolved script, source, wrapper, or executable route | `opaque` | `unknown` |
+
+Bash `time` and external GNU `time` therefore expose similar child commands
+but do not have the same process topology. The Bash reserved word modifies the
+execution of an already parsed pipeline or compound statement and does not
+itself create a process. `time true` may create no child at all, while
+`time external-command` has only the process effects required to execute the
+timed body. External GNU `time` is itself launched as an external invocation
+and then launches and waits for its child, so its reviewed summary is
+`spawn-and-wait`.
+
+The syntax adapter must retain the structured body of Bash `time` because it
+can prefix pipelines and compound statements, not because `time` is a generic
+process wrapper. The walker traverses that body in its original scope. In
+particular, a timed brace group remains in the current shell and may retain
+binding writes, while a timed subshell remains isolated.
+
+Bash `coproc` requires an explicit syntax representation because its body may
+be a simple command or a compound Bash statement and because the construct
+adds an asynchronous subshell and pipe boundary. The parser must preserve the
+optional name only where Bash permits one; for example, `coproc worker command`
+is a simple command whose executable is `worker`, whereas
+`coproc worker { command; }` is a named compound coprocess.
+
+The iterative runner processes targets without conflating their forms:
+
+- An `invocation` target is dispatched directly as normalized executable,
+  argv, redirects, and environment. It is never quoted back into shell text.
+- A `statements` target schedules the existing backend-neutral CST statements
+  with the declared current-shell or subshell scope. It is never serialized and
+  reparsed.
+- A `source` target invokes the appropriate parser backend because the target
+  program exists as source text by definition.
+- An `opaque` target emits indeterminate execution evidence and cannot support
+  automatic authorization.
+
+This distinction is required for correctness. Reconstructing an argv child as
+shell source can fabricate assignment syntax, operators, or quoting that the
+underlying executable would not interpret. Conversely, flattening a structured
+Bash body into argv loses pipelines, control flow, scope, and process
+boundaries. Recursive parsing is reserved for actual source interpreters such
+as `eval` and `sh -c`.
+
+### Redesign status and migration scope
+
+The implementation at `b0e5552` predates the typed target model above and is a
+tested but unapproved checkpoint. The temporary coordination document
+`2026-09-20-typed-bash-execution-targets-working-design.md` records the phased
+migration, open operator decisions, review findings, and resumption checklist.
+That document may be removed after the approved decisions are merged here and
+the migration is complete.
+
+The current implementation has five confirmed High gaps that define the
+minimum redesign scope:
+
+- recovered Bash `time` bodies use subshell scope and can lose current-shell
+  writes, while some named `coproc` bodies are scheduled twice;
+- regex/source-blanking recovery is incomplete and does not recursively retain
+  nested executor bodies;
+- ordinary argv wrappers are quoted into source, reparsed, and charged against
+  nested-script depth;
+- valid unique GNU option abbreviations can prevent older wrapper handlers from
+  discovering their child; and
+- bounded analysis failure can become `ignore` in Pi instead of reaching an
+  explicit approval boundary.
+
+These gaps must be corrected in their owning layers rather than through more
+local parser exceptions. The syntax adapter must project syntax, the walker
+must preserve Bash state and scope, handlers must describe executable grammar
+and child effects, and the runner must schedule typed targets under one budget
+model.
+
+Until that migration is complete:
+
+- do not extend regex-based compound recovery;
+- do not add new argv-to-source wrapper continuations;
+- preserve ordinary regression tests for every confirmed gap and keep the test
+  suite failing until the implementation satisfies them;
+- keep process effects observational until their policy consequences are
+  separately approved; and
+- present each adversarial review to the operator before applying corrections.
+
 ## Abstract Bash state
 
 `WalkState` is an immutable snapshot of shell frames, binding attributes,
@@ -234,6 +384,11 @@ The existing `ghPrCreate` parser-deployment failure remains a policy-specific
 fail-closed denial. Ordinary unresolved analysis and ordinary budget exhaustion
 remain neutral.
 
+Neutral means that an equivalent native approval boundary remains in force. A
+harness such as Pi that cannot rely on such a boundary must explicitly confirm
+or block incomplete analysis; it must not execute merely because profile
+ownership was not reached before exhaustion.
+
 ## Policies, adapters, and configuration
 
 The core exposes one walker-backed authorization entry point conceptually like:
@@ -276,6 +431,8 @@ Test pure components independently:
   branch merges;
 - command normalization, handler option parsing, subhandler routing, and
   nested-command discovery;
+- execution target kind, process effect, scope, child multiplicity, and direct
+  invocation boundaries without argv-to-source reconstruction;
 - immutable input/output behavior and iterative continuation execution;
 - deny dominance, finite termination under every budget, flag-order
   permutations, and isolation between distinct function invocations;

@@ -377,6 +377,35 @@ describe("iterative Bash authorization runner", () => {
     }
   });
 
+  test("drains outer-runner work admitted before a later queue admission failure", () => {
+    let denyCalls = 0;
+    const growth = target(() => fork([target(() => result(safe())), target(() => result(safe())), target(() => result(safe()))]));
+    const denied = target(() => {
+      denyCalls++;
+      return result(deny(span));
+    });
+
+    const completed = runSteps(fork([growth, denied]), limits({ maxSteps: 20, maxWorkItems: 2 }));
+
+    expect(completed.outcome).toEqual(deny(span));
+    expect(denyCalls).toBe(1);
+  });
+
+  test("does not fabricate an outer-runner denial for work rejected before admission", () => {
+    let denyCalls = 0;
+    const denied = target(() => {
+      denyCalls++;
+      return result(deny(span));
+    });
+    const completed = runSteps(fork([target(() => result(safe())), denied, target(() => result(safe()))]), limits({
+      maxSteps: 20,
+      maxWorkItems: 2,
+    }));
+
+    expect(completed.outcome).toEqual(analysisFailure("max-work-items", span));
+    expect(denyCalls).toBe(0);
+  });
+
   test("property: generated continuation chains of at least 2,500 steps never consume the JavaScript stack", () => {
     const random = lcg(0x4d595df4);
 

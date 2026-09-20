@@ -19,10 +19,11 @@ export function evalArguments(
     ? invocationArguments.slice(1)
     : invocationArguments;
   return args.every((argument) => argument.kind === "known")
-    ? context.continueWith(args.map((argument) => argument.value).join(" "), undefined, {
+    ? context.continueWithSource(args.map((argument) => argument.value).join(" "), undefined, {
       isolate: false,
       route: "eval",
       sourceDerivedFromBinding: args.some(isBindingResolvedWord),
+      processEffect: "none",
     })
     : dynamicExecutableIndeterminate(context.span);
 }

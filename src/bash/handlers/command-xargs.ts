@@ -3,7 +3,7 @@ import type { ResolvedWord } from "../expand.js";
 import { indeterminate, policyDeny } from "../outcome.js";
 import { basename } from "../../shell.js";
 import { isSecretPath } from "../../secrets.js";
-import { continueFrom, isKnown, known, taintWrapperResult, wrapperHandler } from "./wrapper-utils.js";
+import { childInvocationFrom, isKnown, known, taintWrapperResult, wrapperHandler } from "./wrapper-utils.js";
 
 /** Inspect the static command template, but never authorize runtime stdin arguments. */
 export const xargsHandler = wrapperHandler("xargs", parseXargs);
@@ -19,7 +19,7 @@ function parseXargs(arguments_: readonly ResolvedWord[], context: StructuralDisp
   while (index < arguments_.length) {
     const argument = known(arguments_[index]!, context);
     if (typeof argument !== "string") return argument;
-    if (argument === "--") return taintWrapperResult(continueFrom(arguments_, index + 1, context), context);
+    if (argument === "--") return taintWrapperResult(childInvocationFrom(arguments_, index + 1, context, undefined, "spawn-repeated"), context);
     if (VALUE_OPTIONS.has(argument) || LONG_VALUE_OPTIONS.has(argument)) {
       if (!isKnown(arguments_[index + 1])) return indeterminate(context.span);
       if ((argument === "-a" || argument === "--arg-file") && isSecretPath(arguments_[index + 1]!.value)) {
@@ -49,7 +49,7 @@ function parseXargs(arguments_: readonly ResolvedWord[], context: StructuralDisp
       continue;
     }
     if (argument.startsWith("-")) return indeterminate(context.span);
-    return taintWrapperResult(continueFrom(arguments_, index, context), context);
+    return taintWrapperResult(childInvocationFrom(arguments_, index, context, undefined, "spawn-repeated"), context);
   }
   return indeterminate(context.span);
 }

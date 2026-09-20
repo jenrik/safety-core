@@ -135,6 +135,89 @@ test("Pi confirms opaque routes when only ghApiReadOnly is enabled", async () =>
   }
 });
 
+test("Pi fails closed for opaque wrapper execution with no enabled profiles", async () => {
+  const { evaluateConfiguredBash, initBashParser } = await import("../src/index.ts");
+  const wasmDir = await parserFixture();
+  const configHome = mkdtempSync(join(tmpdir(), "safety-core-pi-no-profiles-"));
+  const originalConfigHome = process.env.SAFETY_CORE_CONFIG_HOME;
+  try {
+    await initBashParser(wasmDir);
+    mkdirSync(join(configHome, "safety-core"));
+    writeFileSync(join(configHome, "safety-core", "profiles.json"), JSON.stringify({}));
+    process.env.SAFETY_CORE_CONFIG_HOME = configHome;
+
+    const handlers = new Map<string, Function>();
+    const pi = { on: (name: string, handler: Function) => handlers.set(name, handler), registerCommand() {}, registerTool() {} };
+    const { createPiExtension } = await import("../adapters/pi.ts");
+    let lastEvaluation: ReturnType<typeof evaluateConfiguredBash> | undefined;
+    createPiExtension(pi as never, {
+      evaluateConfiguredBash(options) {
+        lastEvaluation = evaluateConfiguredBash({
+          ...options,
+          initialEnvironment: options.source.includes("fish")
+            ? { kind: "unavailable" }
+            : { kind: "verified", values: {} },
+        });
+        return lastEvaluation;
+      },
+    });
+    const toolCall = handlers.get("tool_call")!;
+    const command = "exec --unknown opaque-canary";
+
+    const noUi = await toolCall(
+      { toolName: "bash", toolCallId: "opaque-no-ui", input: { command } },
+      { hasUI: false, ui: { notify() {} } },
+    );
+    expect(noUi).toMatchObject({ block: true });
+
+    const malformedNoUi = await toolCall(
+      { toolName: "bash", toolCallId: "malformed-no-ui", input: { command: "true; if" } },
+      { hasUI: false, ui: { notify() {} } },
+    );
+    expect(malformedNoUi).toMatchObject({ block: true });
+
+    for (const startupCommand of ["bash -ic true", "bash -lc true", "zsh -c true"]) {
+      const startupNoUi = await toolCall(
+        { toolName: "bash", toolCallId: `startup-${startupCommand}`, input: { command: startupCommand } },
+        { hasUI: false, ui: { notify() {} } },
+      );
+      expect(startupNoUi, startupCommand).toMatchObject({ block: true });
+    }
+
+    for (const dynamicFish of [
+      'fish -c "$UNKNOWN"',
+      'fish -d "$UNKNOWN" -c true',
+    ]) {
+      const dynamicFishNoUi = await toolCall(
+        { toolName: "bash", toolCallId: `dynamic-fish-${dynamicFish}`, input: { command: dynamicFish } },
+        { hasUI: false, ui: { notify() {} } },
+      );
+      expect(lastEvaluation?.guards, dynamicFish).toMatchObject({ kind: "block" });
+      expect(dynamicFishNoUi, dynamicFish).toMatchObject({ block: true });
+    }
+
+    for (const suppressed of ["bash --norc -ic true", "bash --noprofile -lc true"]) {
+      await expect(toolCall(
+        { toolName: "bash", toolCallId: `suppressed-${suppressed}`, input: { command: suppressed } },
+        { hasUI: false, ui: { notify() {} } },
+      ), suppressed).resolves.toBeUndefined();
+    }
+
+    let prompts = 0;
+    const promptFailure = await toolCall(
+      { toolName: "bash", toolCallId: "opaque-prompt-failure", input: { command } },
+      { hasUI: true, ui: { confirm: async () => { prompts++; throw new Error("prompt unavailable"); }, notify() {} } },
+    );
+    expect(prompts).toBe(1);
+    expect(promptFailure).toMatchObject({ block: true });
+    expect(JSON.stringify(promptFailure)).not.toContain("opaque-canary");
+  } finally {
+    if (originalConfigHome === undefined) delete process.env.SAFETY_CORE_CONFIG_HOME; else process.env.SAFETY_CORE_CONFIG_HOME = originalConfigHome;
+    rmSync(wasmDir, { force: true, recursive: true });
+    rmSync(configHome, { force: true, recursive: true });
+  }
+});
+
 test("Pi performs one configured evaluation and reuses its kubectl audit view", async () => {
   const { evaluateConfiguredBash, initBashParser, setJudgeProvider } = await import("../src/index.ts");
   const wasmDir = await parserFixture();
@@ -244,6 +327,36 @@ test("Pi prompts for a deferred permission and fails closed without approval or 
   expect(prompts).toEqual(["Safety permission required", "Safety permission required", "Safety permission required"]);
 });
 
+test("Pi confirms incomplete analysis even when permission ownership was not reached", async () => {
+  const handlers = new Map<string, Function>();
+  const pi = { on: (name: string, handler: Function) => handlers.set(name, handler), registerCommand() {}, registerTool() {} };
+  const { createPiExtension } = await import("../adapters/pi.ts");
+  createPiExtension(pi as never, {
+    evaluateConfiguredBash() {
+      return Object.freeze({
+        guards: Object.freeze({ kind: "pass", status: "indeterminate", policies: Object.freeze([]) }),
+        permission: Object.freeze({ kind: "ignore" }),
+        profiles: Object.freeze({ ghApiReadOnly: Object.freeze({ kind: "ignore" }) }),
+        analysis: Object.freeze({
+          status: "failure",
+          failure: Object.freeze({ budget: "max-steps" }),
+          evidence: Object.freeze([]),
+        }),
+        audit: Object.freeze({ events: Object.freeze([]) }),
+      }) as never;
+    },
+  });
+  let prompts = 0;
+
+  const result = await handlers.get("tool_call")!(
+    { toolName: "bash", toolCallId: "incomplete-analysis", input: { command: "gh api user -X POST" } },
+    { hasUI: true, ui: { confirm: async () => { prompts++; return false; }, notify() {} } },
+  );
+
+  expect(prompts).toBe(1);
+  expect(result).toMatchObject({ block: true });
+});
+
 test("property: supported guard wrappers still block Pi", async () => {
   const { initBashParser } = await import("../src/index.ts");
   const wasmDir = await parserFixture();
@@ -262,7 +375,7 @@ test("property: supported guard wrappers still block Pi", async () => {
       (command: string) => `sh -c '${command}'`,
       (command: string) => `time ${command}`,
       (command: string) => `time MODE=1 ${command}`,
-      (command: string) => `time -pv ${command}`,
+      (command: string) => `command time -pv ${command}`,
       (command: string) => `time ( ${command} )`,
       (command: string) => `command time --verb ${command}`,
       (command: string) => `coproc ${command}`,

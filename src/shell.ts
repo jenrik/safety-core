@@ -8,6 +8,7 @@ import { Language, Node as SyntaxNode, Parser } from "web-tree-sitter";
 import type {
   BashAssignment,
   BashCommand,
+  BashCoproc,
   BashFunction,
   BashGroup,
   BashIf,
@@ -18,6 +19,7 @@ import type {
   BashRedirect,
   BashStatement,
   BashSubshell,
+  BashTime,
   BashWord,
   SourceSpan,
 } from "./bash/cst.js";
@@ -154,20 +156,64 @@ export function parseBashProgram(source: string): BashProgram | BashParseFailure
 
   const tree = bashParser.parse(source);
   const error = findSyntaxError(tree.rootNode);
-  const executorCompounds = recoverExecutorCompounds(tree.rootNode, source);
-  if (error && executorCompounds.size === 0 && !isRecoverableNamedCoprocSubshell(tree.rootNode, error, source)) {
+  if (error) {
     return freeze({
       kind: "parse-failure",
       reason: `Bash parse error at ${error.startIndex}`,
       span: span(error),
+      program: {
+        kind: "program",
+        source,
+        statements: completeRootPrefix(tree.rootNode, source).map(projectStatement),
+      },
     });
   }
 
   return freeze({
     kind: "program",
     source,
-    statements: tree.rootNode.namedChildren.map((node) => projectStatement(node, executorCompounds)),
+    statements: tree.rootNode.namedChildren.map(projectStatement),
   });
+}
+
+/**
+ * Keep only error-free root statements with a concrete separator before the
+ * malformed region. Some tree-sitter recoveries wrap that prefix in ERROR.
+ */
+function completeRootPrefix(root: SyntaxNode, source: string): SyntaxNode[] {
+  const statements: SyntaxNode[] = [];
+  collectCompletePrefix(root.children, source, statements);
+  return statements;
+}
+
+function collectCompletePrefix(children: readonly SyntaxNode[], source: string, statements: SyntaxNode[]): void {
+  for (let index = 0; index < children.length; index++) {
+    const child = children[index]!;
+    if (child.isError) {
+      collectCompletePrefix(child.children, source, statements);
+      return;
+    }
+    if (findSyntaxError(child)) return;
+    if (isProjectableStatement(child)) {
+      const next = children.slice(index + 1).find((candidate) => candidate.type !== ";" && candidate.type !== "&" && candidate.type !== "comment")
+        ?? children[index + 1];
+      if (!next || !hasStatementBoundary(source, child.endIndex, next.startIndex, next.type)) return;
+      statements.push(child);
+      continue;
+    }
+    if (child.type === ";" || child.type === "comment") continue;
+    return;
+  }
+}
+
+function hasStatementBoundary(source: string, start: number, end: number, nextType: string): boolean {
+  if (nextType === ";" || nextType === "&") return true;
+  for (let index = start; index < end; index++) {
+    const character = source[index];
+    if (character === ";" || character === "\n" || character === "\r") return true;
+    if (character === "&" && source[index - 1] !== "&" && source[index + 1] !== "&") return true;
+  }
+  return false;
 }
 
 // ─── Utility helpers (pure string functions, no parser needed) ──────────────
@@ -218,52 +264,58 @@ function decodeAnsiCQuotes(token: string): string {
 
 // ─── Internal tree-sitter projection helpers ────────────────────────────────
 
-function projectStatement(node: SyntaxNode, executorCompounds: ReadonlyMap<number, BashStatement> = new Map()): BashStatement {
+function projectStatement(node: SyntaxNode): BashStatement {
   switch (node.type) {
     case "command":
-      return projectCommand(node, [], executorCompounds.get(node.startIndex), executorCompounds);
+      return projectCommand(node, []);
     case "variable_assignment":
       return {
         kind: "command",
-        assignments: [projectAssignment(node, executorCompounds)],
+        assignments: [projectAssignment(node)],
         words: [],
         redirects: [],
         span: span(node),
       };
     case "redirected_statement":
-      return projectRedirectedStatement(node, executorCompounds);
+      return projectRedirectedStatement(node);
     case "file_redirect":
       return {
         kind: "command",
         assignments: [],
         words: [],
-        redirects: [projectRedirect(node, executorCompounds)],
+        redirects: [projectRedirect(node)],
         span: span(node),
       };
     case "function_definition":
-      return projectFunction(node, executorCompounds);
+      return projectFunction(node);
+    case "unset_command":
+      return projectUnsetCommand(node);
     case "list":
-      return projectList(node, executorCompounds);
+      return projectList(node);
     case "pipeline":
       return {
         kind: "pipeline",
-        statements: node.namedChildren.map((child) => projectStatement(child, executorCompounds)),
+        statements: node.namedChildren.map(projectStatement),
         negated: node.children.some((child) => child.type === "!"),
         span: span(node),
       };
     case "subshell":
-      return { kind: "subshell", statements: node.namedChildren.map((child) => projectStatement(child, executorCompounds)), span: span(node) };
+      return { kind: "subshell", statements: node.namedChildren.map(projectStatement), span: span(node) };
     case "compound_statement":
-      return projectGroup(node, executorCompounds);
+      return projectGroup(node);
     case "if_statement":
-      return projectIf(node, executorCompounds);
+      return projectIf(node);
+    case "time_statement":
+      return projectTime(node);
+    case "coproc_statement":
+      return projectCoproc(node);
     default:
-      return projectUnsupported(node, executorCompounds);
+      return projectUnsupported(node);
   }
 }
 
 /** Flatten homogeneous left-recursive lists; mixed operators retain their control-flow tree. */
-function projectList(node: SyntaxNode, executorCompounds: ReadonlyMap<number, BashStatement>): BashList {
+function projectList(node: SyntaxNode): BashList {
   const frames: Array<{
     readonly operator: "&&" | "||";
     readonly right: SyntaxNode;
@@ -283,16 +335,16 @@ function projectList(node: SyntaxNode, executorCompounds: ReadonlyMap<number, Ba
   if (ordered.length > 0 && ordered.every((frame) => frame.operator === ordered[0]!.operator)) {
     return {
       kind: "list",
-      statements: [projectStatement(current, executorCompounds), ...ordered.map((frame) => projectStatement(frame.right, executorCompounds))],
+      statements: [projectStatement(current), ...ordered.map((frame) => projectStatement(frame.right))],
       operators: ordered.map((frame) => frame.operator),
       span: span(node),
     };
   }
-  let projected = projectStatement(current, executorCompounds);
+  let projected = projectStatement(current);
   for (const frame of ordered) {
     projected = {
       kind: "list",
-      statements: [projected, projectStatement(frame.right, executorCompounds)],
+      statements: [projected, projectStatement(frame.right)],
       operators: [frame.operator],
       span: frame.span,
     };
@@ -300,61 +352,52 @@ function projectList(node: SyntaxNode, executorCompounds: ReadonlyMap<number, Ba
   return projected as BashList;
 }
 
-function projectRedirectedStatement(node: SyntaxNode, executorCompounds: ReadonlyMap<number, BashStatement>): BashStatement {
+function projectRedirectedStatement(node: SyntaxNode): BashStatement {
   const body = node.childForFieldName("body") ?? node.namedChildren.find((child) => child.type !== "file_redirect");
   if (!body) {
     return {
       kind: "command",
       assignments: [],
       words: [],
-      redirects: node.childrenForFieldName("redirect").map((child) => projectRedirect(child, executorCompounds)),
+      redirects: node.childrenForFieldName("redirect").map(projectRedirect),
       span: span(node),
     };
   }
 
-  const statement = projectStatement(body, executorCompounds);
-  return withRedirects(statement, node.childrenForFieldName("redirect").map((child) => projectRedirect(child, executorCompounds)), span(node));
+  const statement = projectStatement(body);
+  return withRedirects(statement, node.childrenForFieldName("redirect").map(projectRedirect), span(node));
 }
 
 function projectCommand(
   node: SyntaxNode,
   redirects: readonly BashRedirect[],
-  executorCompound?: BashStatement,
-  executorCompounds: ReadonlyMap<number, BashStatement> = new Map(),
 ): BashCommand {
   const nameNode = node.childForFieldName("name");
   const commandName = nameNode?.namedChildren[0] ?? null;
   return {
     kind: "command",
-    assignments: node.namedChildren.filter((child) => child.type === "variable_assignment").map((child) => projectAssignment(child, executorCompounds)),
+    assignments: node.namedChildren.filter((child) => child.type === "variable_assignment").map(projectAssignment),
     words: [
-      ...(commandName ? [projectWord(commandName, executorCompounds)] : []),
-      ...node.childrenForFieldName("argument").map((child) => projectWord(child, executorCompounds)),
-      ...(executorCompound ? [{
-        kind: "unsupported-word" as const,
-        text: "",
-        reason: "Retained executor compound body",
-        statements: [executorCompound],
-        span: executorCompound.span,
-      }] : []),
+      ...(commandName ? [projectWord(commandName)] : []),
+      ...node.childrenForFieldName("argument").map(projectWord),
     ],
     redirects,
     span: span(node),
   };
 }
 
-function projectAssignment(node: SyntaxNode, executorCompounds: ReadonlyMap<number, BashStatement> = new Map()): BashAssignment {
+function projectAssignment(node: SyntaxNode): BashAssignment {
   const name = node.childForFieldName("name");
   const value = node.childForFieldName("value");
   return {
     name: name?.text ?? "",
-    value: value ? projectWord(value, executorCompounds) : null,
+    value: value ? projectWord(value) : null,
     span: span(node),
   };
 }
 
-function projectRedirect(node: SyntaxNode, executorCompounds: ReadonlyMap<number, BashStatement>): BashRedirect {
-  const words = node.childrenForFieldName("destination").map((child) => projectWord(child, executorCompounds));
+function projectRedirect(node: SyntaxNode): BashRedirect {
+  const words = node.childrenForFieldName("destination").map(projectWord);
   return {
     kind: redirectKind(node) ?? "unsupported",
     target: words[0] ?? null,
@@ -363,36 +406,73 @@ function projectRedirect(node: SyntaxNode, executorCompounds: ReadonlyMap<number
   };
 }
 
-function projectFunction(node: SyntaxNode, executorCompounds: ReadonlyMap<number, BashStatement>): BashFunction {
+function projectFunction(node: SyntaxNode): BashFunction {
   const name = node.namedChildren.find((child) => child.type === "word");
   const bodyNode = node.namedChildren.find((child) => child !== name);
   const body = bodyNode
-    ? projectStatement(bodyNode, executorCompounds)
+    ? projectStatement(bodyNode)
     : { kind: "unsupported" as const, reason: "Function body is missing", statements: [], span: span(node) };
   return { kind: "function", name: name?.text ?? "", body, span: span(node) };
 }
 
-function projectGroup(node: SyntaxNode, executorCompounds: ReadonlyMap<number, BashStatement>): BashGroup {
-  return { kind: "group", statements: node.namedChildren.map((child) => projectStatement(child, executorCompounds)), span: span(node) };
+function projectUnsetCommand(node: SyntaxNode): BashCommand {
+  const executable = node.text.startsWith("unsetenv") ? "unsetenv" : "unset";
+  return {
+    kind: "command",
+    assignments: [],
+    words: [
+      { kind: "word", text: executable, span: { start: node.startIndex, end: node.startIndex + executable.length } },
+      ...node.namedChildren.map(projectWord),
+    ],
+    redirects: [],
+    span: span(node),
+  };
 }
 
-function projectIf(node: SyntaxNode, executorCompounds: ReadonlyMap<number, BashStatement>): BashIf {
+function projectGroup(node: SyntaxNode): BashGroup {
+  return { kind: "group", statements: node.namedChildren.map(projectStatement), span: span(node) };
+}
+
+function projectIf(node: SyntaxNode): BashIf {
   const thenNode = node.children.find((child) => child.type === "then");
   const elseNode = node.namedChildren.find((child) => child.type === "else_clause");
   const condition = node.namedChildren
     .filter((child) => child.type !== "else_clause" && (!thenNode || child.endIndex <= thenNode.startIndex))
-    .map((child) => projectStatement(child, executorCompounds));
+    .map(projectStatement);
   const consequent = node.namedChildren
     .filter((child) => child.type !== "else_clause" && (!thenNode || child.startIndex >= thenNode.endIndex))
-    .map((child) => projectStatement(child, executorCompounds));
-  const alternate = elseNode ? elseNode.namedChildren.map((child) => projectStatement(child, executorCompounds)) : [];
+    .map(projectStatement);
+  const alternate = elseNode ? elseNode.namedChildren.map(projectStatement) : [];
   return { kind: "if", condition, consequent, alternate, span: span(node) };
 }
 
-function projectWord(node: SyntaxNode, executorCompounds: ReadonlyMap<number, BashStatement> = new Map()): BashWord {
+function projectTime(node: SyntaxNode): BashTime {
+  const bodyNode = node.childForFieldName("body");
+  return {
+    kind: "time",
+    body: bodyNode ? projectStatement(bodyNode) : null,
+    posix: node.childForFieldName("posix") !== null,
+    span: span(node),
+  };
+}
+
+function projectCoproc(node: SyntaxNode): BashCoproc {
+  const body = node.childForFieldName("body");
+  return {
+    kind: "coproc",
+    name: node.childForFieldName("name")?.text ?? null,
+    body: body
+      ? projectStatement(body)
+      : { kind: "unsupported", reason: "Coprocess body is missing", statements: [], span: span(node) },
+    span: span(node),
+  };
+}
+
+function projectWord(node: SyntaxNode): BashWord {
   const shared = { text: node.text, span: span(node) };
   switch (node.type) {
     case "word":
+    case "variable_name":
     case "raw_string":
     case "ansi_c_string":
     case "number":
@@ -401,41 +481,41 @@ function projectWord(node: SyntaxNode, executorCompounds: ReadonlyMap<number, Ba
     case "string":
       return node.namedChildren.length === 0
         ? { kind: "word", ...shared }
-        : { kind: "concatenation", ...shared, parts: node.namedChildren.map((child) => projectWord(child, executorCompounds)) };
+        : { kind: "concatenation", ...shared, parts: node.namedChildren.map(projectWord) };
     case "simple_expansion":
     case "expansion":
-      return { kind: "expansion", ...shared, statements: projectNestedStatements(node, executorCompounds) };
+      return { kind: "expansion", ...shared, statements: projectNestedStatements(node) };
     case "command_substitution":
-      return { kind: "command-substitution", ...shared, statements: node.namedChildren.map((child) => projectStatement(child, executorCompounds)) };
+      return { kind: "command-substitution", ...shared, statements: node.namedChildren.map(projectStatement) };
     case "concatenation":
-      return { kind: "concatenation", ...shared, parts: node.namedChildren.map((child) => projectWord(child, executorCompounds)) };
+      return { kind: "concatenation", ...shared, parts: node.namedChildren.map(projectWord) };
     default:
       return {
         kind: "unsupported-word",
         ...shared,
         reason: `Unsupported Bash word syntax: ${node.type}`,
-        statements: projectNestedStatements(node, executorCompounds),
+        statements: projectNestedStatements(node),
       };
   }
 }
 
 
-function projectUnsupported(node: SyntaxNode, executorCompounds: ReadonlyMap<number, BashStatement>): BashStatement {
+function projectUnsupported(node: SyntaxNode): BashStatement {
   return {
     kind: "unsupported",
     reason: `Unsupported Bash syntax: ${node.type}`,
-    statements: projectNestedStatements(node, executorCompounds),
+    statements: projectNestedStatements(node),
     span: span(node),
   };
 }
 
-function projectNestedStatements(node: SyntaxNode, executorCompounds: ReadonlyMap<number, BashStatement>): BashStatement[] {
+function projectNestedStatements(node: SyntaxNode): BashStatement[] {
   const statements: BashStatement[] = [];
   for (const child of node.namedChildren) {
     if (isProjectableStatement(child)) {
-      statements.push(projectStatement(child, executorCompounds));
+      statements.push(projectStatement(child));
     } else {
-      statements.push(...projectNestedStatements(child, executorCompounds));
+      statements.push(...projectNestedStatements(child));
     }
   }
   return statements;
@@ -451,6 +531,8 @@ function isProjectableStatement(node: SyntaxNode): boolean {
     "subshell",
     "compound_statement",
     "if_statement",
+    "time_statement",
+    "coproc_statement",
   ].includes(node.type);
 }
 
@@ -464,6 +546,8 @@ function withRedirects(statement: BashStatement, redirects: readonly BashRedirec
     case "subshell":
     case "group":
     case "if":
+    case "time":
+    case "coproc":
     case "unsupported":
       return { ...statement, redirects, span: statementSpan };
   }
@@ -474,55 +558,6 @@ function findSyntaxError(node: SyntaxNode): SyntaxNode | null {
   for (const child of node.children) {
     const error = findSyntaxError(child);
     if (error) return error;
-  }
-  return null;
-}
-
-function isRecoverableNamedCoprocSubshell(root: SyntaxNode, error: SyntaxNode, source: string): boolean {
-  if (!error.isMissing || error.type !== ";") return false;
-  const statements = root.namedChildren.filter((child) => child.type !== "comment");
-  if (statements.length !== 2 || statements[0]?.type !== "command" || statements[1]?.type !== "subshell") return false;
-  const prefix = source.slice(statements[0].startIndex, statements[1].startIndex);
-  return /^coproc\s+[A-Za-z_][A-Za-z0-9_]*\s*$/s.test(prefix);
-}
-
-function recoverExecutorCompounds(root: SyntaxNode, source: string): ReadonlyMap<number, BashStatement> {
-  const prefixes: Array<{ readonly owner: number; readonly body: number }> = [];
-  const visit = (node: SyntaxNode): void => {
-    if (node.type === "command") {
-      const suffix = source.slice(node.startIndex);
-      const match = /^(?:time(?:[ \t]+-p)?|coproc(?:[ \t]+[A-Za-z_][A-Za-z0-9_]*)?)[ \t]+(?=(?:\(|\{|if\b|for\b|while\b|until\b|case\b))/s.exec(suffix);
-      if (match) prefixes.push({ owner: node.startIndex, body: node.startIndex + match[0].length });
-    }
-    for (const child of node.namedChildren) visit(child);
-  };
-  visit(root);
-  if (prefixes.length === 0) return new Map();
-
-  const characters = source.split("");
-  for (const prefix of prefixes) {
-    for (let index = prefix.owner; index < prefix.body; index++) {
-      if (characters[index] !== "\n" && characters[index] !== "\r") characters[index] = " ";
-    }
-  }
-  const reparsed = bashParser!.parse(characters.join(""));
-  if (findSyntaxError(reparsed.rootNode)) return new Map();
-
-  const recovered = new Map<number, BashStatement>();
-  for (const prefix of prefixes) {
-    const body = statementStartingAt(reparsed.rootNode, prefix.body);
-    if (body) recovered.set(prefix.owner, projectStatement(body));
-  }
-  return recovered;
-}
-
-function statementStartingAt(node: SyntaxNode, start: number): SyntaxNode | null {
-  for (const child of node.namedChildren) {
-    if (child.startIndex === start && (isProjectableStatement(child) || /_statement$/.test(child.type))) return child;
-    if (child.startIndex <= start && child.endIndex >= start) {
-      const nested = statementStartingAt(child, start);
-      if (nested) return nested;
-    }
   }
   return null;
 }

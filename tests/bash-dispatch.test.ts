@@ -9,10 +9,11 @@ import {
   dispatchCommand,
   ignorePolicy,
   observePolicy,
+  preflightCommand,
   type InvocationCursor,
   type PolicyObserver,
 } from "../src/bash/dispatch.ts";
-import { fromInitialEnvironment, unknown } from "../src/bash/environment.ts";
+import { fromInitialEnvironment, fromVerifiedInitialEnvironment, unknown } from "../src/bash/environment.ts";
 import { httpHandlers } from "../src/bash/handlers/http.ts";
 import { readerHandlers } from "../src/bash/handlers/readers.ts";
 import { safe } from "../src/bash/outcome.ts";
@@ -125,18 +126,6 @@ describe("named Bash command dispatch", () => {
     "find . -maxdepth 0 -exec denied-command {} \\;",
     "find . -exec sh -c 'denied-command' _ {} \\;",
     "eval -- 'denied-command'",
-    "fish -C 'denied-command' -c true",
-    "fish --init-command 'denied-command' --command true",
-    "fish -C true -c 'denied-command'",
-    "fish -d parser -c 'denied-command'",
-    "fish --profile-startup /tmp/profile -c 'denied-command'",
-    "fish --init-cmd 'denied-command' -c true",
-    "fish --no-config -c 'denied-command'",
-    "fish --interactive -c 'denied-command'",
-    "fish --login -c 'denied-command'",
-    "fish --private -c 'denied-command'",
-    "fish --print-rusage-self -c 'denied-command'",
-    "fish -Nd parser -c 'denied-command'",
     "sudo denied-command",
     "sudo -u root -- denied-command",
     "sudo -k denied-command",
@@ -176,19 +165,12 @@ describe("named Bash command dispatch", () => {
     "bash -euo pipefail -c 'denied-command'",
     "bash -euxo pipefail -c 'denied-command'",
     "bash +O extglob -c 'denied-command'",
-    "bash -coo pipefail nounset 'denied-command'",
+    "bash -co pipefail 'denied-command'",
     "bash -c \"denied-command\"",
     "bash -Ec 'denied-command'",
     "bash -Tc 'denied-command'",
     "bash --debug -c 'denied-command'",
     "bash --pretty-print -c 'denied-command'",
-    "zsh -dfc 'denied-command'",
-    "zsh --no-rcs -c 'denied-command'",
-    "zsh --no-global-rcs -c 'denied-command'",
-    "zsh --no_rcs -c 'denied-command'",
-    "zsh --GLOBAL_RCS -c 'denied-command'",
-    "zsh +-RCS -c 'denied-command'",
-    "zsh +-no-RCS -c 'denied-command'",
   ])("preserves nested denials through common shell option forms: %s", (source) => {
     expect(analyze(source, [denyHandler("denied-command")]).completed.verdict).toMatchObject({ kind: "deny" });
   });
@@ -209,7 +191,7 @@ describe("named Bash command dispatch", () => {
     }
   });
 
-  test("property: interpreter short-flag clusters preserve nested denials", () => {
+  test("property: best-effort zsh short-flag clusters preserve nested denials", () => {
     const random = lcg(0x18c4_a72f);
     for (let iteration = 0; iteration < 64; iteration++) {
       const flags = shuffle(["d", "f", "E", "T", "x"], random).join("");
@@ -218,11 +200,28 @@ describe("named Bash command dispatch", () => {
     }
   });
 
-  test("property: zsh named options preserve nested denials", () => {
+  test("property: best-effort zsh named options preserve nested denials", () => {
     for (const option of ["--no-rcs", "--no-global-rcs", "--no_rcs", "--GLOBAL_RCS", "+-RCS", "+-no-RCS", "--rcs", "--global-rcs", "--interactive", "--login"]) {
       const source = `zsh ${option} -c 'denied-command'`;
       expect(analyze(source, [denyHandler("denied-command")]).completed.verdict, source).toMatchObject({ kind: "deny" });
     }
+  });
+
+  test.each([
+    "fish -C 'denied-command' -c true",
+    "fish --init-command 'denied-command' --command true",
+    "fish -C true -c 'denied-command'",
+    "fish -d parser -c 'denied-command'",
+    "fish --profile-startup /tmp/profile -c 'denied-command'",
+    "fish --init-cmd 'denied-command' -c true",
+    "fish --no-config -c 'denied-command'",
+    "fish --interactive -c 'denied-command'",
+    "fish --login -c 'denied-command'",
+    "fish --private -c 'denied-command'",
+    "fish --print-rusage-self -c 'denied-command'",
+    "fish -Nd parser -c 'denied-command'",
+  ])("blocks fish command source pending dedicated parser support: %s", (source) => {
+    expect(analyze(source, [denyHandler("denied-command")]).completed.verdict).toMatchObject({ kind: "deny" });
   });
 
   test("uses unknown-command only when every matching policy observer ignores the invocation", () => {
@@ -346,7 +345,47 @@ describe("named Bash command dispatch", () => {
     expect(result.scheduled).toHaveLength(0);
   });
 
-  test("walks a statically known sh -c script only through continueWith", () => {
+  test("recognized structural parse failures schedule a redacted opaque execution", () => {
+    for (const [executable, argv] of [
+      ["exec", ["--unknown", "opaque-canary"]],
+      ["bash", ["--unknown", "opaque-canary"]],
+      ["timeout", ["--unknown", "1s", "opaque-canary"]],
+    ] as const) {
+      const result = directWrapperDispatch(executable, argv);
+      expect(result.targets, executable).toContain("opaque");
+      expect(dispatchOutcome(result.result), executable).toMatchObject({ kind: "indeterminate" });
+      expect(JSON.stringify(result.result), executable).not.toContain("opaque-canary");
+    }
+  });
+
+  test("preserves known shell command options when their required value is dynamic", () => {
+    const bash = directWrapperDispatch("bash", ["-c", undefined], fromVerifiedInitialEnvironment());
+    expect(bash.targets).toEqual(["opaque"]);
+    expect(bash.effects).toEqual(["spawn-and-wait"]);
+
+    const zsh = directWrapperDispatch("zsh", ["-c", undefined], fromVerifiedInitialEnvironment());
+    expect(zsh.targets).toEqual(["opaque", "opaque"]);
+    expect(zsh.effects).toEqual(["spawn-and-wait", "spawn-and-wait"]);
+
+    const fish = directWrapperDispatch("fish", ["-c", undefined], fromVerifiedInitialEnvironment());
+    expect(dispatchOutcome(fish.result)).toMatchObject({ kind: "deny", policy: { name: "unsupported-shell-source" } });
+
+    const missing = directWrapperDispatch("bash", ["-c"], fromVerifiedInitialEnvironment());
+    expect(missing.targets).toEqual(["opaque"]);
+    expect(dispatchOutcome(missing.result)).toMatchObject({ kind: "indeterminate" });
+  });
+
+  test("continues through dynamic non-command option values to inspect static command source", () => {
+    const environment = fromInitialEnvironment({ OPTION: unknown({ kind: "ambient" }) });
+    expect(analyze('bash -o "$OPTION" -c denied-command', [denyHandler("denied-command")], environment).completed.verdict)
+      .toMatchObject({ kind: "deny" });
+    expect(analyze('zsh -o "$OPTION" -c denied-command', [denyHandler("denied-command")], environment).completed.verdict)
+      .toMatchObject({ kind: "deny" });
+    expect(analyze('fish -d "$OPTION" -c true', [], environment).completed.verdict)
+      .toMatchObject({ kind: "deny" });
+  });
+
+  test("walks a statically known sh -c script only through a source child", () => {
     const invocations: InvocationCursor[] = [];
     const result = analyze("sh -c 'gh pr create --repo github.com/acme/widgets'", [recordingHandler("gh", invocations)]);
 
@@ -354,6 +393,131 @@ describe("named Bash command dispatch", () => {
     expect(invocations.map(renderInvocation)).toEqual([[
       "gh", "pr", "create", "--repo", "github.com/acme/widgets",
     ]]);
+  });
+
+  test("schedules direct source builtins as opaque current-scope execution", () => {
+    for (const executable of ["source", "."] as const) {
+      const direct = directWrapperDispatch(executable, ["setup.sh"]);
+      expect(direct.targets, executable).toEqual(["opaque"]);
+      expect(direct.effects, executable).toEqual(["none"]);
+
+      const invocations: InvocationCursor[] = [];
+      const result = analyze(`X=known; ${executable} setup.sh; run "$X"`, [recordingHandler("run", invocations)]);
+      expect(result.completed.outcome, executable).toMatchObject({ kind: "failure", reason: "analysis-failure" });
+      expect(invocations[0]?.invocation.argv[0], executable).toMatchObject({ kind: "unknown" });
+    }
+  });
+
+  test("preserves possible prior functions across opaque source execution", () => {
+    for (const executable of ["source", "."] as const) {
+      const result = analyze(`f(){ denied-command; }; ${executable} setup.sh; f`, [denyHandler("denied-command")]);
+      expect(result.completed.outcome, executable).toMatchObject({ kind: "deny" });
+    }
+  });
+
+  test("walks malformed nested script prefixes for every source target route", () => {
+    for (const source of [
+      "eval 'denied-command; if'",
+      "bash -c 'denied-command; if'",
+      "watch 'denied-command; if'",
+    ]) {
+      expect(analyze(source, [denyHandler("denied-command")]).completed.outcome, source).toMatchObject({ kind: "deny" });
+    }
+  });
+
+  test("reports malformed-only nested scripts as profile-independent failure", () => {
+    for (const source of ["eval 'if'", "bash -c 'if'", "watch 'if'"]) {
+      expect(analyze(source, []).completed.outcome, source).toMatchObject({ kind: "failure", reason: "analysis-failure" });
+    }
+  });
+
+  test("schedules explicit and inherited shell startup as opaque execution", () => {
+    const explicit = directWrapperDispatch("bash", ["--rcfile", "setup.sh", "-ic", "true"]);
+    expect(explicit.targets).toEqual(["source", "opaque"]);
+    expect(explicit.effects).toEqual(["spawn-and-wait", "spawn-and-wait"]);
+
+    for (const [source, environment] of [
+      ["bash -c true", fromInitialEnvironment({ BASH_ENV: "setup.sh" })],
+      ["sh -c true", fromInitialEnvironment({ ENV: "setup.sh" })],
+      ["zsh -c true", fromInitialEnvironment({ ZDOTDIR: "/tmp/zsh" })],
+    ] as const) {
+      expect(analyze(source, [], environment).completed.outcome, source).toMatchObject({ kind: "failure", reason: "analysis-failure" });
+    }
+  });
+
+  test("derives Bash and zsh startup from invocation mode with a verified empty environment", () => {
+    const environment = fromVerifiedInitialEnvironment();
+    for (const [executable, argv] of [
+      ["bash", ["-ic", "true"]],
+      ["bash", ["-lc", "true"]],
+      ["zsh", ["-c", "true"]],
+    ] as const) {
+      const direct = directWrapperDispatch(executable, argv, environment);
+      expect(direct.targets, `${executable} ${argv.join(" ")}`).toEqual(["source", "opaque"]);
+      expect(direct.effects, `${executable} ${argv.join(" ")}`).toEqual(["spawn-and-wait", "spawn-and-wait"]);
+    }
+
+    expect(analyze("zsh -fc true", [], environment).completed.outcome).toMatchObject({
+      kind: "failure",
+      reason: "analysis-failure",
+    });
+  });
+
+  test("suppresses only the reviewed Bash startup mode", () => {
+    const environment = fromVerifiedInitialEnvironment();
+    for (const argv of [
+      ["--norc", "-ic", "true"],
+      ["--noprofile", "-lc", "true"],
+    ]) {
+      expect(directWrapperDispatch("bash", argv, environment).targets, argv.join(" ")).toEqual(["source"]);
+    }
+    expect(directWrapperDispatch("bash", ["--norc", "-ic", "true"]).targets).toEqual(["source"]);
+    for (const argv of [
+      ["--noprofile", "-ic", "true"],
+      ["--norc", "-lc", "true"],
+      ["--norc", "--rcfile", "setup.sh", "-ic", "true"],
+    ]) {
+      expect(directWrapperDispatch("bash", argv, environment).targets, argv.join(" ")).toEqual(["source", "opaque"]);
+    }
+  });
+
+  test("property: Bash startup suppression survives reviewed option clusters and orderings", () => {
+    const environment = fromVerifiedInitialEnvironment();
+    const clusters = ["-ic", "-xic", "-ixc", "-lc", "-xlc", "-lxc"];
+    for (let iteration = 0; iteration < 64; iteration++) {
+      const cluster = clusters[iteration % clusters.length]!;
+      const interactive = cluster.includes("i");
+      const suppressor = interactive ? "--norc" : "--noprofile";
+      const irrelevant = interactive ? "--noprofile" : "--norc";
+      const before = iteration % 2 === 0 ? [suppressor, "-T"] : ["-T", suppressor];
+      expect(directWrapperDispatch("bash", [...before, cluster, "true"], environment).targets, String(iteration))
+        .toEqual(["source"]);
+      expect(directWrapperDispatch("bash", [irrelevant, cluster, "true"], environment).targets, String(iteration))
+        .toEqual(["source", "opaque"]);
+    }
+  });
+
+  test("classifies wrapper child targets and process effects", () => {
+    for (const [executable, argv, target, effect] of [
+      ["command", ["cat"], "invocation", "none"],
+      ["exec", ["cat"], "invocation", "exec-replace"],
+      ["env", ["cat"], "invocation", "exec-replace"],
+      ["time", ["cat"], "invocation", "spawn-and-wait"],
+      ["timeout", ["1s", "cat"], "invocation", "spawn-and-wait"],
+      ["strace", ["cat"], "invocation", "spawn-and-wait"],
+      ["watch", ["--exec", "cat"], "invocation", "spawn-repeated"],
+      ["watch", ["cat"], "source", "spawn-repeated"],
+      ["xargs", ["cat"], "invocation", "spawn-repeated"],
+      ["find", [".", "-exec", "cat", ";"], "invocation", "spawn-repeated"],
+      ["setsid", ["--fork", "cat"], "invocation", "spawn-async"],
+      ["setsid", ["--fork", "--wait", "cat"], "invocation", "spawn-and-wait"],
+      ["sudo", ["-b", "cat"], "invocation", "spawn-async"],
+      ["sudo", ["cat"], "invocation", "unknown"],
+    ] as const) {
+      const result = directWrapperDispatch(executable, argv);
+      expect(result.targets, executable).toEqual([target]);
+      expect(result.effects, executable).toEqual([effect]);
+    }
   });
 
   test("clears omitted positional parameters for sh -c beneath a function call", () => {
@@ -432,6 +596,89 @@ describe("named Bash command dispatch", () => {
 
     expect(invocations.map(renderInvocation)).toEqual([["allowed-command"]]);
     expect(result.completed.verdict).toMatchObject({ kind: "deny" });
+  });
+
+  test("keeps unresolved find actions opaque beside known siblings", () => {
+    for (const argv of [
+      [".", "-exec", "known-command", ";", "-exec", undefined, ";"],
+      [".", "-exec", undefined, ";", "-exec", "known-command", ";"],
+      [".", "-exec", "known-command", ";", "-exec", "unterminated"],
+    ] as const) {
+      const direct = directWrapperDispatch("find", argv);
+      expect(direct.targets, JSON.stringify(argv)).toContain("invocation");
+      expect(direct.targets, JSON.stringify(argv)).toContain("opaque");
+      expect(direct.effects.every((effect) => effect === "spawn-repeated"), JSON.stringify(argv)).toBeTrue();
+    }
+
+    const runtime = analyze("find . -exec allowed-command \\; -exec $UNKNOWN \\;", [], {
+      UNKNOWN: unknown({ kind: "ambient" }),
+    });
+    expect(runtime.completed.outcome).toMatchObject({ kind: "failure", reason: "analysis-failure" });
+  });
+
+  test("property: every unresolved find action remains opaque under sibling ordering", () => {
+    for (let index = 0; index < 64; index++) {
+      const knownAction = ["-exec", `known-${index}`, ";"] as const;
+      const unknownAction = ["-execdir", undefined, ";"] as const;
+      const actions = index % 2 === 0 ? [...knownAction, ...unknownAction] : [...unknownAction, ...knownAction];
+      const direct = directWrapperDispatch("find", [".", ...actions]);
+      expect(direct.targets, String(index)).toContain("invocation");
+      expect(direct.targets, String(index)).toContain("opaque");
+    }
+  });
+
+  test("uses GNU find primary arity before recognizing execution actions", () => {
+    const operand = directWrapperDispatch("find", [".", "-name", "-exec", "denied-command", ";"]);
+    expect(operand.targets).not.toContain("invocation");
+
+    const dynamicOperand = directWrapperDispatch("find", [".", "-name", undefined, "-exec", "known-command", ";"]);
+    expect(dynamicOperand.targets).toEqual(["invocation"]);
+
+    const dynamicPrimary = directWrapperDispatch("find", [".", undefined, "-exec", "known-command", ";"]);
+    expect(dynamicPrimary.targets).toContain("opaque");
+    expect(dynamicPrimary.targets).toContain("invocation");
+  });
+
+  test("property: reviewed fixed-arity find operands are never reinterpreted as actions", () => {
+    const unary = [
+      "-amin", "-anewer", "-atime", "-cmin", "-cnewer", "-ctime", "-fls", "-fprint", "-fprint0",
+      "-fstype", "-gid", "-group", "-ilname", "-iname", "-inum", "-ipath", "-iregex", "-links",
+      "-lname", "-maxdepth", "-mindepth", "-mmin", "-mtime", "-name", "-newer", "-path", "-perm",
+      "-printf", "-regextype", "-samefile", "-size", "-type", "-uid", "-used", "-user", "-wholename", "-xtype",
+    ];
+    for (const primary of unary) {
+      const result = directWrapperDispatch("find", [".", primary, "-exec", "canary", ";"]);
+      expect(result.targets, primary).not.toContain("invocation");
+    }
+    expect(directWrapperDispatch("find", [".", "-fprintf", "-exec", "format", "canary", ";"]).targets)
+      .not.toContain("invocation");
+  });
+
+  test("keeps unresolved find primary and action positions opaque beside concrete siblings", () => {
+    for (const argv of [
+      [".", undefined, "-exec", "known-command", ";"],
+      [".", "-exec", undefined, ";", "-exec", "known-command", ";"],
+      [".", "-exec", "known-command", ";", undefined],
+    ] as const) {
+      const result = directWrapperDispatch("find", argv);
+      expect(result.targets, JSON.stringify(argv)).toContain("opaque");
+      expect(result.targets, JSON.stringify(argv)).toContain("invocation");
+    }
+  });
+
+  test("inspects actions exposed by a possible dynamic find terminator", () => {
+    const result = directWrapperDispatch("find", [
+      ".", "-exec", "unknown-command", undefined, "-exec", "known-command", ";",
+    ]);
+    expect(result.targets).toContain("opaque");
+    expect(result.targets).toContain("invocation");
+  });
+
+  test("recognizes only the GNU batched action terminator immediately following an exact placeholder", () => {
+    expect(directWrapperDispatch("find", [".", "-exec", "known-command", "{}", "+"]).targets).toContain("invocation");
+    expect(directWrapperDispatch("find", [".", "-exec", "known-command", "+"]).targets).toContain("opaque");
+    expect(directWrapperDispatch("find", [".", "-exec", "known-command", "{}", "{}", "+"]).targets).toContain("opaque");
+    expect(directWrapperDispatch("find", [".", "-ok", "known-command", "{}", "+"]).targets).toContain("opaque");
   });
 
   test("keeps nested indeterminacy and nested-depth failures sticky through wrapper chains", () => {
@@ -575,7 +822,9 @@ describe("named Bash command dispatch", () => {
           undefined,
           ...argv.slice(boundary),
         ]);
-        expect(dispatchOutcome(result.result), `${executable}:${boundary}`).toMatchObject({ kind: "indeterminate" });
+        const expected = executable === "sh" && boundary === 1 ? "safe" : "indeterminate";
+        expect(dispatchOutcome(result.result), `${executable}:${boundary}`).toMatchObject({ kind: expected });
+        if (expected === "safe") expect(result.targets).toContain("opaque");
       }
     }
   });
@@ -610,6 +859,7 @@ function analyze(
   const initial = walkProgram(program, {
     environment,
     dispatchCommand: (request) => dispatchCommand(request, registry),
+    preflightCommand: (request) => preflightCommand(request, registry),
   });
   return { completed: runSteps(initial) };
 }
@@ -638,9 +888,14 @@ function denyHandler(name: string): PolicyObserver {
   };
 }
 
-function directWrapperDispatch(executable: string, argv: readonly (string | undefined)[]) {
-  const environment = fromInitialEnvironment();
+function directWrapperDispatch(
+  executable: string,
+  argv: readonly (string | undefined)[],
+  environment = fromInitialEnvironment(),
+) {
   const scheduled: string[] = [];
+  const targets: Array<"source" | "invocation" | "opaque"> = [];
+  const effects: string[] = [];
   const request: BashDispatchRequest = {
     command: {
       executable: { kind: "known", value: executable },
@@ -656,12 +911,16 @@ function directWrapperDispatch(executable: string, argv: readonly (string | unde
     functionDepth: 0,
     nestedScriptDepth: 0,
     provenance: { route: ["direct"] },
-    continueWith: (source) => {
+    inPipeline: false,
+    continueWithSource: (source, _environment, options) => {
       scheduled.push(source);
+      targets.push("source");
+      effects.push(options?.processEffect ?? "spawn-and-wait");
       return {
         outcome: safe(),
-        continuations: [{
-          source,
+        children: [{
+          target: { kind: "source", source, dialect: "bash", sourceDerivedFromBinding: false },
+          processEffect: "spawn-and-wait",
           environment,
           functionDepth: 0,
           nestedScriptDepth: 1,
@@ -672,8 +931,22 @@ function directWrapperDispatch(executable: string, argv: readonly (string | unde
         }],
       };
     },
+    continueWithInvocation: (words, _environment, options) => {
+      scheduled.push(words.map((word) => word.kind === "known" ? word.value : "<unknown>").join(" "));
+      targets.push("invocation");
+      effects.push(options?.processEffect ?? "exec-replace");
+      return {
+        outcome: safe(),
+        children: [],
+      };
+    },
+    continueWithOpaque: (_reason, _environment, options) => {
+      targets.push("opaque");
+      effects.push(options?.processEffect ?? "unknown");
+      return { outcome: safe(), children: [] };
+    },
   };
-  return { result: dispatchCommand(request), scheduled };
+  return { result: dispatchCommand(request), scheduled, targets, effects };
 }
 
 function dispatchOutcome(result: BashDispatchResult) {

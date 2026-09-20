@@ -4,7 +4,7 @@ import { assignBinding, known as knownBinding, setExported } from "../environmen
 import { indeterminate, policyDeny } from "../outcome.js";
 import { basename } from "../../shell.js";
 import { isSecretPath } from "../../secrets.js";
-import { continueFrom, isKnown, known, taintWrapperResult, wrapperHandler } from "./wrapper-utils.js";
+import { childInvocationFrom, isKnown, known, taintWrapperResult, wrapperHandler } from "./wrapper-utils.js";
 
 const VALUE_OPTIONS = new Set(["-C", "-D", "-g", "-h", "-p", "-R", "-T", "-U", "-u"]);
 const LONG_VALUE_OPTIONS = new Set([
@@ -19,10 +19,11 @@ export const sudoeditHandler = wrapperHandler("sudoedit", parseSudoEdit);
 function parseSudo(arguments_: readonly ResolvedWord[], context: StructuralDispatchContext) {
   let index = 0;
   let environment = context.environment;
+  let background = false;
   while (index < arguments_.length) {
     const argument = known(arguments_[index]!, context);
     if (typeof argument !== "string") return argument;
-    if (argument === "--") return taintWrapperResult(continueFrom(arguments_, index + 1, context, environment), context);
+    if (argument === "--") return taintWrapperResult(childInvocationFrom(arguments_, index + 1, context, environment, background ? "spawn-async" : "unknown"), context);
     if (argument === "-e" || argument === "--edit") return parseSudoEdit(arguments_.slice(index + 1), context);
     if (NO_EXEC_OPTIONS.has(argument)) return indeterminate(context.span);
     if (VALUE_OPTIONS.has(argument) || LONG_VALUE_OPTIONS.has(argument)) {
@@ -30,12 +31,12 @@ function parseSudo(arguments_: readonly ResolvedWord[], context: StructuralDispa
       index += 2;
       continue;
     }
-    if (FLAGS.has(argument)) { index++; continue; }
+    if (FLAGS.has(argument)) { background ||= argument === "-b" || argument === "--background"; index++; continue; }
     if ([...LONG_VALUE_OPTIONS].some((option) => argument.startsWith(`${option}=`))) { index++; continue; }
     if (argument.startsWith("--preserve-env=")) { index++; continue; }
     const short = parseShortOptions(argument, arguments_[index + 1]);
     if (short?.noExec) return argument.includes("e") ? parseSudoEdit(arguments_.slice(index + short.consumed), context) : indeterminate(context.span);
-    if (short) { index += short.consumed; continue; }
+    if (short) { background ||= short.background; index += short.consumed; continue; }
     const assigned = assignment(argument);
     if (assigned) {
       environment = setExported(assignBinding(environment, assigned.name, knownBinding(assigned.value)), assigned.name, true);
@@ -43,7 +44,7 @@ function parseSudo(arguments_: readonly ResolvedWord[], context: StructuralDispa
       continue;
     }
     if (argument.startsWith("-")) return indeterminate(context.span);
-    return taintWrapperResult(continueFrom(arguments_, index, context, environment), context);
+    return taintWrapperResult(childInvocationFrom(arguments_, index, context, environment, background ? "spawn-async" : "unknown"), context);
   }
   return indeterminate(context.span);
 }
@@ -84,18 +85,19 @@ function secretEditDeny(path: string, context: StructuralDispatchContext) {
   }));
 }
 
-function parseShortOptions(argument: string, next: ResolvedWord | undefined): { readonly consumed: 1 | 2; readonly noExec: boolean } | undefined {
+function parseShortOptions(argument: string, next: ResolvedWord | undefined): { readonly consumed: 1 | 2; readonly noExec: boolean; readonly background: boolean } | undefined {
   if (!argument.startsWith("-") || argument.startsWith("--") || argument.length < 2) return undefined;
   const options = argument.slice(1);
   for (let index = 0; index < options.length; index++) {
     const option = options[index]!;
-    if (["e", "K", "l", "V", "v"].includes(option)) return { consumed: 1, noExec: true };
+    if (["e", "K", "l", "V", "v"].includes(option)) return { consumed: 1, noExec: true, background: false };
     if (["A", "B", "b", "E", "H", "k", "N", "n", "P", "S", "i", "s"].includes(option)) continue;
     if (!["C", "D", "g", "h", "p", "R", "T", "U", "u"].includes(option)) return undefined;
     return {
       consumed: options.slice(index + 1).length > 0 ? 1 : isKnown(next) ? 2 : 1,
       noExec: false,
+      background: options.includes("b"),
     };
   }
-  return { consumed: 1, noExec: false };
+  return { consumed: 1, noExec: false, background: options.includes("b") };
 }

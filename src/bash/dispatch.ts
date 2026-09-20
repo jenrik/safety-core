@@ -2,7 +2,7 @@ import type { SourceSpan } from "./cst.js";
 import type { NormalizedCommand } from "./expand.js";
 import { indeterminate, strongestOutcome, withPolicySpan, type Outcome } from "./outcome.js";
 import { policyDeny, safe } from "./outcome.js";
-import type { BashDispatchRequest, BashDispatchResult } from "./walker.js";
+import type { BashDispatchRequest, BashDispatchResult, BashPreflightRequest, BashPreflightResult } from "./walker.js";
 import { structuralHandlers, unknownStructuralHandler } from "./handlers/registry.js";
 import { unknownCommandHandler } from "./handlers/unknown.js";
 import { analyzeSecretRedirectInvocation } from "./policies/secrets.js";
@@ -26,11 +26,14 @@ export interface PolicyDispatchContext {
 
 /** Only structural handlers can schedule a statically materialized child script. */
 export interface StructuralDispatchContext extends PolicyDispatchContext {
-  readonly continueWith: BashDispatchRequest["continueWith"];
+  readonly continueWithSource: BashDispatchRequest["continueWithSource"];
+  readonly continueWithInvocation: BashDispatchRequest["continueWithInvocation"];
+  readonly continueWithOpaque: BashDispatchRequest["continueWithOpaque"];
 }
 
 export interface StructuralHandler {
   readonly name: string;
+  preflight?(cursor: InvocationCursor, context: PolicyDispatchContext): BashPreflightResult;
   handle(cursor: InvocationCursor, context: StructuralDispatchContext): BashDispatchResult;
 }
 
@@ -58,6 +61,7 @@ export interface ResolvedCommand {
 export type CommandHandler = StructuralHandler;
 
 const IGNORE: PolicyObservation = Object.freeze({ kind: "ignore" });
+const CONTINUE_PREFLIGHT: BashPreflightResult = Object.freeze({ kind: "continue" });
 
 export function ignorePolicy(): PolicyObservation {
   return IGNORE;
@@ -67,8 +71,12 @@ export function observePolicy(outcome: Outcome): PolicyObservation {
   return freeze({ kind: "outcome", outcome });
 }
 
+export function continuePreflight(): BashPreflightResult {
+  return CONTINUE_PREFLIGHT;
+}
+
 /**
- * Builds a name-based registry with exactly one structural continuation owner
+ * Builds a name-based registry with exactly one structural child owner
  * per executable and any number of independent policy observers.
  */
 export function createCommandRegistry(observers: readonly PolicyObserver[] = []): CommandRegistry {
@@ -96,9 +104,28 @@ export function createCommandRegistry(observers: readonly PolicyObserver[] = [])
 
 const defaultRegistry = createCommandRegistry();
 
+/** Structural deny-only pass over normalized words before substitution work is admitted. */
+export function preflightCommand(
+  request: BashPreflightRequest,
+  registry: CommandRegistry = defaultRegistry,
+): BashPreflightResult {
+  const executable = request.command.executable;
+  if (!executable || executable.kind !== "known") return CONTINUE_PREFLIGHT;
+  const structural = registry.resolve(handlerName(executable.value)).structural;
+  if (!structural?.preflight) return CONTINUE_PREFLIGHT;
+  const cursor: InvocationCursor = freeze({ invocation: request.command, index: 0, options: freeze({}) });
+  const result = structural.preflight(cursor, freeze({
+    environment: request.command.environment,
+    span: request.span,
+    inPipeline: request.inPipeline,
+    provenance: request.provenance,
+  }));
+  return result.kind === "deny" ? result : CONTINUE_PREFLIGHT;
+}
+
 /**
  * Bridges the Task 5 walker callback to one immutable, name-resolved handler.
- * The walker alone executes the returned continuation agenda.
+ * The walker alone executes the returned child agenda.
  */
 export function dispatchCommand(
   request: BashDispatchRequest,
@@ -123,17 +150,30 @@ export function dispatchCommand(
   });
   const context: StructuralDispatchContext = freeze({
     ...policyContext,
-    continueWith: request.continueWith,
+    continueWithSource: request.continueWithSource,
+    continueWithInvocation: request.continueWithInvocation,
+    continueWithOpaque: request.continueWithOpaque,
   });
   const resolved = registry.resolve(handlerName(executable.value));
   const outcomes: Outcome[] = [];
   if (resolved.structural) {
     const structural = resolved.structural.handle(cursor, context);
-    if ("kind" in structural) outcomes.push(structural);
+    if ("kind" in structural) {
+      outcomes.push(structural);
+      if (structural.kind === "indeterminate" || structural.kind === "failure") {
+        const opaque = request.continueWithOpaque("structural-parse-failure");
+        if ("kind" in opaque) outcomes.push(opaque);
+        else {
+          const outcome = strongestOutcome(observe(resolved.observers, cursor, policyContext, [structural, opaque.outcome]));
+          if (outcome.kind === "deny") return outcome;
+          return freeze({ outcome, children: opaque.children });
+        }
+      }
+    }
     else {
       const outcome = strongestOutcome(observe(resolved.observers, cursor, policyContext, [structural.outcome]));
       if (outcome.kind === "deny") return outcome;
-      return freeze({ outcome, continuations: structural.continuations });
+      return freeze({ outcome, children: structural.children });
     }
   }
   const combined = observe(resolved.observers, cursor, policyContext, outcomes);

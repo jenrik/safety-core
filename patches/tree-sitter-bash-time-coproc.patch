@@ -1,0 +1,144 @@
+diff --git a/grammar.js b/grammar.js
+index 513f485..f853ad1 100644
+--- a/grammar.js
++++ b/grammar.js
+@@ -51,6 +51,7 @@ module.exports = grammar({
+     [$.redirected_statement, $.command],
+     [$.redirected_statement, $.command_substitution],
+     [$.function_definition, $.command_name],
++    [$.coproc_statement, $.function_definition, $.command_name],
+     [$.pipeline],
+   ],
+ 
+@@ -98,5 +99,6 @@ module.exports = grammar({
+     '(',
+     'esac',
++    $.time_portability_option,
+     $.__error_recovery,
+   ],
+ 
+@@ -140,6 +142,8 @@ module.exports = grammar({
+     ),
+ 
+     _statement_not_subshell: $ => choice(
++      $.time_statement,
++      $.coproc_statement,
+       $.redirected_statement,
+       $.variable_assignment,
+       $.variable_assignments,
+@@ -159,7 +163,9 @@ module.exports = grammar({
+       $.function_definition,
+     ),
+ 
+-    _statement_not_pipeline: $ => prec(1, choice(
++    _pipeline_element: $ => prec(1, choice(
++      $.time_statement,
++      $.coproc_statement,
+       $.redirected_statement,
+       $.variable_assignment,
+       $.variable_assignments,
+@@ -173,12 +179,51 @@ module.exports = grammar({
+       $.while_statement,
+       $.if_statement,
+       $.case_statement,
+-      $.list,
+       $.compound_statement,
+       $.function_definition,
+       $.subshell,
+     )),
+ 
++    time_statement: $ => prec.right(choice(
++      prec.dynamic(1, seq(
++        'time',
++        field('posix', $.time_portability_option),
++        optional(field('body', choice(
++          $._pipeline_element,
++          $.pipeline,
++        ))),
++      )),
++      seq(
++        'time',
++        optional(field('body', choice(
++          $._pipeline_element,
++          $.pipeline,
++        ))),
++      ),
++    )),
++
++    coproc_statement: $ => prec.right(seq(
++      'coproc',
++      choice(
++        field('body', choice(
++          $._pipeline_element,
++          $.pipeline,
++        )),
++        prec.dynamic(1, seq(
++          field('name', alias($.word, $.variable_name)),
++          field('body', choice(
++            $.for_statement,
++            $.c_style_for_statement,
++            $.while_statement,
++            $.if_statement,
++            $.case_statement,
++            $.compound_statement,
++            $.subshell,
++          )),
++        )),
++      ),
++    )),
++
+     redirected_statement: $ => prec.dynamic(-1, prec.right(-1, choice(
+       seq(
+         field('body', $._statement),
+@@ -411,10 +456,10 @@ module.exports = grammar({
+     ),
+ 
+     pipeline: $ => prec.right(seq(
+-      $._statement_not_pipeline,
++      $._pipeline_element,
+       repeat1(seq(
+         choice('|', '|&'),
+-        $._statement_not_pipeline,
++        $._pipeline_element,
+       )),
+     )),
+
+diff --git a/src/scanner.c b/src/scanner.c
+index 63a4939..ea82761 100644
+--- a/src/scanner.c
++++ b/src/scanner.c
+@@ -35,5 +35,6 @@ enum TokenType {
+     NEWLINE,
+     OPENING_PAREN,
+     ESAC,
++    TIME_PORTABILITY_OPTION,
+     ERROR_RECOVERY,
+ };
+@@ -347,6 +348,27 @@ static bool scan_heredoc_body(Scanner *scanner, TSLexer *lexer, enum TokenType
+ }
+ 
+ static bool scan(Scanner *scanner, TSLexer *lexer, const bool *valid_symbols) {
++    if (valid_symbols[TIME_PORTABILITY_OPTION]) {
++        while (iswspace(lexer->lookahead) && lexer->lookahead != '\n') {
++            skip(lexer);
++        }
++        if (lexer->lookahead != '-') goto time_portability_option_done;
++        advance(lexer);
++        if (lexer->lookahead != 'p') {
++            return false;
++        }
++        advance(lexer);
++        lexer->mark_end(lexer);
++        if (lexer->eof(lexer) || iswspace(lexer->lookahead) || lexer->lookahead == '>' ||
++            lexer->lookahead == '<' || lexer->lookahead == ')' || lexer->lookahead == '(' ||
++            lexer->lookahead == ';' || lexer->lookahead == '&' || lexer->lookahead == '|') {
++            lexer->result_symbol = TIME_PORTABILITY_OPTION;
++            return true;
++        }
++        return false;
++    }
++time_portability_option_done:
++
+     if (valid_symbols[CONCAT] && !in_error_recovery(valid_symbols)) {
+         if (!(lexer->lookahead == 0 || iswspace(lexer->lookahead) || lexer->lookahead == '>' ||
+               lexer->lookahead == '<' || lexer->lookahead == ')' || lexer->lookahead == '(' ||

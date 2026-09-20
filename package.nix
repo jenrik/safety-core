@@ -61,7 +61,7 @@ let
     installPhase = ''
       mkdir -p $out/node_modules
       cp -r ${nodeModules}/node_modules/web-tree-sitter $out/node_modules/
-      cp ${nodeModules}/node_modules/tree-sitter-bash/tree-sitter-bash.wasm $out/
+      cp ${./tree-sitter-bash.wasm} $out/tree-sitter-bash.wasm
     '';
   };
 

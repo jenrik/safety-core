@@ -39,7 +39,7 @@ export type Outcome = SafeOutcome | IndeterminateOutcome | FailureOutcome | Deny
 
 /** Vetted policy metadata; never carry raw argv, environments, or source text. */
 export interface PolicyEvidence {
-  readonly name: "secret-read" | "github-http" | "kubectl" | "gh-api" | "gh-pr-create" | "generic-read-only" | "gh-read-only" | "helm-read-only" | "strict-read-only";
+  readonly name: "secret-read" | "github-http" | "kubectl" | "unsupported-shell-source" | "gh-api" | "gh-pr-create" | "generic-read-only" | "gh-read-only" | "helm-read-only" | "strict-read-only";
   readonly decision: "allow" | "deny" | "defer";
   readonly reason?: string;
   /** Redacted source coordinates identify the observed invocation, never its text. */

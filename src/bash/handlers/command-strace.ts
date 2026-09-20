@@ -2,7 +2,7 @@ import type { StructuralDispatchContext } from "../dispatch.js";
 import type { ResolvedWord } from "../expand.js";
 import { assignBinding, known as knownBinding, setExported, unsetBinding } from "../environment.js";
 import { indeterminate } from "../outcome.js";
-import { continueFrom, isKnown, known, resolveLongOption, taintWrapperResult, wrapperHandler } from "./wrapper-utils.js";
+import { childInvocationFrom, isKnown, known, resolveLongOption, taintWrapperResult, wrapperHandler } from "./wrapper-utils.js";
 
 const VALUE_OPTIONS = new Set([
   "-e", "-o", "-p", "-P", "-s", "-u", "-E", "-a", "-I", "-b", "-X", "-O", "-S", "-U", "-Y",
@@ -42,7 +42,7 @@ function parseStrace(arguments_: readonly ResolvedWord[], context: StructuralDis
     const argument = known(arguments_[index]!, context);
     if (typeof argument !== "string") return argument;
     if (argument === "--") {
-      const result = continueFrom(arguments_, index + 1, context, environment);
+      const result = childInvocationFrom(arguments_, index + 1, context, environment, "spawn-and-wait");
       return unsafe ? taintWrapperResult(result, context) : result;
     }
     const long = resolveLongOption(argument, LONG_OPTIONS);
@@ -111,7 +111,7 @@ function parseStrace(arguments_: readonly ResolvedWord[], context: StructuralDis
       continue;
     }
     if (argument.startsWith("-")) return indeterminate(context.span);
-    const result = continueFrom(arguments_, index, context, environment);
+    const result = childInvocationFrom(arguments_, index, context, environment, "spawn-and-wait");
     return unsafe ? taintWrapperResult(result, context) : result;
   }
   return indeterminate(context.span);

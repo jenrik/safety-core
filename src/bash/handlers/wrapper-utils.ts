@@ -1,7 +1,9 @@
 import type { CommandHandler, StructuralDispatchContext, InvocationCursor } from "../dispatch.js";
-import { isBindingResolvedWord, type ResolvedWord } from "../expand.js";
+import type { ResolvedWord } from "../expand.js";
 import { indeterminate, strongestOutcome, type Outcome } from "../outcome.js";
 import type { BashDispatchResult } from "../walker.js";
+import type { ProcessEffect } from "../walker.js";
+import { resolveLongOption as resolveDeclaredLongOption } from "../options.js";
 
 export type WrapperParser = (arguments_: readonly ResolvedWord[], context: StructuralDispatchContext) => BashDispatchResult;
 
@@ -9,12 +11,23 @@ export function wrapperHandler(name: string, parse: WrapperParser): CommandHandl
   return Object.freeze({
     name,
     handle(cursor: InvocationCursor, context: StructuralDispatchContext): BashDispatchResult {
-      const result = parse(cursor.invocation.argv, context);
+      const parsed = parse(cursor.invocation.argv, context);
+      const result = "kind" in parsed && (parsed.kind === "indeterminate" || parsed.kind === "failure")
+        ? opaqueWrapperResult(parsed, context)
+        : parsed;
       return hasUnsafeWrapperEnvelope(cursor)
         ? taintWrapperResult(result, context)
         : result;
     },
   });
+}
+
+/** A recognized wrapper grammar failure still represents a possible child execution. */
+export function opaqueWrapperResult(outcome: Outcome, context: StructuralDispatchContext): BashDispatchResult {
+  const opaque = context.continueWithOpaque("structural-parse-failure");
+  return "kind" in opaque
+    ? strongestOutcome([outcome, opaque])
+    : Object.freeze({ ...opaque, outcome: strongestOutcome([outcome, opaque.outcome]) });
 }
 
 export function hasUnsafeWrapperEnvelope(cursor: InvocationCursor): boolean {
@@ -37,12 +50,13 @@ export function parseOptionChild(
   valueOptions: ReadonlyMap<string, number>,
   flags: ReadonlySet<string>,
   equalsOptions: readonly string[] = [],
+  processEffect: ProcessEffect = "exec-replace",
 ): BashDispatchResult {
   let index = 0;
   while (index < arguments_.length) {
     const argument = known(arguments_[index]!, context);
     if (typeof argument !== "string") return argument;
-    if (argument === "--") return continueFrom(arguments_, index + 1, context);
+    if (argument === "--") return childInvocationFrom(arguments_, index + 1, context, undefined, processEffect);
     const arity = valueOptions.get(argument);
     if (arity !== undefined) {
       for (let offset = 1; offset <= arity; offset++) if (!isKnown(arguments_[index + offset])) return indeterminate(context.span);
@@ -54,22 +68,24 @@ export function parseOptionChild(
       continue;
     }
     if (argument.startsWith("-")) return indeterminate(context.span);
-    return continueFrom(arguments_, index, context);
+    return childInvocationFrom(arguments_, index, context, undefined, processEffect);
   }
   return indeterminate(context.span);
 }
 
-export function continueFrom(
+export function childInvocationFrom(
   arguments_: readonly ResolvedWord[],
   index: number,
   context: StructuralDispatchContext,
-  environment?: StructuralDispatchContext["environment"],
+  environment: StructuralDispatchContext["environment"] | undefined,
+  processEffect: ProcessEffect,
 ): BashDispatchResult {
   const child = arguments_.slice(index);
-  if (child.length === 0 || child.some((argument) => argument.kind !== "known")) return indeterminate(context.span);
-  return context.continueWith(child.map((argument) => quote(argument.value)).join(" "), environment, {
+  if (child.length === 0 || child[0]?.kind !== "known") return indeterminate(context.span);
+  return context.continueWithInvocation(child, environment, {
     route: "transparent-wrapper",
-    sourceDerivedFromBinding: child.some(isBindingResolvedWord),
+    processEffect,
+    isolate: processEffect !== "none",
   });
 }
 
@@ -85,20 +101,5 @@ export function resolveLongOption(argument: string, options: readonly string[]):
   | { readonly kind: "known"; readonly option: string; readonly value?: string }
   | { readonly kind: "ambiguous" }
   | undefined {
-  if (!argument.startsWith("--") || argument === "--") return undefined;
-  const equals = argument.indexOf("=");
-  const name = equals < 0 ? argument : argument.slice(0, equals);
-  const exact = options.includes(name) ? name : undefined;
-  const matches = exact ? [exact] : options.filter((option) => option.startsWith(name));
-  if (matches.length === 0) return undefined;
-  if (matches.length > 1) return { kind: "ambiguous" };
-  return {
-    kind: "known",
-    option: matches[0]!,
-    ...(equals < 0 ? {} : { value: argument.slice(equals + 1) }),
-  };
-}
-
-function quote(value: string): string {
-  return `'${value.replaceAll("'", "'\\\"'\\\"'")}'`;
+  return resolveDeclaredLongOption(argument, options, "unique-prefix");
 }

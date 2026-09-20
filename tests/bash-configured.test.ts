@@ -128,6 +128,50 @@ describe("configured Bash permissions", () => {
     expect(exhausted.permission.kind).not.toBe("allow");
   });
 
+  test("reports partial-prefix parse failure without profile-dependent permission", () => {
+    const result = evaluate("cat README.md; if", snapshot());
+
+    expect(result.permission).toEqual({ kind: "ignore" });
+    expect(result.analysis).toMatchObject({ status: "failure", failure: { budget: null } });
+  });
+
+  test("maps incomplete analysis to an explicit approval boundary", () => {
+    const exhausted = evaluate("gh api user -X POST", snapshot({
+      ghApiReadOnly: true,
+      limits: Object.freeze({ ...limits, maxSteps: 0 }),
+    }));
+
+    expect(exhausted.analysis.status).toBe("failure");
+    expect(exhausted.permission).toEqual({ kind: "defer" });
+  });
+
+  test("opaque wrapper execution remains incomplete with no enabled profiles", () => {
+    const result = evaluate("exec --unknown opaque-canary", snapshot());
+
+    expect(result.guards).toMatchObject({ kind: "pass", status: "failure" });
+    expect(result.analysis).toMatchObject({ status: "failure", failure: { budget: null } });
+    expect(result.permission).toEqual({ kind: "ignore" });
+    expect(JSON.stringify(result)).not.toContain("opaque-canary");
+  });
+
+  test("shell invocation startup is profile-independent with a verified empty environment", () => {
+    for (const source of ["bash -ic true", "bash -lc true", "zsh -c true", "zsh -fc true"]) {
+      const result = evaluate(source, snapshot());
+      expect(result.analysis, source).toMatchObject({ status: "failure", failure: { budget: null } });
+      expect(result.permission, source).toEqual({ kind: "ignore" });
+    }
+
+    for (const source of [
+      "bash --norc -ic true",
+      "bash --noprofile -lc true",
+      "BASH_ENV=credentials.json bash --norc -ic true",
+    ]) {
+      const result = evaluate(source, snapshot());
+      expect(result.analysis.status, source).not.toBe("failure");
+      expect(result.permission, source).toEqual({ kind: "ignore" });
+    }
+  });
+
   test("property: source and profile order cannot turn mixed ownership into an allow", () => {
     const profiles = snapshot({
       ghReadOnly: true,

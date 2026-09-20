@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { initBashParser, parseBashProgram } from "../src/index.ts";
-import { expandWord, normalizeCommand, type ResolvedWord } from "../src/bash/expand.ts";
+import { expandWord, normalizeCommand, normalizedInvocation, symbolicWordShape, type ResolvedWord } from "../src/bash/expand.ts";
 import {
   fromInitialEnvironment,
   known,
@@ -35,6 +35,29 @@ beforeAll(async () => {
 afterAll(() => rmSync(wasmDir, { force: true, recursive: true }));
 
 describe("static Bash word expansion", () => {
+  test("constructs argv children without reinterpreting shell syntax", () => {
+    const environment = fromInitialEnvironment();
+    const words = ["MODE=1", "a b", "", "$(not-source)"].map((value) => ({ kind: "known" as const, value }));
+
+    const invocation = normalizedInvocation(words, environment);
+
+    expect(invocation.executable).toEqual(words[0]);
+    expect(invocation.argv).toEqual(words.slice(1));
+    expect(invocation.environment).toBe(environment);
+    expect(invocation.redirects).toEqual([]);
+    expect([...invocation.assignmentPatch.writes]).toEqual([]);
+  });
+
+  test("property: normalized argv children preserve every generated word boundary", () => {
+    for (let size = 1; size <= 32; size++) {
+      const values = Array.from({ length: size }, (_unused, index) => `${index % 2 ? " " : "="}${index}`);
+      const words = values.map((value) => ({ kind: "known" as const, value }));
+      const invocation = normalizedInvocation(words, fromInitialEnvironment());
+
+      expect([invocation.executable, ...invocation.argv].map((word) => word?.kind === "known" ? word.value : null)).toEqual(values);
+    }
+  });
+
   test("normalizes prefix assignments left-to-right for the child while words use the caller", () => {
     const normalized = normalizeCommand(command("F=BAR D=GAR echo $D $F"), fromInitialEnvironment());
 
@@ -124,6 +147,39 @@ describe("static Bash word expansion", () => {
       expect(result).toMatchObject({ kind: "unknown", reason: { span: input.span } });
       if (variable) expect(result).toMatchObject({ reason: { variable } });
       expect(result).not.toHaveProperty("value");
+    }
+  });
+
+  test("retains symbolic fragments and field cardinality outside serialized words", () => {
+    const quoted = expandWord(word('"prefix-$(opaque-command)-suffix"'), fromInitialEnvironment());
+    const unquoted = expandWord(word("prefix-$(opaque-command)-suffix"), fromInitialEnvironment());
+    const pure = expandWord(word("$(opaque-command)"), fromInitialEnvironment());
+
+    expect(symbolicWordShape(quoted)).toEqual({
+      fragments: [
+        { kind: "literal", value: "prefix-" },
+        { kind: "unknown" },
+        { kind: "literal", value: "-suffix" },
+      ],
+      fields: "one",
+    });
+    expect(symbolicWordShape(unquoted)).toMatchObject({ fields: "one-or-more" });
+    expect(symbolicWordShape(pure)).toEqual({ fragments: [{ kind: "unknown" }], fields: "zero-or-more" });
+    expect(JSON.stringify(quoted)).not.toContain("prefix-");
+    expect(JSON.stringify(unquoted)).not.toContain("suffix");
+  });
+
+  test("property: quoting changes symbolic cardinality without exposing literal canaries", () => {
+    for (let index = 0; index < 64; index++) {
+      const canary = `symbolic-canary-${index}`;
+      for (const [source, fields] of [
+        [`"${canary}$(opaque-command)"`, "one"],
+        [`${canary}$(opaque-command)`, "one-or-more"],
+      ] as const) {
+        const resolved = expandWord(word(source), fromInitialEnvironment());
+        expect(symbolicWordShape(resolved)?.fields, source).toBe(fields);
+        expect(JSON.stringify(resolved), source).not.toContain(canary);
+      }
     }
   });
 

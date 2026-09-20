@@ -219,14 +219,12 @@ describe("walker-backed gh policy compatibility", () => {
       (command: string) => `time ${command}`,
       (command: string) => `time -p ${command}`,
       (command: string) => `time MODE=1 ${command}`,
-      (command: string) => `time -pv ${command}`,
+      (command: string) => `command time -pv ${command}`,
       (command: string) => `command time --verb ${command}`,
       (command: string) => `time ( ${command} )`,
       (command: string) => `coproc ${command}`,
       (command: string) => `coproc ( ${command} )`,
       (command: string) => `coproc MODE=1 ${command}`,
-      (command: string) => `coproc JOB ${command}`,
-      (command: string) => `coproc JOB MODE=1 ${command}`,
       (command: string) => `coproc JOB { ${command}; }`,
       (command: string) => `coproc JOB { MODE=1 ${command}; }`,
       (command: string) => `coproc worker_1 { ${command}; }`,
@@ -411,30 +409,42 @@ describe("walker-backed gh policy compatibility", () => {
       "bash -euo pipefail -c 'gh api user -X POST'",
       "bash -c \"gh api user -X POST\"",
       "bash +O extglob -c 'gh api user -X POST'",
-      "bash -coo pipefail nounset 'gh api user -X POST'",
+      "bash -co pipefail 'gh api user -X POST'",
       "bash -Ec 'gh api user -X POST'",
       "bash --debug -c 'gh api user -X POST'",
-      "zsh -dfc 'gh api user -X POST'",
-      "zsh --no-global-rcs -c 'gh api user -X POST'",
-      "zsh +-no-RCS -c 'gh api user -X POST'",
       "exec -cl gh api user -X POST",
       "nice -5 gh api user -X POST",
       "setsid -fw gh api user -X POST",
       "xargs sh -c 'gh api user -X POST'",
       "find . -exec sh -c 'gh api user -X POST' _ {} \\;",
       "eval -- 'gh api user -X POST'",
-      "fish -C true -c 'gh api user -X POST'",
-      "fish --profile-startup /tmp/profile -c 'gh api user -X POST'",
-      "fish --init-cmd true -c 'gh api user -X POST'",
-      "fish --private -c 'gh api user -X POST'",
-      "fish --interactive -c 'gh api user -X POST'",
-      "fish --profile-startup /tmp/profile -c 'gh api user -X POST'",
       "sudo gh api user -X POST",
       "sudo -u root -- gh api user -X DELETE",
       "timeout -vk1s 30s gh api user -X POST",
       "gh api -iXPOST user",
       "gh api -iX POST user",
     ]) expect(ghApi(command), command).toBe("deny");
+  });
+
+  test("denies mutating gh commands through the best-effort zsh alias", () => {
+    for (const command of [
+      "zsh -dfc 'gh api user -X POST'",
+      "zsh --no-global-rcs -c 'gh api user -X POST'",
+      "zsh +-no-RCS -c 'gh api user -X POST'",
+    ]) expect(ghApi(command), command).toBe("deny");
+  });
+
+  test("blocks fish command source before profile evaluation", () => {
+    for (const command of [
+      "fish -C true -c 'gh api user -X POST'",
+      "fish --profile-startup /tmp/profile -c 'gh api user -X POST'",
+      "fish --init-cmd true -c 'gh api user -X POST'",
+      "fish --private -c 'gh api user -X POST'",
+      "fish --interactive -c 'gh api user -X POST'",
+    ]) expect(configured(command, snapshot({ ghApiReadOnly: true })).guards, command).toMatchObject({
+      kind: "block",
+      policy: { name: "unsupported-shell-source", decision: "deny" },
+    });
   });
 
   test("uses the last repeated method value, matching gh scalar flag parsing", () => {

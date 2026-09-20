@@ -2,7 +2,12 @@ import type { StructuralDispatchContext } from "../dispatch.js";
 import type { ResolvedWord } from "../expand.js";
 import { assignBinding, fromInitialEnvironment, known as knownBinding, setExported, unsetBinding } from "../environment.js";
 import { indeterminate } from "../outcome.js";
-import { continueFrom, isKnown, known, taintWrapperResult, wrapperHandler } from "./wrapper-utils.js";
+import { childInvocationFrom, isKnown, known, resolveLongOption, taintWrapperResult, wrapperHandler } from "./wrapper-utils.js";
+
+const ENV_VALUE_OPTIONS = new Set(["--unset", "--chdir", "--argv0", "--split-string"]);
+const ENV_FLAGS = new Set(["--ignore-environment", "--null", "--debug", "--list-signal-handling", "--help", "--version"]);
+const ENV_OPTIONAL_VALUE_OPTIONS = new Set(["--block-signal", "--default-signal", "--ignore-signal"]);
+const ENV_LONG_OPTIONS = [...ENV_VALUE_OPTIONS, ...ENV_FLAGS, ...ENV_OPTIONAL_VALUE_OPTIONS];
 
 export const envHandler = wrapperHandler("env", parseEnv);
 
@@ -16,8 +21,43 @@ function parseEnv(initialArguments: readonly ResolvedWord[], context: Structural
     const argument = known(arguments_[index]!, context);
     if (typeof argument !== "string") return argument;
     if (argument === "--") {
-      const result = continueFrom(arguments_, index + 1, context, environment);
+      const result = childInvocationFrom(arguments_, index + 1, context, environment, "exec-replace");
       return unsafe ? taintWrapperResult(result, context) : result;
+    }
+    const long = resolveLongOption(argument, ENV_LONG_OPTIONS);
+    if (long) {
+      if (long.kind === "ambiguous") return indeterminate(context.span);
+      const option = long.option;
+      if (option === "--ignore-environment") {
+        if (long.value !== undefined) return indeterminate(context.span);
+        environment = fromInitialEnvironment({}, environment.budgets, "unset");
+        unsafe = true;
+        index++;
+        continue;
+      }
+      if (ENV_VALUE_OPTIONS.has(option)) {
+        if (long.value === undefined && !isKnown(arguments_[index + 1])) return indeterminate(context.span);
+        const value = long.value ?? arguments_[index + 1]!.value;
+        unsafe = true;
+        if (option === "--unset") environment = unsetBinding(environment, value);
+        if (option === "--split-string") {
+          if (++splitCount > 8) return indeterminate(context.span);
+          const split = splitEnvString(value);
+          if (!split || arguments_.length + split.length > 256) return indeterminate(context.span);
+          arguments_ = [
+            ...arguments_.slice(0, index),
+            ...split.map(resolved),
+            ...arguments_.slice(index + (long.value === undefined ? 2 : 1)),
+          ];
+          continue;
+        }
+        index += long.value === undefined ? 2 : 1;
+        continue;
+      }
+      if (ENV_FLAGS.has(option) && long.value !== undefined) return indeterminate(context.span);
+      if (ENV_OPTIONAL_VALUE_OPTIONS.has(option)) unsafe = true;
+      index++;
+      continue;
     }
     if (argument === "-" || argument === "-i" || argument === "--ignore-environment") {
       environment = fromInitialEnvironment({}, environment.budgets, "unset");
@@ -130,7 +170,7 @@ function parseEnv(initialArguments: readonly ResolvedWord[], context: Structural
       continue;
     }
     if (argument.startsWith("-")) return indeterminate(context.span);
-    const result = continueFrom(arguments_, index, context, environment);
+    const result = childInvocationFrom(arguments_, index, context, environment, "exec-replace");
     return unsafe ? taintWrapperResult(result, context) : result;
   }
   return indeterminate(context.span);

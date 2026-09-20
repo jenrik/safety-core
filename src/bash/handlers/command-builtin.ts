@@ -1,7 +1,7 @@
 import type { CommandHandler } from "../dispatch.js";
 import { dynamicExecutableIndeterminate } from "../outcome.js";
 import { evalArguments } from "./command-eval.js";
-import { continueFrom, taintWrapperResult } from "./wrapper-utils.js";
+import { childInvocationFrom, taintWrapperResult } from "./wrapper-utils.js";
 
 const EXECUTABLE_TARGETS = new Set(["builtin", "command", "exec", "source", "."]);
 
@@ -16,7 +16,7 @@ export const builtinHandler: CommandHandler = Object.freeze({
       return taintWrapperResult(evalArguments(args.slice(targetIndex + 1), context), context);
     }
     if (target?.kind === "known" && EXECUTABLE_TARGETS.has(target.value)) {
-      return taintWrapperResult(continueFrom(args, targetIndex, context), context);
+      return taintWrapperResult(childInvocationFrom(args, targetIndex, context, undefined, "none"), context);
     }
     return dynamicExecutableIndeterminate(context.span);
   },

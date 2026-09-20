@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { initBashParser, parseBashProgram } from "../src/index.ts";
 import type { BashFunction, BashProgram } from "../src/bash/cst.ts";
+import { dispatchCommand, preflightCommand } from "../src/bash/dispatch.ts";
 import type { NormalizedCommand, ResolvedWord } from "../src/bash/expand.ts";
 import { fromInitialEnvironment, lookupBinding } from "../src/bash/environment.ts";
 import { safe } from "../src/bash/outcome.ts";
@@ -44,6 +45,12 @@ describe("stateful Bash statement walker", () => {
     expect(argvs(result.invocations)).toEqual([["inner"], ["outer"]]);
   });
 
+  test("preserves current-shell builtin writes through command", () => {
+    const result = analyzeWith('command export X=inner; run "$X"', (request) => dispatchCommand(request as never));
+
+    expect(argvs(result.invocations).at(-1)).toEqual(["inner"]);
+  });
+
   test("expands known positional arguments in function bodies", () => {
     const functionCall = analyze("f(){ run \"$1\" \"$2\"; }; f function-one function-two");
 
@@ -76,6 +83,29 @@ describe("stateful Bash statement walker", () => {
     });
   });
 
+  test("applies unset function and variable modes to complete shell state", () => {
+    expect(analyzeWith("f(){ denied-command; }; unset -f f; f", denyNamedCommand).completed.verdict).toEqual({ kind: "allow" });
+    expect(analyzeWith("unset -v f; f(){ denied-command; }; unset -- f; f", denyNamedCommand).completed.verdict).toEqual({ kind: "allow" });
+    expect(analyzeWith("f(){ denied-command; }; unset -v f; f", denyNamedCommand).completed.verdict).toMatchObject({ kind: "deny" });
+    expect(analyzeWith("f(){ denied-command; }; f=value; unset f; f", denyNamedCommand).completed.verdict).toMatchObject({ kind: "deny" });
+    expect(analyzeWith("f(){ denied-command; }; unset -fv f; f", denyNamedCommand).completed.verdict).toMatchObject({ kind: "deny" });
+  });
+
+  test("keeps unset scope and dynamic function removal conservative", () => {
+    expect(analyzeWith("f(){ denied-command; }; { unset -f f; }; f", denyNamedCommand).completed.verdict).toEqual({ kind: "allow" });
+    expect(analyzeWith("f(){ denied-command; }; (unset -f f); f", denyNamedCommand).completed.verdict).toMatchObject({ kind: "deny" });
+    expect(analyzeWith("f(){ denied-command; }; if condition; then unset -f f; fi; f", denyNamedCommand).completed.verdict).toMatchObject({ kind: "deny" });
+    expect(analyzeWith('f(){ denied-command; }; unset -f "$UNKNOWN"; f', denyNamedCommand).completed.verdict).toMatchObject({ kind: "deny" });
+  });
+
+  test("property: unset -f option ordering removes only the named function", () => {
+    for (let index = 0; index < 64; index++) {
+      const options = index % 3 === 0 ? "-fn" : index % 3 === 1 ? "-nf" : "-f --";
+      const source = `f_${index}(){ denied-command; }; keep_${index}(){ denied-command; }; unset ${options} f_${index}; f_${index}`;
+      expect(analyzeWith(source, denyNamedCommand).completed.verdict, source).toEqual({ kind: "allow" });
+    }
+  });
+
   test("persists prefix assignments only for modeled special builtins", () => {
     const result = analyze("X=prefix export X; echo \"$X\"");
     const invocation = result.invocations[0]!;
@@ -106,6 +136,109 @@ describe("stateful Bash statement walker", () => {
     expect(argvs(grouped.invocations)).toEqual([["group"]]);
     expect(argvs(isolated.invocations)).toEqual([["subshell"], ["outer"]]);
     expect(argvs(pipeline.invocations)).toEqual([["left"], ["outer"], ["outer"]]);
+  });
+
+  test("preserves current-shell writes through a timed brace group", () => {
+    const result = analyze('time { X=inner; }; run "$X"');
+    const run = result.invocations.find((invocation) => invocation.executable?.kind === "known" && invocation.executable.value === "run");
+
+    expect(run).toBeDefined();
+    expect(argvs([run!])).toEqual([["inner"]]);
+  });
+
+  test("schedules a named coprocess subshell body exactly once", () => {
+    const result = analyze("coproc worker_1 ( nested-coproc-body )");
+    const nested = result.invocations.filter((invocation) =>
+      invocation.executable?.kind === "known" && invocation.executable.value === "nested-coproc-body"
+    );
+
+    expect(nested).toHaveLength(1);
+  });
+
+  test("builds and schedules typed invocation children without source depth", () => {
+    let child: unknown;
+    const result = analyzeWith("route", (request) => {
+      if (request.command.executable?.kind !== "known" || request.command.executable.value !== "route") return safe();
+      const scheduled = request.continueWithInvocation([
+        { kind: "known", value: "child" },
+        { kind: "known", value: "MODE=1" },
+      ], undefined, { processEffect: "spawn-async" });
+      child = childrenOf(scheduled)[0];
+      return scheduled;
+    });
+
+    expect(child).toMatchObject({
+      target: {
+        kind: "invocation",
+        command: {
+          executable: { kind: "known", value: "child" },
+          argv: [{ kind: "known", value: "MODE=1" }],
+        },
+      },
+      processEffect: "spawn-async",
+      nestedScriptDepth: 0,
+    });
+    expect(result.invocations.map((invocation) => invocation.executable)).toEqual([
+      { kind: "known", value: "route" },
+      { kind: "known", value: "child" },
+    ]);
+    expect(result.depths).toEqual([0, 0]);
+  });
+
+  test("represents unsupported child execution with a redacted opaque reason", () => {
+    let child: unknown;
+    const result = analyzeWith("route opaque-canary", (request) => {
+      if (request.command.executable?.kind !== "known" || request.command.executable.value !== "route") return safe();
+      const scheduled = request.continueWithOpaque("unsupported-execution");
+      child = childrenOf(scheduled)[0];
+      return scheduled;
+    });
+
+    expect(child).toMatchObject({ target: { kind: "opaque", reason: "unsupported-execution" } });
+    expect(result.completed.verdict).toEqual({ kind: "neutral" });
+    expect(result.completed.outcome).toMatchObject({ kind: "failure", reason: "analysis-failure" });
+    expect(JSON.stringify(child)).not.toContain("opaque-canary");
+  });
+
+  test("walks complete nested-source prefixes before failure and keeps denial dominant", () => {
+    for (const nestedSource of ["allowed-command; if", "denied-command; if"] as const) {
+      const result = analyzeWith("route", (request) => {
+        if (request.command.executable?.kind === "known" && request.command.executable.value === "route") {
+          return request.continueWithSource(nestedSource);
+        }
+        return denyNamedCommand(request);
+      });
+
+      expect(result.completed.outcome.kind, nestedSource).toBe(nestedSource.startsWith("denied") ? "deny" : "failure");
+      expect(result.invocations.map((invocation) => invocation.executable), nestedSource).toContainEqual({
+        kind: "known",
+        value: nestedSource.startsWith("denied") ? "denied-command" : "allowed-command",
+      });
+    }
+  });
+
+  test("property: invocation targets consume work budgets but not source depth", () => {
+    for (const depth of [1, 8, 32, 65]) {
+      const source = `${"command ".repeat(depth)}leaf`;
+      const exact = depth + 2;
+      const completed = analyzeWith(source, (request) => dispatchCommand(request as never), fromInitialEnvironment({}, {
+        nestedScriptDepth: 0,
+        steps: exact,
+        workItems: exact,
+      }));
+      const exhausted = analyzeWith(source, (request) => dispatchCommand(request as never), fromInitialEnvironment({}, {
+        nestedScriptDepth: 0,
+        steps: exact - 1,
+        workItems: exact,
+      }));
+
+      expect(completed.completed.outcome.kind, `complete:${depth}`).not.toBe("failure");
+      expect(completed.depths.every((value) => value === 0), `depth:${depth}`).toBeTrue();
+      expect(exhausted.completed.outcome, `exhausted:${depth}`).toMatchObject({
+        kind: "failure",
+        budget: "max-steps",
+      });
+    }
   });
 
   test("merges all reachable conditional continuations before following statements", () => {
@@ -151,6 +284,50 @@ describe("stateful Bash statement walker", () => {
     expect(nested.completed.outcome).toMatchObject({ kind: "failure", budget: "max-nested-script-depth" });
     expect(analyze("echo \"$(child)\"", {}, fromInitialEnvironment({}, { nestedScriptDepth: 0 })).completed.outcome)
       .toMatchObject({ kind: "failure", budget: "max-nested-script-depth" });
+  });
+
+  test("drains admitted internal work after maxWorkItems admission failure", () => {
+    const admittedDeny = analyzeWith(
+      "safe-command | denied-command",
+      denyNamedCommand,
+      fromInitialEnvironment({}, { workItems: 2, steps: 100 }),
+    );
+    const rejectedDeny = analyzeWith(
+      "denied-command | safe-command",
+      denyNamedCommand,
+      fromInitialEnvironment({}, { workItems: 2, steps: 100 }),
+    );
+    const newlyAdmittedDeny = analyzeWith(
+      "denied-command | safe-command",
+      denyNamedCommand,
+      fromInitialEnvironment({}, { workItems: 3, steps: 100 }),
+    );
+
+    expect(admittedDeny.completed.outcome).toMatchObject({ kind: "deny" });
+    expect(rejectedDeny.completed.outcome).toMatchObject({ kind: "failure", budget: "max-work-items" });
+    expect(newlyAdmittedDeny.completed.outcome).toMatchObject({ kind: "deny" });
+    expect(analyzeWith(
+      "safe-command | denied-command",
+      denyNamedCommand,
+      fromInitialEnvironment({}, { workItems: 2, steps: 1 }),
+    ).completed.outcome).toMatchObject({ kind: "failure", budget: "max-work-items" });
+  });
+
+  test("property: internal admission ordering never replaces an admitted denial or duplicates callbacks", () => {
+    for (let iteration = 0; iteration < 64; iteration++) {
+      const denyOnRight = iteration % 2 === 0;
+      const source = denyOnRight ? "safe-command | denied-command" : "denied-command | safe-command";
+      const workItems = denyOnRight ? 2 : 3;
+      const calls = new Map<string, number>();
+      const result = analyzeWith(source, (request) => {
+        const executable = request.command.executable?.kind === "known" ? request.command.executable.value : "unknown";
+        calls.set(executable, (calls.get(executable) ?? 0) + 1);
+        return denyNamedCommand(request);
+      }, fromInitialEnvironment({}, { workItems, steps: 100 }));
+
+      expect(result.completed.outcome, `${iteration}:${source}`).toMatchObject({ kind: "deny" });
+      expect([...calls.values()].every((count) => count === 1), `${iteration}:${source}`).toBeTrue();
+    }
   });
 
   test("walks command substitutions and redirects before the enclosing dispatch", () => {
@@ -224,7 +401,7 @@ describe("stateful Bash statement walker", () => {
         const script = knownArgument(request.command, executable?.kind === "known"
           ? executable.value === "builtin" || executable.value === "bash" ? 1 : 0
           : false);
-        return script ? request.continueWith(script) : safe();
+        return script ? request.continueWithSource(script) : safe();
       });
 
       expect(result.completed.verdict, source).toMatchObject({ kind: "deny" });
@@ -236,7 +413,7 @@ describe("stateful Bash statement walker", () => {
     const result = analyzeWith("TARGET=safe; TARGET=denied bash -c 'run \"$TARGET\"'", (request) => {
       if (request.command.executable?.kind === "known" && request.command.executable.value === "bash") {
         const script = knownArgument(request.command, 1);
-        return script ? request.continueWith(script) : safe();
+        return script ? request.continueWithSource(script) : safe();
       }
       return request.command.executable?.kind === "known" && request.command.executable.value === "run"
         && knownArgument(request.command, 0) === "denied"
@@ -253,7 +430,7 @@ describe("stateful Bash statement walker", () => {
         const executable = request.command.executable;
         if (executable?.kind === "known" && ["eval", "source"].includes(executable.value)) {
           const script = knownArgument(request.command, 0);
-          return script ? request.continueWith(script, undefined, { isolate: false }) : safe();
+          return script ? request.continueWithSource(script, undefined, { isolate: false }) : safe();
         }
         return safe();
       }, fromInitialEnvironment({ X: "outer" }));
@@ -296,12 +473,25 @@ describe("stateful Bash statement walker", () => {
     expect(result.invocations.at(-1)?.argv).toEqual([unknownWord()]);
   });
 
+  test("retains unresolved eval taint through an opaque structural child", () => {
+    const environments: string[] = [];
+    const result = analyzeWith('X=old; eval "$UNKNOWN"; run "$X"', (request) => {
+      if (request.command.executable?.kind === "known") {
+        environments.push(`${request.command.executable.value}:${lookupBinding(request.command.environment, "X").value.kind}`);
+      }
+      return dispatchCommand(request as never);
+    });
+
+    expect(environments).toEqual(["eval:known", "run:unknown"]);
+    expect(result.invocations.at(-1)?.argv).toEqual([unknownWord()]);
+  });
+
   test("merges every non-isolated callback continuation environment", () => {
     const result = analyzeWith("X=base; route; run \"$X\"", (request) => {
       if (request.command.executable?.kind === "known" && request.command.executable.value === "route") {
-        const left = request.continueWith("X=left", undefined, { isolate: false });
-        const right = request.continueWith("X=right", undefined, { isolate: false });
-        return { outcome: safe(), continuations: [...continuationsOf(left), ...continuationsOf(right)] };
+        const left = request.continueWithSource("X=left", undefined, { isolate: false });
+        const right = request.continueWithSource("X=right", undefined, { isolate: false });
+        return { outcome: safe(), children: [...childrenOf(left), ...childrenOf(right)] };
       }
       return safe();
     });
@@ -312,9 +502,9 @@ describe("stateful Bash statement walker", () => {
   test("keeps explicit non-isolated replacement environments from producing a total safe result", () => {
     const result = analyzeWith("X=base; route; run \"$X\"", (request) => {
       if (request.command.executable?.kind === "known" && request.command.executable.value === "route") {
-        const left = request.continueWith(":", fromInitialEnvironment({ X: "left" }), { isolate: false });
-        const right = request.continueWith(":", fromInitialEnvironment({ X: "right" }), { isolate: false });
-        return { outcome: safe(), continuations: [...continuationsOf(left), ...continuationsOf(right)] };
+        const left = request.continueWithSource(":", fromInitialEnvironment({ X: "left" }), { isolate: false });
+        const right = request.continueWithSource(":", fromInitialEnvironment({ X: "right" }), { isolate: false });
+        return { outcome: safe(), children: [...childrenOf(left), ...childrenOf(right)] };
       }
       return safe();
     });
@@ -341,8 +531,8 @@ describe("stateful Bash statement walker", () => {
           if (executable?.kind === "known" && executable.value === "route") {
             return {
               outcome: safe(),
-              continuations: order.flatMap((label) => continuationsOf(
-                request.continueWith(`X=${label}; branch ${label}`, undefined, { isolate: false }),
+              children: order.flatMap((label) => childrenOf(
+                request.continueWithSource(`X=${label}; branch ${label}`, undefined, { isolate: false }),
               )),
             };
           }
@@ -372,8 +562,8 @@ describe("stateful Bash statement walker", () => {
         if (executable?.kind === "known" && executable.value === "route") {
           return {
             outcome: safe(),
-            continuations: permutation(labels, random).flatMap((label) => continuationsOf(
-              request.continueWith(`replacement-branch ${label}`, fromInitialEnvironment({ X: label }), { isolate: false }),
+            children: permutation(labels, random).flatMap((label) => childrenOf(
+              request.continueWithSource(`replacement-branch ${label}`, fromInitialEnvironment({ X: label }), { isolate: false }),
             )),
           };
         }
@@ -470,7 +660,17 @@ function analyze(
 interface DispatchRequestLike {
   readonly command: NormalizedCommand;
   readonly nestedScriptDepth: number;
-  readonly continueWith: (source: string, environment?: ReturnType<typeof fromInitialEnvironment>, options?: { readonly isolate?: boolean }) => unknown;
+  readonly continueWithSource: (source: string, environment?: ReturnType<typeof fromInitialEnvironment>, options?: { readonly isolate?: boolean }) => unknown;
+  readonly continueWithInvocation: (
+    words: readonly ResolvedWord[],
+    environment?: ReturnType<typeof fromInitialEnvironment>,
+    options?: { readonly processEffect?: "none" | "exec-replace" | "spawn-and-wait" | "spawn-async" | "spawn-repeated" | "unknown" },
+  ) => unknown;
+  readonly continueWithOpaque: (
+    reason: "structural-parse-failure" | "source-parse-failure" | "source-file-execution" | "shell-startup-execution" | "unsupported-execution",
+    environment?: ReturnType<typeof fromInitialEnvironment>,
+    options?: { readonly processEffect?: "none" | "exec-replace" | "spawn-and-wait" | "spawn-async" | "spawn-repeated" | "unknown" },
+  ) => unknown;
 }
 
 function analyzeWith(
@@ -496,6 +696,7 @@ function analyzeProgram(
   const depths: number[] = [];
   const initial = walkProgram(program, {
     environment,
+    preflightCommand,
     dispatchCommand: (request) => {
       const candidate = request as unknown as DispatchRequestLike;
       invocations.push(candidate.command ?? request as unknown as NormalizedCommand);
@@ -526,10 +727,10 @@ function knownArgument(command: NormalizedCommand, index: number | false): strin
   return argument?.kind === "known" ? argument.value : undefined;
 }
 
-function continuationsOf(result: unknown): readonly unknown[] {
-  if (!result || typeof result !== "object" || !("continuations" in result)) return [];
-  const continuations = (result as { continuations?: unknown }).continuations;
-  return Array.isArray(continuations) ? continuations : [];
+function childrenOf(result: unknown): readonly unknown[] {
+  if (!result || typeof result !== "object" || !("children" in result)) return [];
+  const children = (result as { children?: unknown }).children;
+  return Array.isArray(children) ? children : [];
 }
 
 function argvs(invocations: readonly NormalizedCommand[]): string[][] {

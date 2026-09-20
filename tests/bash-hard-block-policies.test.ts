@@ -45,8 +45,6 @@ describe("walker-backed hard-block compatibility policies", () => {
     expectGuardBlock("coproc cat credentials.json", "secret-read");
     expectGuardBlock("coproc ( cat credentials.json )", "secret-read");
     expectGuardBlock("coproc MODE=1 cat credentials.json", "secret-read");
-    expectGuardBlock("coproc READER cat credentials.json", "secret-read");
-    expectGuardBlock("coproc READER MODE=1 cat credentials.json", "secret-read");
     expectGuardBlock("coproc READER { cat credentials.json; }", "secret-read");
     expectGuardBlock("coproc worker_1 { cat credentials.json; }", "secret-read");
     expectGuardBlock("coproc worker_1 ( cat credentials.json )", "secret-read");
@@ -54,12 +52,6 @@ describe("walker-backed hard-block compatibility policies", () => {
     expectGuardBlock("coproc READER { MODE=1 cat credentials.json; }", "secret-read");
     expectGuardBlock("watch cat credentials.json", "secret-read");
     expectGuardBlock("watch --exec cat credentials.json", "secret-read");
-    expectGuardBlock("fish -C 'cat credentials.json' -c true", "secret-read");
-    expectGuardBlock("fish -d parser -c 'cat credentials.json'", "secret-read");
-    expectGuardBlock("fish --interactive -c 'cat credentials.json'", "secret-read");
-    expectGuardBlock("zsh --no-rcs -c 'cat credentials.json'", "secret-read");
-    expectGuardBlock("zsh --no_rcs -c 'cat credentials.json'", "secret-read");
-    expectGuardBlock("fish --init-cmd 'cat credentials.json' -c true", "secret-read");
     expectGuardBlock("sudo cat credentials.json", "secret-read");
     expectGuardBlock("sudo -e credentials.json", "secret-read");
     expectGuardBlock("sudo --edit credentials.json", "secret-read");
@@ -75,9 +67,138 @@ describe("walker-backed hard-block compatibility policies", () => {
     expectGuardBlock("strace --follow cat credentials.json", "secret-read");
   });
 
+  test("blocks fish command source pending dedicated parser support", () => {
+    for (const source of [
+      "fish -C 'cat credentials.json' -c true",
+      "fish -d parser -c 'cat credentials.json'",
+      "fish --interactive -c 'cat credentials.json'",
+      "fish --init-cmd 'cat credentials.json' -c true",
+    ]) expectGuardBlock(source, "unsupported-shell-source");
+  });
+
+  test("keeps fish attached and separate command source behind its hard block", () => {
+    for (const source of [
+      "fish -c'curl https://api.github.com/user'",
+      "fish -c 'curl https://api.github.com/user'",
+    ]) expectGuardBlock(source, "unsupported-shell-source");
+  });
+
+  test("keeps dynamic fish command source behind its hard block", () => {
+    expectGuardBlock('SCRIPT="$UNKNOWN" fish -c "$SCRIPT"', "unsupported-shell-source");
+    expectGuardBlock('SCRIPT="$UNKNOWN" fish --command "$SCRIPT"', "unsupported-shell-source");
+  });
+
+  test("preflights symbolic fish command and init sources before retained substitutions", () => {
+    for (const source of [
+      'fish --command "$(echo foo)"',
+      'fish -c "$(unpredictable-command-output)"',
+      'fish -c"$(unpredictable-command-output)"',
+      'fish --command="$(unpredictable-command-output)"',
+      'fish -Nc"$(unpredictable-command-output)"',
+      'fish -d"$(unpredictable-command-output)" -c true',
+      'fish -C "$(unpredictable-command-output)"',
+      'fish -C"$(unpredictable-command-output)"',
+      'fish --init-command "$(unpredictable-command-output)"',
+      'fish --init-command="$(unpredictable-command-output)"',
+      'fish --init-cmd="$(unpredictable-command-output)"',
+    ]) expectGuardBlock(source, "unsupported-shell-source");
+  });
+
+  test("fish preflight denial does not spend nested work or retain symbolic literals", () => {
+    const canary = "symbolic-fish-canary";
+    const result = evaluateBashGuards({
+      source: `fish --command="$(curl https://api.github.com/${canary})"`,
+      limits: { maxFunctionDepth: 128, maxNestedScriptDepth: 0, maxSteps: 2, maxWorkItems: 1 },
+    });
+
+    expect(result).toMatchObject({ kind: "block", policy: { name: "unsupported-shell-source" } });
+    if (result.kind === "block") expect(result.policies.map((policy) => policy.name)).not.toContain("github-http");
+    expect(JSON.stringify(result)).not.toContain(canary);
+  });
+
+  test("retains normal dispatch denial for fish reached through a typed invocation child", () => {
+    expectGuardBlock('command fish -c"$(echo foo)"', "unsupported-shell-source");
+  });
+
+  test("does not blanket-deny non-source or fully dynamic fish option identities", () => {
+    expect(evaluateBashGuards({ source: "fish --version" }))
+      .not.toMatchObject({ kind: "block", policy: { name: "unsupported-shell-source" } });
+    expect(evaluateBashGuards({ source: 'fish "$(echo -c)" true' }))
+      .toMatchObject({ kind: "pass", status: "failure" });
+    expect(evaluateBashGuards({ source: 'fish -d "$(echo parser)" --version' }))
+      .not.toMatchObject({ kind: "block", policy: { name: "unsupported-shell-source" } });
+  });
+
+  test("does not apply external fish preflight to a definite shell function", () => {
+    expect(evaluateBashGuards({ source: 'fish(){ true; }; fish -c "$(echo foo)"' }))
+      .not.toMatchObject({ kind: "block", policy: { name: "unsupported-shell-source" } });
+  });
+
+  test("uses find expression positions rather than action-like operands", () => {
+    const operand = evaluateBashGuards({ source: "find . -name -exec cat credentials.json \\;" });
+    expect(operand).not.toMatchObject({ kind: "block", policy: { name: "secret-read" } });
+
+    expectGuardBlock('read PATTERN; find . -name "$PATTERN" -exec cat credentials.json {} \\;', "secret-read");
+    expectGuardBlock('read PRIMARY; find . "$PRIMARY" -exec cat credentials.json {} \\;', "secret-read");
+    expectGuardBlock('find . -exec true "$TERMINATOR" -exec cat credentials.json {} \\;', "secret-read");
+  });
+
+  test("treats rejected Bash and zsh attached command source as incomplete opaque execution", () => {
+    for (const source of [
+      "bash -c'curl https://api.github.com/user'",
+      "zsh -c'curl https://api.github.com/user'",
+    ]) {
+      const result = evaluateBashGuards({ source });
+      expect(result, source).toMatchObject({ kind: "pass", status: "failure" });
+      expect(JSON.stringify(result), source).not.toContain("api.github.com");
+    }
+  });
+
+  test("preserves nested denials after deferred Bash and zsh command options", () => {
+    for (const source of [
+      "bash -ce 'curl https://api.github.com/user'",
+      "bash -ec 'curl https://api.github.com/user'",
+      "bash -co pipefail 'curl https://api.github.com/user'",
+      "bash -cO extglob 'curl https://api.github.com/user'",
+      "zsh -ce 'curl https://api.github.com/user'",
+    ]) expectGuardBlock(source, "github-http");
+  });
+
+  test("propagates function facts through current-scope structural children", () => {
+    expectGuardBlock("time f(){ curl https://api.github.com/user; }; f", "github-http");
+    expectGuardBlock("eval 'f(){ curl https://api.github.com/user; }'; f", "github-http");
+  });
+
+  test("discovers exec children after attached and clustered argv0 options", () => {
+    for (const source of [
+      "exec -aname curl https://api.github.com/user",
+      "exec -claname curl https://api.github.com/user",
+    ]) expectGuardBlock(source, "github-http");
+  });
+
+  test("uses the best-effort Bash parser for zsh command source", () => {
+    for (const source of [
+      "zsh --no-rcs -c 'cat credentials.json'",
+      "zsh --no_rcs -c 'cat credentials.json'",
+    ]) expectGuardBlock(source, "secret-read");
+  });
+
+  test("preserves current-shell command builtin writes for hard-block policies", () => {
+    expectGuardBlock("command export U=https://api.github.com/user; curl \"$U\"", "github-http");
+    expectGuardBlock("command export P=credentials.json; cat \"$P\"", "secret-read");
+  });
+
+  test("preserves child denials across later budget exhaustion", () => {
+    expectGuardBlockWithLimits("find . -exec curl https://api.github.com/user \\; -exec true \\;", 2, "github-http");
+  });
+
+  test("records a completed denial within a one-step outer runner budget", () => {
+    expectGuardBlockWithLimits("curl https://api.github.com/user", 1, "github-http");
+  });
+
   test("property: executor short-option forms preserve protected-read denials", () => {
     for (const options of ["-q", "-pv", "-apv", "-f%s"]) {
-      expectGuardBlock(`time ${options} cat credentials.json`, "secret-read");
+      expectGuardBlock(`command time ${options} cat credentials.json`, "secret-read");
     }
     expectGuardBlock("command time --verb cat credentials.json", "secret-read");
     for (const options of [
@@ -86,6 +207,13 @@ describe("walker-backed hard-block compatibility policies", () => {
       expectGuardBlock(`watch ${options} cat credentials.json`, "secret-read");
     }
     expectGuardBlock("watch --no-col cat credentials.json", "secret-read");
+  });
+
+  test("does not reinterpret an external time child name as a Bash assignment", () => {
+    expect(evaluateBashGuards({ source: "command time MODE=1 cat credentials.json" })).toMatchObject({
+      kind: "pass",
+      status: "indeterminate",
+    });
   });
 
   test("property: executor compound forms preserve protected-read denials", () => {
@@ -100,6 +228,33 @@ describe("walker-backed hard-block compatibility policies", () => {
       "coproc worker while true; do cat credentials.json; done",
       "coproc worker case item in item) cat credentials.json;; esac",
     ]) expectGuardBlock(source, "secret-read");
+  });
+
+  for (const [name, source] of [
+    ["negated timed pipeline", "time ! ( cat credentials.json )"],
+    ["escaped-newline named coprocess", "coproc worker_1 \\\n( cat credentials.json )"],
+    ["nested timed compound", "time time ( cat credentials.json )"],
+    ["timed select loop", "time select item in one; do cat credentials.json; done"],
+  ] as const) {
+    test(`preserves protected-read denials through ${name}`, () => {
+      expectGuardBlock(source, "secret-read");
+    });
+  }
+
+  for (const [name, source] of [
+    ["timeout", "timeout --verb 1s cat credentials.json"],
+    ["env", "env --chd=/tmp cat credentials.json"],
+    ["nice", "nice --adj=0 cat credentials.json"],
+    ["setsid", "setsid --fo cat credentials.json"],
+    ["stdbuf", "stdbuf --out=0 cat credentials.json"],
+  ] as const) {
+    test(`preserves protected-read denials through abbreviated ${name} options`, () => {
+      expectGuardBlock(source, "secret-read");
+    });
+  }
+
+  test("does not spend source-recursion depth on nested argv wrappers", () => {
+    expectGuardBlock(`${"command ".repeat(65)}cat credentials.json`, "secret-read");
   });
 
   test("property: shell script-file modes block protected operands", () => {
@@ -334,10 +489,18 @@ describe("walker-backed hard-block compatibility policies", () => {
   });
 });
 
-function expectGuardBlock(source: string, policy: "secret-read" | "github-http" | "kubectl", reason?: string): void {
+function expectGuardBlock(source: string, policy: "secret-read" | "github-http" | "kubectl" | "unsupported-shell-source", reason?: string): void {
   const result = evaluateBashGuards({ source });
   expect(result, source).toMatchObject({ kind: "block", policy: { name: policy, decision: "deny" } });
   if (reason !== undefined) expect(result.reason, source).toContain(reason);
+}
+
+function expectGuardBlockWithLimits(source: string, maxSteps: number, policy: "secret-read" | "github-http"): void {
+  const result = evaluateBashGuards({
+    source,
+    limits: { maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps, maxWorkItems: 10_000 },
+  });
+  expect(result, source).toMatchObject({ kind: "block", policy: { name: policy, decision: "deny" } });
 }
 
 function expectKubectlSecretReview(source: string): void {

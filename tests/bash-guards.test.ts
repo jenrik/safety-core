@@ -54,11 +54,23 @@ describe("single-pass Bash guards", () => {
   test("passes without granting permission on safe, unknown, malformed, and failed analysis", () => {
     expect(evaluateBashGuards({ source: "cat README.md" })).toMatchObject({ kind: "pass", status: "complete" });
     expect(evaluateBashGuards({ source: "unknown-command" })).toMatchObject({ kind: "pass", status: "indeterminate" });
-    expect(evaluateBashGuards({ source: "if then" })).toMatchObject({ kind: "pass", status: "indeterminate" });
+    expect(evaluateBashGuards({ source: "if then" })).toMatchObject({ kind: "pass", status: "failure" });
     expect(evaluateBashGuards({
       source: "cat README.md",
       limits: { maxFunctionDepth: 0, maxNestedScriptDepth: 0, maxSteps: 0, maxWorkItems: 0 },
     })).toMatchObject({ kind: "pass", status: "failure" });
+  });
+
+  test("walks complete prefixes before reporting malformed syntax and keeps denial dominant", () => {
+    expect(evaluateBashGuards({ source: "cat README.md; if" })).toMatchObject({ kind: "pass", status: "failure" });
+    expect(evaluateBashGuards({ source: "curl https://api.github.com/user; if" })).toMatchObject({
+      kind: "block",
+      policy: { name: "github-http", decision: "deny" },
+    });
+    expect(evaluateBashGuards({ source: "if; curl https://api.github.com/user" })).toMatchObject({
+      kind: "pass",
+      status: "failure",
+    });
   });
 
   test("retains kubectl Secret review evidence without hard-blocking", () => {

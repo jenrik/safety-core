@@ -14,6 +14,8 @@ export interface BashParseFailure {
   readonly kind: "parse-failure";
   readonly reason: string;
   readonly span: SourceSpan;
+  /** Complete root statements which precede the malformed syntax. */
+  readonly program: BashProgram;
 }
 
 export type BashStatement =
@@ -24,6 +26,8 @@ export type BashStatement =
   | BashSubshell
   | BashGroup
   | BashIf
+  | BashTime
+  | BashCoproc
   | BashUnsupported;
 
 export interface BashCommand {
@@ -135,6 +139,22 @@ export interface BashIf {
   readonly condition: readonly BashStatement[];
   readonly consequent: readonly BashStatement[];
   readonly alternate: readonly BashStatement[];
+  readonly redirects?: readonly BashRedirect[];
+  readonly span: SourceSpan;
+}
+
+export interface BashTime {
+  readonly kind: "time";
+  readonly body: BashStatement | null;
+  readonly posix: boolean;
+  readonly redirects?: readonly BashRedirect[];
+  readonly span: SourceSpan;
+}
+
+export interface BashCoproc {
+  readonly kind: "coproc";
+  readonly name: string | null;
+  readonly body: BashStatement;
   readonly redirects?: readonly BashRedirect[];
   readonly span: SourceSpan;
 }

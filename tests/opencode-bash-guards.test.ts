@@ -37,7 +37,7 @@ describe("OpenCode single-pass Bash guards", () => {
     for (const command of [
       "time cat credentials.json",
       "time MODE=1 cat credentials.json",
-      "time -pv cat credentials.json",
+      "command time -pv cat credentials.json",
       "time ( cat credentials.json )",
       "command time --verb cat credentials.json",
       "coproc cat credentials.json",

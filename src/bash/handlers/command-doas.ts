@@ -1,7 +1,7 @@
 import type { StructuralDispatchContext } from "../dispatch.js";
 import type { ResolvedWord } from "../expand.js";
 import { indeterminate, safe } from "../outcome.js";
-import { continueFrom, isKnown, known, taintWrapperResult, wrapperHandler } from "./wrapper-utils.js";
+import { childInvocationFrom, isKnown, known, taintWrapperResult, wrapperHandler } from "./wrapper-utils.js";
 
 export const doasHandler = wrapperHandler("doas", parseDoas);
 
@@ -10,7 +10,7 @@ function parseDoas(arguments_: readonly ResolvedWord[], context: StructuralDispa
   while (index < arguments_.length) {
     const argument = known(arguments_[index]!, context);
     if (typeof argument !== "string") return argument;
-    if (argument === "--") return taintWrapperResult(continueFrom(arguments_, index + 1, context), context);
+    if (argument === "--") return taintWrapperResult(childInvocationFrom(arguments_, index + 1, context, undefined, "unknown"), context);
     if (argument === "-n") {
       index++;
       continue;
@@ -40,7 +40,7 @@ function parseDoas(arguments_: readonly ResolvedWord[], context: StructuralDispa
       continue;
     }
     if (argument.startsWith("-")) return indeterminate(context.span);
-    return taintWrapperResult(continueFrom(arguments_, index, context), context);
+    return taintWrapperResult(childInvocationFrom(arguments_, index, context, undefined, "unknown"), context);
   }
   return indeterminate(context.span);
 }

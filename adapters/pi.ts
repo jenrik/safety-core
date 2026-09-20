@@ -188,7 +188,7 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
         ctx.ui.notify(block.notification, "warning");
         return { block: true, reason: block.reason };
       }
-      if (evaluation.permission.kind === "defer") {
+      if (evaluation.permission.kind === "defer" || evaluation.analysis.status === "failure") {
         let approved = false;
         if (ctx.hasUI && typeof ctx.ui.confirm === "function") {
           approved = await ctx.ui.confirm(
@@ -518,6 +518,7 @@ function piBashGuardBlock(evaluation: BashConfiguredEvaluation): PiGuardBlock | 
       case "gh-pr-create":
         return { reason, annotation: `Blocked: ${reason}`, notification: `Blocked ${reason}` };
     }
+    return { reason, annotation: `Blocked: ${reason}`, notification: `Blocked ${reason}` };
   }
   if (evaluation.permission.kind !== "deny") return null;
   const reason = evaluation.permission.reason;

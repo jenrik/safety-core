@@ -1,6 +1,6 @@
-import { createCommandRegistry, dispatchCommand, type PolicyObserver } from "./bash/dispatch.js";
+import { createCommandRegistry, dispatchCommand, preflightCommand, type PolicyObserver } from "./bash/dispatch.js";
 import { fromFilteredInitialEnvironment, fromInitialEnvironment, fromVerifiedInitialEnvironment } from "./bash/environment.js";
-import { indeterminate, type AnalysisBudget, type AuthorizationVerdict, type PolicyEvidence } from "./bash/outcome.js";
+import { failure, type AnalysisBudget, type AuthorizationVerdict, type PolicyEvidence } from "./bash/outcome.js";
 import { DEFAULT_BASH_ANALYSIS_LIMITS, runSteps, type BashAnalysisLimits, type RunStepsResult } from "./bash/runner.js";
 import { walkProgram } from "./bash/walker.js";
 import { httpHandlers } from "./bash/handlers/http.js";
@@ -56,7 +56,7 @@ export interface BashAuthorizationAnalysis {
   readonly policies: readonly PolicyEvidence[];
 }
 
-export type BashGuardPolicyName = "secret-read" | "github-http" | "kubectl" | "gh-pr-create";
+export type BashGuardPolicyName = "secret-read" | "github-http" | "kubectl" | "unsupported-shell-source" | "gh-pr-create";
 
 export type BashGuardAnalysisStatus = "complete" | "indeterminate" | "failure";
 
@@ -128,22 +128,14 @@ const baseHandlers = Object.freeze([...readerHandlers, ...httpHandlers, kubectlH
  * The core never reads process.env; unresolved ambient references stay neutral.
  */
 export function analyzeBashAuthorization(options: BashAuthorizationOptions): BashAuthorizationAnalysis {
-  const program = parseBashProgram(options.source);
-  if (program.kind === "parse-failure") {
-    const outcome = indeterminate(program.span);
-    return freeze({
-      verdict: Object.freeze({ kind: "neutral" }),
-      outcome,
-      evidence: Object.freeze([outcome]),
-      policy: null,
-      policies: Object.freeze([]),
-    });
-  }
+  const parsed = parseBashProgram(options.source);
+  const program = parsed.kind === "parse-failure" ? parsed.program : parsed;
   const registry = createCommandRegistry([...(options.includeBaseHandlers === false ? [] : baseHandlers), ...(options.handlers ?? [])]);
   const initial = walkProgram(program, {
     environment: initialEnvironment(options.initialEnvironment, toEnvironmentBudgets(options.limits)),
     dispatchCommand: (request) => dispatchCommand(request, registry),
-  });
+    preflightCommand: (request) => preflightCommand(request, registry),
+  }, parsed.kind === "parse-failure" ? failure(parsed.span) : undefined);
   const completed = runSteps(initial, options.limits ?? DEFAULT_BASH_ANALYSIS_LIMITS);
   return freeze({
     verdict: completed.verdict,
@@ -247,7 +239,7 @@ function initialEnvironment(initial: BashInitialEnvironment | undefined, budgets
 
 function isBashGuardDenyEvidence(policy: PolicyEvidence): policy is BashGuardDenyEvidence {
   return policy.decision === "deny"
-    && (policy.name === "secret-read" || policy.name === "github-http" || policy.name === "kubectl" || policy.name === "gh-pr-create");
+    && (policy.name === "secret-read" || policy.name === "github-http" || policy.name === "kubectl" || policy.name === "unsupported-shell-source" || policy.name === "gh-pr-create");
 }
 
 function guardEvaluation(analysis: BashAuthorizationAnalysis): BashGuardEvaluation {
@@ -292,7 +284,9 @@ function profileDecision(profile: BashPermissionProfile, analysis: BashAuthoriza
   const sharedDefer = analysis.policies.some((policy) => policy.name === "generic-read-only"
     && policy.decision === "defer"
     && (policy.readOnly?.tool === "strace" || policy.readOnly?.tool === "dynamic-executable"));
-  if (own.length === 0) return sharedDefer ? freeze({ kind: "defer" }) : freeze({ kind: "ignore" });
+  if (own.length === 0) return sharedDefer || analysis.outcome.kind === "failure"
+    ? freeze({ kind: "defer" })
+    : freeze({ kind: "ignore" });
   const denied = own.find((policy) => policy.decision === "deny");
   if (denied) return freeze({ kind: "deny", profile, reason: denied.reason ?? `${profile} denied the Bash command` });
   const ownSpans = new Set(own.map(policySpan));
@@ -341,7 +335,7 @@ function strictExecutables(profile: StrictBashProfile): readonly string[] {
 }
 
 function isBaselineEvidence(policy: PolicyEvidence): boolean {
-  return policy.name === "secret-read" || policy.name === "github-http" || policy.name === "kubectl";
+  return policy.name === "secret-read" || policy.name === "github-http" || policy.name === "kubectl" || policy.name === "unsupported-shell-source";
 }
 
 function policySpan(policy: PolicyEvidence): string {
@@ -373,6 +367,7 @@ function defaultGuardReason(name: BashGuardPolicyName): string {
     case "secret-read": return "Bash command reads a protected secret file";
     case "github-http": return "Direct GitHub HTTP requests are blocked";
     case "kubectl": return "kubectl command is blocked";
+    case "unsupported-shell-source": return "Unsupported shell command source is blocked";
     case "gh-pr-create": return "Pull-request creation is blocked";
   }
 }

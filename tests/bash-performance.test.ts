@@ -73,7 +73,12 @@ test("projects a long mixed short-circuit chain within the one-second guideline"
 });
 
 function analyze(source: string, limits = DEFAULT_BASH_ANALYSIS_LIMITS) {
-  return analyzeBashAuthorization({ source, limits, includeBaseHandlers: false });
+  return analyzeBashAuthorization({
+    source,
+    limits,
+    includeBaseHandlers: false,
+    initialEnvironment: { kind: "verified", values: {} },
+  });
 }
 
 function functionChain(depth: number): string {
