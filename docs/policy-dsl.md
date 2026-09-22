@@ -73,7 +73,9 @@ predicates must have Boolean type. Known input references include `word`,
 
 Terminal templates are arrays of literal strings and `{ "ref": name }`.
 Audit objects have source-fixed JSON shape and literal/reference leaves. They
-cannot perform calls or scans.
+cannot perform calls or scans. A terminal audit has one recursive 4,096-value
+budget: every nested object value, array element, and leaf consumes one unit,
+so decoded JSON arrays cannot bypass the output-size limit.
 
 ## Options and order
 
@@ -193,6 +195,10 @@ templates to 4,096. Expression nodes are limited to 32,768, literal bytes to
 the source structure plus explicit state-local option availability and fragment
 edges. It indexes option availability once and uses saturating DAG accounting;
 it does not scan every option for every state.
+
+Enum domains are canonicalized once from their ordered finite value table.
+An enum assignment compares canonical domain identities rather than rescanning
+the table, so repeated equal-domain references remain linear in policy size.
 
 Every authored nonterminal has `consume: "word"`, which consumes one forward
 argv boundary. Every compiler-created cluster transition consumes one forward

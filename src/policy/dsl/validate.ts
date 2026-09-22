@@ -51,6 +51,7 @@ interface ParseContext {
 interface MutableMetrics {
   nodes: number;
   validationWork: number;
+  enumDomainChecks: number;
   selectors: number;
   states: number;
   transitions: number;
@@ -68,7 +69,7 @@ export function parsePolicyDocument(json: string | unknown): PolicyDocument {
 
 /** Strict handwritten schema, type, and finite-progress validation for v1. */
 export function validatePolicyDocument(value: unknown): PolicyDocument {
-  const context: ParseContext = { metrics: { nodes: 0, validationWork: 0, selectors: 0, states: 0, transitions: 0, compiledCases: 0, literals: 0, templateParts: 0, regexBytes: 0 } };
+  const context: ParseContext = { metrics: { nodes: 0, validationWork: 0, enumDomainChecks: 0, selectors: 0, states: 0, transitions: 0, compiledCases: 0, literals: 0, templateParts: 0, regexBytes: 0 } };
   const root = record(value, "$");
   exactKeys(root, ["language", "layer", "select", "registers", "folds", "options", "fragments", "start", "states"], ["registers", "folds", "options", "fragments"], "$");
   if (root.language !== POLICY_LANGUAGE_V1) fail("$.language", `language must be exactly ${POLICY_LANGUAGE_V1}`);
@@ -93,6 +94,8 @@ export function validatePolicyDocument(value: unknown): PolicyDocument {
     registerDeclarations: registers,
     folds: new Map(Object.entries(folds).map(([name, declaration]) => [name, foldResultType(declaration)])),
     foldDeclarations: folds,
+    enumDomains: canonicalEnumDomains(registers),
+    metrics: context.metrics,
   };
   const optionIndex = validateOptions(options, names, context);
   validateFolds(folds, names, context);
@@ -311,25 +314,33 @@ function parseTemplate(value: unknown, pointer: string): readonly TemplatePart[]
 function parseAudit(value: unknown, pointer: string): Readonly<Record<string, AuditValue>> {
   const candidate = record(value, pointer);
   if (Object.keys(candidate).length > POLICY_DOCUMENT_LIMITS.templateParts) fail(pointer, "audit object exceeds fixed member limit");
-  return Object.fromEntries(Object.entries(candidate).map(([key, entry]) => [key, parseAuditValue(entry, `${pointer}.${key}`, 0)]));
+  const budget: AuditBudget = { remaining: POLICY_DOCUMENT_LIMITS.templateParts };
+  return Object.fromEntries(Object.entries(candidate).map(([key, entry]) => [key, parseAuditValue(entry, `${pointer}.${key}`, 0, budget)]));
 }
 
-function parseAuditValue(value: unknown, pointer: string, depth: number): AuditValue {
+interface AuditBudget { remaining: number; }
+
+function parseAuditValue(value: unknown, pointer: string, depth: number, budget: AuditBudget): AuditValue {
   if (depth > 16) fail(pointer, "audit nesting exceeds fixed limit");
+  if (budget.remaining-- === 0) fail(pointer, "audit values exceed fixed template limit");
   if (value === null || typeof value === "string" || typeof value === "boolean") return value as null | string | boolean;
   if (typeof value === "number") {
     if (!Number.isSafeInteger(value)) fail(pointer, "audit number must be a safe integer");
     return value;
   }
-  if (Array.isArray(value)) return value.map((entry, index) => parseAuditValue(entry, `${pointer}[${index}]`, depth + 1));
+  if (Array.isArray(value)) {
+    if (value.length > budget.remaining) fail(pointer, "audit values exceed fixed template limit");
+    return value.map((entry, index) => parseAuditValue(entry, `${pointer}[${index}]`, depth + 1, budget));
+  }
   const candidate = record(value, pointer);
   if (hasOwn(candidate, "ref")) {
     exactKeys(candidate, ["ref"], [], pointer);
     if (typeof candidate.ref !== "string") fail(`${pointer}.ref`, "audit ref must be a string");
     return { ref: candidate.ref };
   }
-  if (Object.keys(candidate).length > POLICY_DOCUMENT_LIMITS.templateParts) fail(pointer, "audit object exceeds fixed member limit");
-  return Object.fromEntries(Object.entries(candidate).map(([key, entry]) => [key, parseAuditValue(entry, `${pointer}.${key}`, depth + 1)]));
+  const entries = Object.entries(candidate);
+  if (entries.length > budget.remaining) fail(pointer, "audit values exceed fixed template limit");
+  return Object.fromEntries(entries.map(([key, entry]) => [key, parseAuditValue(entry, `${pointer}.${key}`, depth + 1, budget)]));
 }
 
 interface FragmentPlan {
@@ -475,7 +486,7 @@ function validateAssignments(assignments: Readonly<Record<string, Expression>>, 
     if (!assignable(source, target)) fail(`${pointer}.${name}`, `cannot assign ${source} to ${target}`);
     if (declaration.type === "enum" && typeof expression === "string") {
       if (!declaration.values.includes(expression)) fail(`${pointer}.${name}`, "enum assignment must be a declared value");
-    } else if (declaration.type === "enum" && !sameEnumDomain(expression, declaration, names)) {
+    } else if (declaration.type === "enum" && !sameEnumDomain(expression, name, names)) {
       fail(`${pointer}.${name}`, "enum assignment must be a member literal or a register with the same finite domain");
     }
     if (declaration.type === "count") {
@@ -491,12 +502,31 @@ interface Names {
   readonly registerDeclarations: Readonly<Record<string, RegisterDeclaration>>;
   readonly folds: Map<string, ExpressionType>;
   readonly foldDeclarations: Readonly<Record<string, FoldDeclaration>>;
+  readonly enumDomains: ReadonlyMap<string, EnumDomain>;
+  readonly metrics: MutableMetrics;
 }
 
-function sameEnumDomain(expression: Expression, target: Extract<RegisterDeclaration, { readonly type: "enum" }>, names: Names): boolean {
+interface EnumDomain { readonly key: string; }
+
+function canonicalEnumDomains(registers: Readonly<Record<string, RegisterDeclaration>>): ReadonlyMap<string, EnumDomain> {
+  const canonical = new Map<string, EnumDomain>();
+  const result = new Map<string, EnumDomain>();
+  for (const [name, declaration] of Object.entries(registers)) {
+    if (declaration.type !== "enum") continue;
+    // JSON encoding makes every finite ordered string domain unambiguous.
+    const key = JSON.stringify(declaration.values);
+    const domain = canonical.get(key) ?? Object.freeze({ key });
+    canonical.set(key, domain);
+    result.set(name, domain);
+  }
+  return result;
+}
+
+function sameEnumDomain(expression: Expression, target: string, names: Names): boolean {
+  names.metrics.enumDomainChecks++;
   if (expression === null || typeof expression !== "object" || Array.isArray(expression) || !hasOwn(expression, "ref")) return false;
-  const source = names.registerDeclarations[(expression as { readonly ref: string }).ref];
-  return source?.type === "enum" && source.values.length === target.values.length && source.values.every((value, index) => value === target.values[index]);
+  const source = (expression as { readonly ref: string }).ref;
+  return names.enumDomains.get(source) === names.enumDomains.get(target);
 }
 
 function countBound(expression: Expression, names: Names): number | undefined {
@@ -720,7 +750,8 @@ function measureDocument(document: Pick<PolicyDocument, "select" | "registers" |
   }
   metrics.validationWork = metrics.nodes + metrics.selectors + Object.values(document.options)
     .reduce((total, option) => total + (option.availableIn === "*" ? 1 : option.availableIn.length), 0)
-    + Object.values(document.fragments).reduce((total, fragment) => total + fragment.uses.length, 0);
+    + Object.values(document.fragments).reduce((total, fragment) => total + fragment.uses.length, 0)
+    + metrics.enumDomainChecks;
 }
 
 function parseNamed<T>(value: unknown, pointer: string, limit: number, parser: (value: unknown, pointer: string) => T): Readonly<Record<string, T>> {

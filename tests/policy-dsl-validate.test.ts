@@ -149,6 +149,8 @@ describe("DCRM JSON policy validation", () => {
     invalid((document) => { document.select = Array.from({ length: 257 }, () => ({ kind: "invocation" })); });
     invalid((document) => { document.options.namespace.names = Array.from({ length: 17 }, (_, index) => `--option-${index}`); });
     invalid((document) => { document.states.command.cases[0].when = { all: Array.from({ length: 32_769 }, () => true) }; });
+    invalid((document) => { document.states.tail.end.audit = { items: Array.from({ length: 4_097 }, () => null) }; });
+    expect(() => validatePolicyDocument(withAuditItems(4_095))).not.toThrow();
   });
 
   test("rejects malformed restricted regular expressions", () => {
@@ -232,6 +234,17 @@ describe("DCRM JSON policy validation", () => {
     expect(work[4]! / work[0]!).toBeLessThan(20);
   });
 
+  test("property: repeated equal enum-domain assignments have linear validation work", () => {
+    const work: number[] = [];
+    for (const caseCount of [8, 16, 32, 64, 128]) {
+      const document = enumAssignmentDocument(caseCount, 512);
+      const metrics = validatePolicyDocument(document).metrics;
+      work.push(metrics.validationWork);
+      expect(metrics.enumDomainChecks).toBe(caseCount);
+    }
+    expect(work[4]! / work[0]!).toBeLessThan(20);
+  });
+
   test("property: cluster options retain every valid form without synthetic unterminated states", () => {
     const forms = ["separate", "attachedShort", "equalsLong", "cluster"];
     for (let mask = 1; mask < 16; mask++) {
@@ -283,5 +296,23 @@ function sharedFragmentDocument(depth: number): Record<string, unknown> {
   }
   document.fragments = fragments;
   document.states.command.fragments = [previous];
+  return document;
+}
+
+function withAuditItems(count: number): Record<string, unknown> {
+  const document = policy();
+  document.states.tail.end.audit = { items: Array.from({ length: count }, () => null) };
+  return document;
+}
+
+function enumAssignmentDocument(caseCount: number, domainSize: number): Record<string, unknown> {
+  const document = policy();
+  const values = Array.from({ length: domainSize }, (_, index) => `v${index}`);
+  document.registers.mode = { type: "enum", values, initial: "v0" };
+  document.registers.sourceMode = { type: "enum", values: [...values], initial: "v0" };
+  document.states.command.cases = Array.from({ length: caseCount }, () => ({
+    when: true,
+    action: { consume: "word", next: "command", set: { mode: { ref: "sourceMode" } } },
+  }));
   return document;
 }
