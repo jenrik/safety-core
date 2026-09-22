@@ -154,7 +154,7 @@ describe("DCRM JSON policy validation", () => {
   });
 
   test("rejects malformed restricted regular expressions", () => {
-    for (const pattern of ["[", "[]", "\\q", "a]", "a+", "^a^"]) {
+    for (const pattern of ["[", "[]", "\\q", "a]", "a+", "^a^", "[z-a]"]) {
       invalid((document) => { document.states.command.cases[0].when = { call: "linearRegex", args: [{ ref: "word" }, pattern] }; });
     }
     expect(() => validatePolicyDocument(withWhen({ call: "linearRegex", args: [{ ref: "word" }, "^[a-zA-Z._-]$"] }))).not.toThrow();

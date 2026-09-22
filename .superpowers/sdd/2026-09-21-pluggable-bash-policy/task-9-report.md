@@ -105,3 +105,72 @@ Commit created immediately after this report: `feat(policy): evaluate DSL polici
   are pending from such a review.
 - The full repository suite remains blocked by unrelated missing public exports
   and pre-existing policy evaluation expectations described above.
+
+## Fix Round 1/5
+
+### RED
+
+Added regressions before changing the evaluator or validator:
+
+```text
+bun test tests/policy-dsl-evaluate.test.ts tests/policy-dsl-validate.test.ts
+```
+
+Output:
+
+```text
+20 pass
+4 fail
+707 expect() calls
+```
+
+Failures demonstrated that `--output=value` with separate-only forms fell
+through to a generic transition, unknown input through `parseBoundedInt` then
+`boundedIntAtMost` threw `TypeError: Cannot convert a symbol to a number`,
+shared fragment expansion produced occurrence-derived pointers, and `[z-a]`
+passed validation despite JavaScript rejecting it.
+
+### Fixes
+
+- Reserved every syntactically explicit declared option spelling before generic
+  cases, independently of enabled forms. `--` disables that reservation for the
+  rest of the event and remains disabled across generic transitions.
+- Propagated compiler-owned JSON pointers into each lowered case, including
+  repeated shared/nested fragment expansion sites.
+- Short-circuited unknown operands for builtins that require known operands;
+  unknown guards now select the program terminal rather than coercing a symbol.
+- Added native compilation after restricted-regex scanning and made evaluator
+  regex matching catch invalid manually supplied compiled programs.
+- Expanded resource properties across accepted program size, argv/environment
+  size, adverse ordered string predicates, cached folds, terminal templates,
+  and audits. The matrix asserts the derived consumption bound, fixed compiled
+  declaration bounds, one-time fold cache population, `O(PB)` trace output,
+  and a practical 500 ms per-cell bound for the stated `O(PB²)` workload.
+
+### GREEN
+
+```text
+bun test tests/policy-dsl-validate.test.ts tests/policy-dsl-evaluate.test.ts tests/policy-dsl-performance.test.ts tests/policy-cli.test.ts tests/policy-loader.test.ts tests/policy-config.test.ts
+```
+
+Output:
+
+```text
+55 pass
+0 fail
+19593 expect() calls
+```
+
+### Files
+
+- Updated `src/policy/dsl/compile.ts`
+- Updated `src/policy/dsl/evaluate.ts`
+- Updated `src/policy/dsl/validate.ts`
+- Updated `tests/policy-dsl-evaluate.test.ts`
+- Updated `tests/policy-dsl-performance.test.ts`
+- Updated `tests/policy-dsl-validate.test.ts`
+- Updated this report
+
+### Commit
+
+Commit created immediately after this fix record: `fix(policy): harden DSL evaluator`.

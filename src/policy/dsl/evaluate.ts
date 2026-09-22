@@ -64,11 +64,11 @@ function evaluateProgram(program: CompiledPolicyProgram, event: BashPolicyEvent)
       continue;
     }
 
-    const malformedOption = stateProgram.cases.some((entry) => entry.action.kind === "option"
+    const malformedOption = clusterByteIndex !== OPTIONS_ENDED && stateProgram.cases.some((entry) => entry.action.kind === "option"
       && matchOption(entry.action, activeWord, clusterByteIndex, argv[argvIndex + 1]) === undefined
-      && optionHeadMatches(entry.action, activeWord, clusterByteIndex));
+      && optionSpellingMatches(entry.action, activeWord, clusterByteIndex));
     let matched = false;
-    for (const [caseIndex, entry] of stateProgram.cases.entries()) {
+    for (const entry of stateProgram.cases) {
       if (malformedOption && entry.action.kind !== "option") continue;
       const option = entry.action.kind === "option" ? matchOption(entry.action, activeWord, clusterByteIndex, argv[argvIndex + 1]) : undefined;
       const context = runtimeContext(event, activeWord, option?.value, registers, foldCache);
@@ -80,7 +80,7 @@ function evaluateProgram(program: CompiledPolicyProgram, event: BashPolicyEvent)
       matched = true;
       if (entry.action.kind === "terminal") {
         const decision = terminalDecision(entry.action, context);
-        steps.push(step(state, argvIndex, clusterByteIndex, casePointer(entry, caseIndex, stateProgram.cases), entry.origin, "terminal", [], undefined, decision.kind));
+        steps.push(step(state, argvIndex, clusterByteIndex, entry.source, entry.origin, "terminal", [], undefined, decision.kind));
         return frozenEvaluation(decision, steps);
       }
 
@@ -90,8 +90,8 @@ function evaluateProgram(program: CompiledPolicyProgram, event: BashPolicyEvent)
       registers = Object.freeze({ ...registers, ...updated });
       const progress = action.kind === "option"
         ? consumeOption(action, option!, activeWord, argvIndex, clusterByteIndex, argv)
-        : { argvIndex: argvIndex + 1, clusterByteIndex: NORMAL_WORD };
-      steps.push(step(state, argvIndex, clusterByteIndex, casePointer(entry, caseIndex, stateProgram.cases), entry.origin, action.kind, folds, action.next));
+        : { argvIndex: argvIndex + 1, clusterByteIndex: clusterByteIndex === OPTIONS_ENDED ? OPTIONS_ENDED : NORMAL_WORD };
+      steps.push(step(state, argvIndex, clusterByteIndex, entry.source, entry.origin, action.kind, folds, action.next));
       state = action.next;
       argvIndex = progress.argvIndex;
       clusterByteIndex = progress.clusterByteIndex;
@@ -285,14 +285,13 @@ function separateOptionValue(action: CompiledOptionAction, next: ResolvedWord | 
   return next !== undefined && !looksLikeOption(next) ? { consumes: "separate", value: inputReference(next) } : { consumes: "word", value: null };
 }
 
-function optionHeadMatches(action: CompiledOptionAction, word: ResolvedWord, clusterByteIndex: number): boolean {
+function optionSpellingMatches(action: CompiledOptionAction, word: ResolvedWord, clusterByteIndex: number): boolean {
   if (!isKnown(word)) return false;
-  if (clusterByteIndex >= 0) return (action.value === "absent" || action.forms.includes("cluster")) && word.value.startsWith("-") && !word.value.startsWith("--")
+  if (clusterByteIndex >= 0) return word.value.startsWith("-") && !word.value.startsWith("--")
     && action.names.includes(`-${word.value[clusterByteIndex] ?? ""}`);
   return action.names.some((name) => word.value === name
-    || action.forms.includes("attachedShort") && /^-[^-]$/.test(name) && word.value.startsWith(name)
-    || action.forms.includes("equalsLong") && name.startsWith("--") && word.value.startsWith(`${name}=`)
-    || (action.value === "absent" || action.forms.includes("cluster")) && /^-[^-]$/.test(name) && word.value.startsWith(name) && word.value.length >= 2);
+    || /^-[^-]$/.test(name) && word.value.startsWith(name) && word.value.length > name.length
+    || name.startsWith("--") && word.value.startsWith(`${name}=`));
 }
 
 function looksLikeOption(word: ResolvedWord): boolean { return isKnown(word) && word.value.startsWith("-") && word.value !== "-"; }
@@ -321,7 +320,7 @@ function auditValue(value: AuditValue, context: RuntimeContext): unknown {
 
 function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeContext): RuntimeValue {
   const strings = args.map(stringValue);
-  if (["equals", "startsWith", "endsWith", "includes", "equalsAsciiCaseInsensitive"].includes(name) && strings.some(isUnknown)) return UNKNOWN;
+  if (requiresKnownOperands(name) && (args.some(isUnknown) || strings.some(isUnknown))) return UNKNOWN;
   switch (name) {
     case "equals": return strings[0] === strings[1];
     case "inStringSet": return isUnknown(strings[0]) ? UNKNOWN : Array.isArray(args[1]) && args[1].includes(strings[0] as string);
@@ -338,7 +337,7 @@ function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeCo
     case "parseBoundedInt": return isUnknown(strings[0]) ? UNKNOWN : Math.min(Number.isSafeInteger(Number(strings[0])) && /^\d+$/.test(strings[0] as string) ? Number(strings[0]) : 0, args[1] as number);
     case "boundedIntAtMost": return (args[0] as number) <= (args[1] as number);
     case "safeGlob": return isUnknown(strings[0]) || isUnknown(strings[1]) ? UNKNOWN : glob(strings[0] as string, strings[1] as string);
-    case "linearRegex": return isUnknown(strings[0]) || isUnknown(strings[1]) ? UNKNOWN : new RegExp(strings[1] as string).test(strings[0] as string);
+    case "linearRegex": return matchesLinearRegex(strings[0] as string, strings[1] as string);
     case "parseUrl": return isUnknown(strings[0]) ? UNKNOWN : parseUrl(strings[0] as string);
     case "urlHostEquals": return isUnknown(args[0]) || isUnknown(strings[1]) ? UNKNOWN : isUrl(args[0]) && args[0].host === asciiCase(strings[1] as string, false);
     case "parseRepository": return isUnknown(strings[0]) ? UNKNOWN : parseRepository(strings[0] as string);
@@ -389,7 +388,12 @@ function parseRepository(value: string): RuntimeValue { const match = /^(?:https
 function isRepository(value: unknown): value is { readonly owner: string; readonly repository: string } { return typeof value === "object" && value !== null && "owner" in value && "repository" in value; }
 function normalizeKubernetes(value: string): string { const lower = asciiCase(value, false); return lower.endsWith("ies") ? `${lower.slice(0, -3)}y` : lower.endsWith("s") ? lower.slice(0, -1) : lower; }
 function normalizeEndpoint(value: string): string { return `/${value.split("/").filter(Boolean).join("/")}`; }
+function requiresKnownOperands(name: string): boolean {
+  return !["environmentIsPresent", "environmentIsKnown", "environmentIsUnknown", "missingEnvironmentMayBePresent", "isInPipeline"].includes(name);
+}
+function matchesLinearRegex(value: string, pattern: string): boolean {
+  try { return new RegExp(pattern).test(value); } catch { return false; }
+}
 function isOptionPredicate(value: CompiledCase["when"]): value is { readonly kind: "option" } { return typeof value === "object" && value !== null && "kind" in value && value.kind === "option"; }
-function casePointer(entry: CompiledCase, index: number, cases: readonly CompiledCase[]): string { if (entry.origin.startsWith("option:")) return `$.options.${entry.origin.slice(7)}`; const [kind, name] = entry.origin.split(":") as [string, string]; const occurrence = cases.slice(0, index + 1).filter((candidate) => candidate.origin === entry.origin).length - 1; return kind === "fragment" ? `$.fragments.${name}.cases[${occurrence}]` : `$.states.${name}.cases[${occurrence}]`; }
 function step(state: string, argvIndex: number, clusterByteIndex: number, source: string, origin: string, action: DslMachineStep["action"], folds: readonly string[], nextState?: string, decision?: PolicyDecision["kind"]): DslMachineStep { return Object.freeze({ state, argvIndex, clusterByteIndex, source, origin, action, folds: Object.freeze([...folds]), ...(nextState === undefined ? {} : { nextState }), ...(decision === undefined ? {} : { decision }) }); }
 function frozenEvaluation(decision: PolicyDecision, steps: readonly DslMachineStep[]): DslEvaluation { return Object.freeze({ decision, steps: Object.freeze([...steps]) }); }

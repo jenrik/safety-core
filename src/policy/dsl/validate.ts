@@ -639,7 +639,8 @@ function validateLinearRegex(expression: Expression | undefined, pointer: string
     const character = expression[index]!;
     if (character === "$") {
       if (index !== expression.length - 1) fail(pointer, "linearRegex end anchor is permitted only at the end");
-      return;
+      index++;
+      break;
     }
     if (character === ".") {
       index++;
@@ -657,6 +658,11 @@ function validateLinearRegex(expression: Expression | undefined, pointer: string
       fail(pointer, "linearRegex permits only literal bytes, anchors, dot, character classes, and escaped literals");
     }
     index++;
+  }
+  try {
+    new RegExp(expression);
+  } catch {
+    fail(pointer, "linearRegex pattern is not accepted by the restricted runtime grammar");
   }
 }
 

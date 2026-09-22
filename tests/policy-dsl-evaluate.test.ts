@@ -92,6 +92,50 @@ describe("DCRM evaluation", () => {
     expect(policy(conflict).evaluate(event([{ kind: "known", value: "run" }, { kind: "known", value: "-v" }, { kind: "known", value: "operand" }]))).toMatchObject({ kind: "deny" });
   });
 
+  test("reserves declared spellings with disabled forms while -- restores ordinary operands", () => {
+    const restricted = base();
+    restricted.options.output.forms = ["separate"];
+    for (const spelling of ["--output=value", "-ovalue"]) {
+      expect(policy(restricted).evaluate(event([{ kind: "known", value: "run" }, { kind: "known", value: spelling }])), spelling).toMatchObject({ kind: "deny" });
+    }
+    expect(policy(restricted).evaluate(event([
+      { kind: "known", value: "run" }, { kind: "known", value: "--" },
+      { kind: "known", value: "-o" }, { kind: "known", value: "--output" },
+    ]))).toMatchObject({ kind: "allow" });
+  });
+
+  test("unknown builtin operands select a deterministic terminal instead of coercing a Symbol", () => {
+    const document = base();
+    document.states.command.cases = [{
+      when: { call: "boundedIntAtMost", args: [{ call: "parseBoundedInt", args: [{ ref: "word" }, 3] }, 3] },
+      action: { decision: "allow", reason: ["known bounded count"] },
+    }];
+    document.states.command.default = { decision: "deny", reason: ["unknown count"] };
+    expect(policy(document).evaluate(event([{ kind: "unknown", reason: { kind: "expansion" } }]))).toMatchObject({ kind: "deny" });
+  });
+
+  test("defensively treats an invalid manually supplied regex program as an unmatched guard", () => {
+    const document = base();
+    document.options = {};
+    document.states.command.cases = [{
+      when: { call: "linearRegex", args: [{ ref: "word" }, "safe"] },
+      action: { decision: "allow", reason: ["matched"] },
+    }];
+    document.states.command.default = { decision: "deny", reason: ["unmatched"] };
+    const compiled = compilePolicyDocument(validatePolicyDocument(document));
+    const forced = {
+      ...compiled,
+      states: {
+        ...compiled.states,
+        command: {
+          ...compiled.states.command,
+          cases: [{ ...compiled.states.command.cases[0]!, when: { call: "linearRegex", args: [{ ref: "word" }, "[z-a]"] } }],
+        },
+      },
+    };
+    expect(createDslPolicy(forced, source).evaluate(event([{ kind: "known", value: "value" }]))).toMatchObject({ kind: "deny" });
+  });
+
   test("caches folds and records machine-step provenance", () => {
     const document = base();
     document.folds = { hasRun: { collection: "argv", operation: "any", when: { call: "equals", args: [{ ref: "fold.item" }, "run"] } } };
@@ -110,5 +154,21 @@ describe("DCRM evaluation", () => {
     expect(evaluation.traces[0]?.dslSteps).toHaveLength(2);
     expect(renderExplainTrace(trace, false)).toContain("transition $.states.command.cases[0] state=command argv=0");
     expect(JSON.parse(renderExplainTrace(trace, true)).decisions[0].dslSteps[0]).toMatchObject({ source: "$.states.command.cases[0]" });
+  });
+
+  test("retains original nested fragment pointers at every shared expansion site", () => {
+    const document = base();
+    document.fragments = {
+      leaf: { cases: [{ when: true, action: { consume: "word", next: "tail" } }] },
+      firstParent: { uses: ["leaf"], cases: [] },
+      secondParent: { uses: ["leaf"], cases: [] },
+    };
+    document.states.command.fragments = ["firstParent", "secondParent"];
+    document.states.command.cases = [];
+    const program = compilePolicyDocument(validatePolicyDocument(document));
+    expect(program.states.command.cases.filter((entry) => entry.origin === "fragment:leaf").map((entry) => entry.source))
+      .toEqual(["$.fragments.leaf.cases[0]", "$.fragments.leaf.cases[0]"]);
+    const result = createDslPolicy(program, source).evaluateWithTrace(event([{ kind: "known", value: "run" }]));
+    expect(result.steps[0]?.source).toBe("$.fragments.leaf.cases[0]");
   });
 });

@@ -45,6 +45,8 @@ export interface CompiledCase {
   readonly when: Expression | CompiledOptionPredicate;
   readonly action: CompiledAction;
   readonly origin: `option:${string}` | `state:${string}` | `fragment:${string}`;
+  /** Exact JSON pointer for the authored case, retained through shared expansion. */
+  readonly source: string;
 }
 
 export interface CompiledState {
@@ -99,17 +101,18 @@ export function compilePolicyDocument(ast: PolicyDocument): CompiledPolicyProgra
         when: Object.freeze({ kind: "option", option: option.name }),
         action: optionAction(option, stateName),
         origin: `option:${option.name}`,
+        source: `$.options.${option.name}`,
       }));
       transitions++;
     }
     for (const fragmentName of state.fragments) {
       for (const entry of expandFragment(ast, fragmentName)) {
-        lowered.push(lowerCase(entry.policyCase, `fragment:${entry.origin}`));
+        lowered.push(lowerCase(entry.policyCase, `fragment:${entry.origin}`, entry.source));
         if (entry.policyCase.action.kind === "transition") transitions++;
       }
     }
-    for (const entry of state.cases) {
-      lowered.push(lowerCase(entry, `state:${stateName}`));
+    for (const [index, entry] of state.cases.entries()) {
+      lowered.push(lowerCase(entry, `state:${stateName}`, `$.states.${stateName}.cases[${index}]`));
       if (entry.action.kind === "transition") transitions++;
     }
     cases += lowered.length;
@@ -146,22 +149,23 @@ function optionAction(option: OrderedOption, state: string): CompiledOptionActio
   });
 }
 
-function lowerCase(policyCase: PolicyCase, origin: CompiledCase["origin"]): CompiledCase {
+function lowerCase(policyCase: PolicyCase, origin: CompiledCase["origin"], source: string): CompiledCase {
   return Object.freeze({
     when: policyCase.when,
     action: policyCase.action.kind === "terminal"
       ? policyCase.action
       : Object.freeze({ kind: "transition", consume: "word", progress: 1, next: policyCase.action.next, set: policyCase.action.set, fold: policyCase.action.fold }),
     origin,
+    source,
   });
 }
 
-function expandFragment(ast: PolicyDocument, name: string): readonly { readonly policyCase: PolicyCase; readonly origin: string }[] {
+function expandFragment(ast: PolicyDocument, name: string): readonly { readonly policyCase: PolicyCase; readonly origin: string; readonly source: string }[] {
   const fragment = ast.fragments[name];
   if (!fragment) throw new TypeError(`cannot compile unknown fragment ${name}`);
   return Object.freeze([
     ...fragment.uses.flatMap((used) => expandFragment(ast, used)),
-    ...fragment.cases.map((policyCase) => Object.freeze({ policyCase, origin: name })),
+    ...fragment.cases.map((policyCase, index) => Object.freeze({ policyCase, origin: name, source: `$.fragments.${name}.cases[${index}]` })),
   ]);
 }
 
