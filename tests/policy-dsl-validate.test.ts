@@ -238,25 +238,34 @@ describe("DCRM JSON policy validation", () => {
     for (const domainSize of [32, 128, 512]) {
       for (const caseCount of [8, 32, 128]) {
         let comparisons = 0;
+        let tableEntries = 0;
         const metrics = validatePolicyDocument(enumAssignmentDocument(caseCount, domainSize), {
           onEnumDomainComparison: () => { comparisons++; },
+          onEnumDomainTableEntry: () => { tableEntries++; },
         }).metrics;
         expect(metrics.enumDomainChecks, `domain ${domainSize}, cases ${caseCount}`).toBe(caseCount);
         expect(metrics.enumDomainComparisons, `domain ${domainSize}, cases ${caseCount}`).toBe(caseCount);
         expect(comparisons, `domain ${domainSize}, cases ${caseCount}`).toBe(caseCount);
+        expect(tableEntries, `domain ${domainSize}, cases ${caseCount}`).toBe(domainSize * 2);
       }
     }
 
     let fixedComparisonCalls = 0;
+    let fixedTableEntries = 0;
     const fixedDomain = validatePolicyDocument(enumAssignmentDocument(128, 512), {
       onEnumDomainComparison: () => { fixedComparisonCalls++; },
+      onEnumDomainTableEntry: () => { fixedTableEntries++; },
     }).metrics;
     let largerComparisonCalls = 0;
+    let largerTableEntries = 0;
     const largerDomain = validatePolicyDocument(enumAssignmentDocument(128, 1_024), {
       onEnumDomainComparison: () => { largerComparisonCalls++; },
+      onEnumDomainTableEntry: () => { largerTableEntries++; },
     }).metrics;
     expect(largerDomain.enumDomainComparisons).toBe(fixedDomain.enumDomainComparisons);
     expect(largerComparisonCalls).toBe(fixedComparisonCalls);
+    expect(fixedTableEntries).toBe(512 * 2);
+    expect(largerTableEntries).toBe(1_024 * 2);
     expect(largerDomain.validationWork - fixedDomain.validationWork).toBeLessThan(2_100);
   });
 

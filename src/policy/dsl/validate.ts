@@ -52,6 +52,7 @@ interface ParseContext {
 /** Test-only hooks for measuring validator work without exposing domain data. */
 export interface ValidationInstrumentation {
   readonly onEnumDomainComparison?: () => void;
+  readonly onEnumDomainTableEntry?: () => void;
 }
 
 interface MutableMetrics {
@@ -87,6 +88,7 @@ export function validatePolicyDocument(value: unknown, instrumentation: Validati
   context.metrics.selectors = select.length;
   if (select.length === 0) fail("$.select", "select must contain at least one selector");
   const registers = parseNamed(root.registers ?? {}, "$.registers", POLICY_DOCUMENT_LIMITS.registers, parseRegister);
+  const enumDomainRegisters = observeEnumDomainTables(registers, context.instrumentation);
   const folds = parseNamed(root.folds ?? {}, "$.folds", POLICY_DOCUMENT_LIMITS.folds, parseFold);
   const options = parseNamed(root.options ?? {}, "$.options", POLICY_DOCUMENT_LIMITS.options, parseOption);
   const fragments = parseNamed(root.fragments ?? {}, "$.fragments", POLICY_DOCUMENT_LIMITS.fragments, parseFragment);
@@ -98,10 +100,10 @@ export function validatePolicyDocument(value: unknown, instrumentation: Validati
   const names = {
     states: new Set(Object.keys(states)),
     registers: new Map(Object.entries(registers).map(([name, declaration]) => [name, registerType(declaration)])),
-    registerDeclarations: registers,
+    registerDeclarations: enumDomainRegisters,
     folds: new Map(Object.entries(folds).map(([name, declaration]) => [name, foldResultType(declaration)])),
     foldDeclarations: folds,
-    enumDomains: canonicalEnumDomains(registers),
+    enumDomains: canonicalEnumDomains(enumDomainRegisters),
     metrics: context.metrics,
     instrumentation: context.instrumentation,
   };
@@ -494,7 +496,7 @@ function validateAssignments(assignments: Readonly<Record<string, Expression>>, 
     if (!assignable(source, target)) fail(`${pointer}.${name}`, `cannot assign ${source} to ${target}`);
     if (declaration.type === "enum" && typeof expression === "string") {
       if (!declaration.values.includes(expression)) fail(`${pointer}.${name}`, "enum assignment must be a declared value");
-    } else if (declaration.type === "enum" && !sameEnumDomain(expression, name, names)) {
+    } else if (declaration.type === "enum" && !sameEnumDomain(expression, name, names.enumDomains, names.metrics, names.instrumentation)) {
       fail(`${pointer}.${name}`, "enum assignment must be a member literal or a register with the same finite domain");
     }
     if (declaration.type === "count") {
@@ -510,38 +512,62 @@ interface Names {
   readonly registerDeclarations: Readonly<Record<string, RegisterDeclaration>>;
   readonly folds: Map<string, ExpressionType>;
   readonly foldDeclarations: Readonly<Record<string, FoldDeclaration>>;
-  readonly enumDomains: ReadonlyMap<string, EnumDomain>;
+  readonly enumDomains: ReadonlyMap<string, EnumDomainIdentity>;
   readonly metrics: MutableMetrics;
   readonly instrumentation: ValidationInstrumentation;
 }
 
-interface EnumDomain { readonly key: string; }
+type EnumDomainIdentity = symbol;
 
-function canonicalEnumDomains(registers: Readonly<Record<string, RegisterDeclaration>>): ReadonlyMap<string, EnumDomain> {
-  const canonical = new Map<string, EnumDomain>();
-  const result = new Map<string, EnumDomain>();
+function observeEnumDomainTables(registers: Readonly<Record<string, RegisterDeclaration>>, instrumentation: ValidationInstrumentation): Readonly<Record<string, RegisterDeclaration>> {
+  if (!instrumentation.onEnumDomainTableEntry) return registers;
+  return Object.fromEntries(Object.entries(registers).map(([name, declaration]) => [name, declaration.type === "enum"
+    ? { ...declaration, values: new Proxy(declaration.values, {
+      get(target, property, receiver) {
+        if (typeof property === "string" && /^(?:0|[1-9][0-9]*)$/.test(property)) instrumentation.onEnumDomainTableEntry!();
+        return Reflect.get(target, property, receiver);
+      },
+    }) as readonly string[] }
+    : declaration,
+  ]));
+}
+
+function canonicalEnumDomains(registers: Readonly<Record<string, RegisterDeclaration>>): ReadonlyMap<string, EnumDomainIdentity> {
+  const canonical = new Map<string, EnumDomainIdentity>();
+  const result = new Map<string, EnumDomainIdentity>();
   for (const [name, declaration] of Object.entries(registers)) {
     if (declaration.type !== "enum") continue;
     // JSON encoding makes every finite ordered string domain unambiguous.
     const key = JSON.stringify(declaration.values);
-    const domain = canonical.get(key) ?? Object.freeze({ key });
-    canonical.set(key, domain);
-    result.set(name, domain);
+    const identity = canonical.get(key) ?? Symbol();
+    canonical.set(key, identity);
+    result.set(name, identity);
   }
   return result;
 }
 
-function sameEnumDomain(expression: Expression, target: string, names: Names): boolean {
-  names.metrics.enumDomainChecks++;
+function sameEnumDomain(
+  expression: Expression,
+  target: string,
+  enumDomains: ReadonlyMap<string, EnumDomainIdentity>,
+  metrics: MutableMetrics,
+  instrumentation: ValidationInstrumentation,
+): boolean {
+  metrics.enumDomainChecks++;
   if (expression === null || typeof expression !== "object" || Array.isArray(expression) || !hasOwn(expression, "ref")) return false;
   const source = (expression as { readonly ref: string }).ref;
-  return compareEnumDomains(names.enumDomains.get(source), names.enumDomains.get(target), names);
+  return compareEnumDomains(enumDomains.get(source), enumDomains.get(target), metrics, instrumentation);
 }
 
-/** The only enum-domain equality path; keep the operation observable in scale tests. */
-function compareEnumDomains(source: EnumDomain | undefined, target: EnumDomain | undefined, names: Names): boolean {
-  names.metrics.enumDomainComparisons++;
-  names.instrumentation.onEnumDomainComparison?.();
+/** The only enum-domain equality path; opaque identity tokens make table scans impossible here. */
+function compareEnumDomains(
+  source: EnumDomainIdentity | undefined,
+  target: EnumDomainIdentity | undefined,
+  metrics: MutableMetrics,
+  instrumentation: ValidationInstrumentation,
+): boolean {
+  metrics.enumDomainComparisons++;
+  instrumentation.onEnumDomainComparison?.();
   return source === target;
 }
 

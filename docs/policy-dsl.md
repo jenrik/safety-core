@@ -200,9 +200,11 @@ Enum domains are canonicalized once from their ordered finite value table.
 An enum assignment compares canonical domain identities rather than rescanning
 the table, so repeated equal-domain references remain linear in policy size.
 Validation metrics separately report enum-domain checks and the identity
-comparisons they perform. A test-only observer invokes at the single canonical
-domain-equality primitive, so scale tests measure equality work directly rather
-than trusting hand-maintained metric counters.
+comparisons they perform. Equality receives only opaque canonical identity
+tokens, so it cannot inspect a domain table. Test-only observers count both
+identity comparisons and every entry read from validator-internal enum tables;
+the scaling property proves that table reads remain confined to one
+canonicalization pass rather than growing with assignments.
 
 Every authored nonterminal has `consume: "word"`, which consumes one forward
 argv boundary. Every compiler-created cluster transition consumes one forward
