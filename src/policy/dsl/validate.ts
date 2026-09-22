@@ -52,6 +52,7 @@ interface MutableMetrics {
   nodes: number;
   validationWork: number;
   enumDomainChecks: number;
+  enumDomainComparisons: number;
   selectors: number;
   states: number;
   transitions: number;
@@ -69,7 +70,7 @@ export function parsePolicyDocument(json: string | unknown): PolicyDocument {
 
 /** Strict handwritten schema, type, and finite-progress validation for v1. */
 export function validatePolicyDocument(value: unknown): PolicyDocument {
-  const context: ParseContext = { metrics: { nodes: 0, validationWork: 0, enumDomainChecks: 0, selectors: 0, states: 0, transitions: 0, compiledCases: 0, literals: 0, templateParts: 0, regexBytes: 0 } };
+  const context: ParseContext = { metrics: { nodes: 0, validationWork: 0, enumDomainChecks: 0, enumDomainComparisons: 0, selectors: 0, states: 0, transitions: 0, compiledCases: 0, literals: 0, templateParts: 0, regexBytes: 0 } };
   const root = record(value, "$");
   exactKeys(root, ["language", "layer", "select", "registers", "folds", "options", "fragments", "start", "states"], ["registers", "folds", "options", "fragments"], "$");
   if (root.language !== POLICY_LANGUAGE_V1) fail("$.language", `language must be exactly ${POLICY_LANGUAGE_V1}`);
@@ -526,6 +527,7 @@ function sameEnumDomain(expression: Expression, target: string, names: Names): b
   names.metrics.enumDomainChecks++;
   if (expression === null || typeof expression !== "object" || Array.isArray(expression) || !hasOwn(expression, "ref")) return false;
   const source = (expression as { readonly ref: string }).ref;
+  names.metrics.enumDomainComparisons++;
   return names.enumDomains.get(source) === names.enumDomains.get(target);
 }
 
@@ -751,7 +753,7 @@ function measureDocument(document: Pick<PolicyDocument, "select" | "registers" |
   metrics.validationWork = metrics.nodes + metrics.selectors + Object.values(document.options)
     .reduce((total, option) => total + (option.availableIn === "*" ? 1 : option.availableIn.length), 0)
     + Object.values(document.fragments).reduce((total, fragment) => total + fragment.uses.length, 0)
-    + metrics.enumDomainChecks;
+    + metrics.enumDomainComparisons;
 }
 
 function parseNamed<T>(value: unknown, pointer: string, limit: number, parser: (value: unknown, pointer: string) => T): Readonly<Record<string, T>> {

@@ -199,6 +199,8 @@ it does not scan every option for every state.
 Enum domains are canonicalized once from their ordered finite value table.
 An enum assignment compares canonical domain identities rather than rescanning
 the table, so repeated equal-domain references remain linear in policy size.
+Validation metrics separately report enum-domain checks and the identity
+comparisons they perform, allowing scale tests to detect accidental table scans.
 
 Every authored nonterminal has `consume: "word"`, which consumes one forward
 argv boundary. Every compiler-created cluster transition consumes one forward

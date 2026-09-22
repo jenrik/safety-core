@@ -234,15 +234,19 @@ describe("DCRM JSON policy validation", () => {
     expect(work[4]! / work[0]!).toBeLessThan(20);
   });
 
-  test("property: repeated equal enum-domain assignments have linear validation work", () => {
-    const work: number[] = [];
-    for (const caseCount of [8, 16, 32, 64, 128]) {
-      const document = enumAssignmentDocument(caseCount, 512);
-      const metrics = validatePolicyDocument(document).metrics;
-      work.push(metrics.validationWork);
-      expect(metrics.enumDomainChecks).toBe(caseCount);
+  test("property: enum comparison work scales with assignments, not domain-size times assignments", () => {
+    for (const domainSize of [32, 128, 512]) {
+      for (const caseCount of [8, 32, 128]) {
+        const metrics = validatePolicyDocument(enumAssignmentDocument(caseCount, domainSize)).metrics;
+        expect(metrics.enumDomainChecks, `domain ${domainSize}, cases ${caseCount}`).toBe(caseCount);
+        expect(metrics.enumDomainComparisons, `domain ${domainSize}, cases ${caseCount}`).toBe(caseCount);
+      }
     }
-    expect(work[4]! / work[0]!).toBeLessThan(20);
+
+    const fixedDomain = validatePolicyDocument(enumAssignmentDocument(128, 512)).metrics;
+    const largerDomain = validatePolicyDocument(enumAssignmentDocument(128, 1_024)).metrics;
+    expect(largerDomain.enumDomainComparisons).toBe(fixedDomain.enumDomainComparisons);
+    expect(largerDomain.validationWork - fixedDomain.validationWork).toBeLessThan(2_100);
   });
 
   test("property: cluster options retain every valid form without synthetic unterminated states", () => {

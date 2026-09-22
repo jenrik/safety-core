@@ -88,6 +88,7 @@ export interface ValidationMetrics {
   readonly nodes: number;
   readonly validationWork: number;
   readonly enumDomainChecks: number;
+  readonly enumDomainComparisons: number;
   readonly selectors: number;
   readonly states: number;
   readonly transitions: number;
