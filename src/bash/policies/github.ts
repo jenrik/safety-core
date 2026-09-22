@@ -1,4 +1,5 @@
-import { isBindingResolvedWord, type NormalizedCommand } from "../expand.js";
+import type { NormalizedCommand, ResolvedWord } from "../expand.js";
+import { isBindingResolvedWord } from "../word-provenance.js";
 import { GITHUB_GENERIC_HINT } from "../../messages.js";
 import { buildGithubSuggestion, detectBlockedDomain } from "../../github.js";
 
@@ -6,7 +7,12 @@ export type GithubHttpPolicyDecision =
   | { readonly kind: "allow"; readonly evidence: { readonly name: "github-http"; readonly decision: "allow" } }
   | { readonly kind: "deny"; readonly evidence: { readonly name: "github-http"; readonly decision: "deny"; readonly reason: string } };
 
-export function analyzeGithubHttpInvocation(invocation: NormalizedCommand): GithubHttpPolicyDecision {
+/** The pure HTTP classifier only needs the resolved argument vector. */
+export type GithubHttpInvocation = Pick<NormalizedCommand, "argv"> & {
+  readonly argv: readonly ResolvedWord[];
+};
+
+export function analyzeGithubHttpInvocation(invocation: GithubHttpInvocation): GithubHttpPolicyDecision {
   for (const argument of invocation.argv) {
     if (argument.kind !== "known") {
       if (argument.reason.blockedGithubDomain) return deny(buildGithubHttpBlock(argument.reason.blockedGithubDomain));

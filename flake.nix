@@ -15,7 +15,7 @@
           # opencodePluginFile is a string (a path inside opencodeDir), not a
           # derivation, so it can't be listed here — it's only available
           # through overlays.default's attrset below.
-          inherit (sc) piExtensionDir claudeCodeHooks;
+          inherit (sc) piExtensionDir claudeCodeHooks codePolicies;
         });
 
       checks = forAllSystems (system:

@@ -96,6 +96,29 @@ let
 
   piDir = mkExtensionDir "pi" ./adapters/pi.ts;
   opencodeDir = mkExtensionDir "opencode" ./adapters/opencode.ts;
+
+  # Trusted code policies are compiled independently. The loader rejects
+  # relative imports, so every artifact must be self-contained at this boundary.
+  mkCodePolicy = name: entry: stdenv.mkDerivation {
+    pname = "safety-core-${name}-policy";
+    version = "0";
+    src = ./.;
+    nativeBuildInputs = [ esbuild ];
+    installPhase = ''
+      mkdir -p $out
+      esbuild \
+        --bundle \
+        --platform=node \
+        --format=esm \
+        --target=node20 \
+        --outfile="$out/${name}.policy.mjs" \
+        "$src/${entry}"
+      if grep -Eq '^[[:space:]]*(import|export[[:space:]].*from)[[:space:]]' "$out/${name}.policy.mjs"; then
+        echo "bundled policy retained a runtime import" >&2
+        exit 1
+      fi
+    '';
+  };
 in
 {
   # Directory containing index.ts + src/ + WASM assets.  Home-manager
@@ -106,6 +129,15 @@ in
   # Path to the opencode adapter .ts file inside a store directory that also
   # contains ./src/, node_modules/, and WASM assets.
   opencodePluginFile = "${opencodeDir}/index.ts";
+
+  # Not wired into harness configuration yet; Task 4 only produces trusted,
+  # source-provenanced artifacts for loader and differential-policy testing.
+  codePolicies = {
+    secretRead = mkCodePolicy "secret-read" "policies/code/secret-read.policy.ts";
+    githubHttp = mkCodePolicy "github-http" "policies/code/github-http.policy.ts";
+    kubectl = mkCodePolicy "kubectl" "policies/code/kubectl.policy.ts";
+    unsupportedShellSource = mkCodePolicy "unsupported-shell-source" "policies/code/unsupported-shell-source.policy.ts";
+  };
 
   # Standalone bundled hook scripts for claude-code. Produces a directory of
   # executable .mjs files matching the original .py names one-for-one.

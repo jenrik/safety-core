@@ -12,6 +12,9 @@ import {
   type Environment,
   type EnvironmentPatch,
 } from "./environment.js";
+import { isBindingResolvedWord, markBindingResolvedWord } from "./word-provenance.js";
+
+export { isBindingResolvedWord } from "./word-provenance.js";
 
 export interface ResolvedKnownWord {
   readonly kind: "known";
@@ -56,13 +59,7 @@ export interface SymbolicWordShape {
   readonly fields: "one" | "one-or-more" | "zero-or-more";
 }
 
-const bindingResolvedWords = new WeakSet<ResolvedKnownWord>();
 const symbolicWordShapes = new WeakMap<ResolvedUnknownWord, SymbolicWordShape>();
-
-/** Whether a known word was materialized from a binding rather than source text. */
-export function isBindingResolvedWord(word: ResolvedWord): boolean {
-  return word.kind === "known" && bindingResolvedWords.has(word);
-}
 
 /** Internal expansion shape. The WeakMap keeps literal fragments out of serialization. */
 export function symbolicWordShape(word: ResolvedWord): SymbolicWordShape | undefined {
@@ -471,7 +468,7 @@ const UNKNOWN_FRAGMENT: SymbolicWordFragment = freeze({ kind: "unknown" });
 
 function resolvedKnown(value: string, fromBinding = false): ResolvedKnownWord {
   const result = freeze({ kind: "known" as const, value });
-  if (fromBinding) bindingResolvedWords.add(result);
+  if (fromBinding) markBindingResolvedWord(result);
   return result;
 }
 

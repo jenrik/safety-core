@@ -120,13 +120,20 @@ function shellCommandTarget(
   return taintWrapperResult(result, context);
 }
 
-function unsupportedFishSource(context: { readonly span: Parameters<CommandHandler["handle"]>[1]["span"] }) {
+function unsupportedFishSource(context: Parameters<CommandHandler["handle"]>[1] | Parameters<NonNullable<CommandHandler["preflight"]>>[1]) {
   // TODO: Replace this block with a dedicated fish parser and equivalence contract.
-  return policyDeny(context.span, Object.freeze({
+  const outcome = policyDeny(context.span, Object.freeze({
     name: "unsupported-shell-source",
     decision: "deny" as const,
     reason: "fish command source is blocked until dedicated parser support is available",
   }));
+  if (!("continueWithOpaque" in context)) return outcome;
+  const opaque = context.continueWithOpaque("unsupported-shell-source", undefined, {
+    isolate: true,
+    route: "shell-command",
+    processEffect: "spawn-and-wait",
+  });
+  return "kind" in opaque ? outcome : Object.freeze({ outcome, children: opaque.children });
 }
 
 function shellStartupEnvironmentRoute(

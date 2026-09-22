@@ -1,4 +1,5 @@
-import { isBindingResolvedWord, type NormalizedCommand, type ResolvedWord } from "../expand.js";
+import type { NormalizedCommand, ResolvedWord } from "../expand.js";
+import { isBindingResolvedWord } from "../word-provenance.js";
 import {
   KUBECTL_ALWAYS_ALLOW,
   KUBECTL_AUTH_ALLOW,
@@ -14,7 +15,12 @@ export type KubectlInvocationDecision =
   | { readonly kind: "defer"; readonly evidence: PolicyEvidence }
   | { readonly kind: "ignore" };
 
-export function analyzeKubectlInvocation(invocation: NormalizedCommand): KubectlInvocationDecision {
+/** The pure kubectl classifier only needs the resolved argument vector. */
+export type KubectlInvocation = Pick<NormalizedCommand, "argv"> & {
+  readonly argv: readonly ResolvedWord[];
+};
+
+export function analyzeKubectlInvocation(invocation: KubectlInvocation): KubectlInvocationDecision {
   const args = knownArguments(invocation.argv);
   if (!args) return defer(null, null, false);
   if (args.length === 0) return Object.freeze({ kind: "ignore" });
@@ -110,7 +116,7 @@ function positionalArgs(args: readonly string[], start: number): PositionalArgum
   return positionals;
 }
 
-function operandIsLiteral(invocation: NormalizedCommand, operand: PositionalArgument | undefined): boolean {
+function operandIsLiteral(invocation: KubectlInvocation, operand: PositionalArgument | undefined): boolean {
   return operand !== undefined && !isBindingResolvedWord(invocation.argv[operand.index]!);
 }
 

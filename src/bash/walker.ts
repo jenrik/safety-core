@@ -123,6 +123,7 @@ export type ExecutionUnknownReason =
   | "source-parse-failure"
   | "source-file-execution"
   | "shell-startup-execution"
+  | "unsupported-shell-source"
   | "unsupported-execution";
 
 export type ProcessEffect =
