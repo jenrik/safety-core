@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createOpenCodePlugin, blockReason } from "../adapters/opencode.ts";
 import type { BashPolicyEvaluation, LoadedPolicyRuntime, ValidatedBashPolicy } from "../src/index.ts";
 
@@ -24,6 +27,37 @@ test("OpenCode maps generic allow and deny to native status and leaves defer unc
 test("OpenCode rejects runtime evaluation failures rather than falling back", async () => {
   const plugin = await createOpenCodePlugin({ runtime, evaluatePolicies: () => { throw new Error("policy failure"); } });
   await expect((plugin["tool.execute.before"] as Function)({ tool: "bash" }, { args: { command: "anything" } })).rejects.toThrow("policy failure");
+});
+
+test("OpenCode rejects the current permission event and poisons later Bash callbacks", async () => {
+  let calls = 0;
+  const replies: unknown[] = [];
+  const plugin = await createOpenCodePlugin({ runtime, evaluatePolicies: () => { calls++; throw new Error("policy failure"); } }, {
+    permission: { reply: async (reply: unknown) => { replies.push(reply); } },
+  } as never, "/workspace");
+  const event = plugin.event as Function;
+  await event({ event: { type: "permission.asked", properties: { id: "first", sessionID: "session", permission: "bash", patterns: ["first"] } } });
+  await event({ event: { type: "permission.asked", properties: { id: "second", sessionID: "session", permission: "bash", patterns: ["second"] } } });
+  expect(calls).toBe(1);
+  expect(replies).toEqual([
+    { directory: "/workspace", requestID: "first", reply: "reject", message: "Safety policy failed: policy failure" },
+    { directory: "/workspace", requestID: "second", reply: "reject", message: "Safety policy failed: policy failure" },
+  ]);
+  const output = { status: "ask" };
+  await (plugin["permission.ask"] as Function)({ type: "bash", sessionID: "session", pattern: "third" }, output);
+  expect(output.status).toBe("deny");
+  expect(calls).toBe(1);
+});
+
+test("OpenCode source-load failure aborts startup", async () => {
+  const previous = process.env.SAFETY_CORE_CONFIG_HOME;
+  const home = mkdtempSync(join(tmpdir(), "safety-core-opencode-startup-"));
+  try {
+    process.env.SAFETY_CORE_CONFIG_HOME = home;
+    await expect(createOpenCodePlugin()).rejects.toThrow("config.json");
+  } finally {
+    if (previous === undefined) delete process.env.SAFETY_CORE_CONFIG_HOME; else process.env.SAFETY_CORE_CONFIG_HOME = previous;
+  }
 });
 
 test("property: generic outcomes map deterministically across 1,024 permission requests", async () => {

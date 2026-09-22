@@ -32,12 +32,20 @@ export async function loadPolicySet(
   resolved: ResolvedSessionPolicyConfig,
   options: PolicyLoaderOptions = {},
 ): Promise<LoadedPolicySet> {
+  return loadPolicySources(resolved.sources, options);
+}
+
+/** Load an explicit, already-resolved source manifest without consulting config. */
+export async function loadPolicySources(
+  references: readonly import("./config.js").ResolvedPolicySource[],
+  options: PolicyLoaderOptions = {},
+): Promise<LoadedPolicySet> {
   const importCodePolicy = options.importCodePolicy ?? ((url: string) => import(url));
   const sources: LoadedPolicySource[] = [];
   const policies: ValidatedBashPolicy[] = [];
   const seen = new Set<string>();
 
-  for (const reference of resolved.sources) {
+  for (const reference of references) {
     if (reference.scope !== "global") {
       throw new PolicyStartupError(reference.path, "trusted code policy sources are permitted only in global configuration");
     }

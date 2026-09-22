@@ -36,11 +36,19 @@ export async function createOpenCodePlugin(
   const runtime = dependencies.runtime ?? await (dependencies.loadRuntime ?? loadPolicyRuntime)(directory ?? process.cwd());
   const evaluate = dependencies.evaluatePolicies ?? ((loaded, source) => evaluateLoadedPolicies(loaded, source, policyInitialEnvironment(process.env)));
   const results = new Map<string, BashPolicyEvaluation>();
+  const poisonedSessions = new Map<string, string>();
   setJudgeProvider(buildJudgeProvider());
 
   const evaluateCommand = (source: string) => evaluate(runtime, source);
   const cacheKey = (value: Record<string, unknown>, source: string) =>
     typeof value.sessionID === "string" && typeof value.callID === "string" ? `${value.sessionID}\u0000${value.callID}\u0000${source}` : undefined;
+  const sessionKey = (value: Record<string, unknown>) => typeof value.sessionID === "string" && value.sessionID.length > 0 ? value.sessionID : "<unknown-session>";
+  const poison = (value: Record<string, unknown>, error: unknown) => {
+    const reason = error instanceof Error ? `Safety policy failed: ${error.message}` : "Safety policy failed";
+    poisonedSessions.set(sessionKey(value), reason);
+    return reason;
+  };
+  const poisoned = (value: Record<string, unknown>) => poisonedSessions.get(sessionKey(value));
 
   return {
     "tool.execute.before": async (input, output) => {
@@ -54,7 +62,14 @@ export async function createOpenCodePlugin(
       }
       if (input.tool !== "bash") return;
       const source = String(args.command ?? "");
-      const result = evaluateCommand(source);
+      const existingPoison = poisoned(input as Record<string, unknown>);
+      if (existingPoison) throw new Error(existingPoison);
+      let result: BashPolicyEvaluation;
+      try {
+        result = evaluateCommand(source);
+      } catch (error) {
+        throw new Error(poison(input as Record<string, unknown>, error));
+      }
       if (result.decision === "deny") throw new Error(blockReason(result));
       // Deterministic policy denial is resolved before judge invocation.
       if (shouldInvokeJudge(source)) {
@@ -68,13 +83,37 @@ export async function createOpenCodePlugin(
       if (input.type !== "bash") return;
       const source = Array.isArray(input.pattern) ? input.pattern.join(" && ") : input.pattern;
       if (!source) return;
-      const result = evaluateCommand(source);
+      const existingPoison = poisoned(input as Record<string, unknown>);
+      if (existingPoison) {
+        output.status = "deny";
+        return;
+      }
+      let result: BashPolicyEvaluation;
+      try {
+        result = evaluateCommand(source);
+      } catch (error) {
+        poison(input as Record<string, unknown>, error);
+        output.status = "deny";
+        return;
+      }
       if (result.decision === "allow" || result.decision === "deny") output.status = result.decision;
     },
     event: async ({ event }) => {
       if (!client || event.type !== "permission.asked" || event.properties.permission !== "bash") return;
       const source = event.properties.patterns.join(" && ");
-      const result = evaluateCommand(source);
+      const existingPoison = poisoned(event.properties as Record<string, unknown>);
+      if (existingPoison) {
+        await client.permission.reply({ directory, requestID: event.properties.id, reply: "reject", message: existingPoison });
+        return;
+      }
+      let result: BashPolicyEvaluation;
+      try {
+        result = evaluateCommand(source);
+      } catch (error) {
+        const reason = poison(event.properties as Record<string, unknown>, error);
+        await client.permission.reply({ directory, requestID: event.properties.id, reply: "reject", message: reason });
+        return;
+      }
       if (result.decision === "allow") {
         await client.permission.reply({ directory, requestID: event.properties.id, reply: "once" });
       } else if (result.decision === "deny") {

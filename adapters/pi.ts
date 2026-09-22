@@ -30,9 +30,21 @@ export interface PiExtensionDependencies {
 export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDependencies = {}) {
   const parserReady = initBashParser(discoverWasmDir(import.meta.url));
   void parserReady.catch(() => {});
-  const runtimeReady = dependencies.runtime ?? (dependencies.loadRuntime ?? loadPolicyRuntime)(process.cwd());
-  void runtimeReady.catch(() => {});
+  let runtimeReady = dependencies.runtime;
+  let poisoned: string | undefined;
+  const ensureRuntime = (cwd: string) => {
+    runtimeReady ??= (dependencies.loadRuntime ?? loadPolicyRuntime)(cwd);
+    return runtimeReady;
+  };
   const evaluate = dependencies.evaluatePolicies ?? ((runtime, source) => evaluateLoadedPolicies(runtime, source, policyInitialEnvironment(process.env)));
+
+  pi.on("session_start", async (_event, ctx) => {
+    try {
+      await ensureRuntime(ctx.cwd);
+    } catch (error) {
+      poisoned = policyFailureReason(error);
+    }
+  });
 
   pi.on("tool_call", async (event, ctx) => {
     if (event.toolName === "read") {
@@ -45,14 +57,15 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
     }
     if (event.toolName !== "bash") return;
     const source = (event.input as { command?: string })?.command ?? "";
+    if (poisoned) return { block: true, reason: poisoned };
     let result: BashPolicyEvaluation;
     try {
       await parserReady;
-      result = evaluate(await runtimeReady, source);
+      result = evaluate(await ensureRuntime(ctx.cwd), source);
     } catch (error) {
-      const reason = error instanceof Error ? `Safety policy failed: ${error.message}` : "Safety policy failed";
-      setJudgeVerdict(event.toolCallId, { safe: false, reasoning: reason });
-      return { block: true, reason };
+      poisoned = policyFailureReason(error);
+      setJudgeVerdict(event.toolCallId, { safe: false, reasoning: poisoned });
+      return { block: true, reason: poisoned };
     }
     if (result.decision === "deny") {
       const reason = policyReason(result, "Bash policy denied this command");
@@ -98,4 +111,8 @@ export default function (pi: ExtensionAPI) {
 function policyReason(result: BashPolicyEvaluation, fallback: string): string {
   const trace = result.traces.find((value) => value.decision.kind === "deny");
   return trace?.decision.reason?.map((part) => part.kind === "literal" ? part.value : String(part.value)).join("") ?? fallback;
+}
+
+function policyFailureReason(error: unknown): string {
+  return error instanceof Error ? `Safety policy failed: ${error.message}` : "Safety policy failed";
 }

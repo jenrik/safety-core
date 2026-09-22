@@ -1,6 +1,11 @@
 import { beforeAll, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { discoverWasmDir, initBashParser, type LoadedPolicyRuntime, type ValidatedBashPolicy } from "../src/index.ts";
 import { evaluateClaudeBashPolicy } from "../adapters/claude-code/_bash_policy.ts";
+import { classifyKubectlSecretAudit } from "../adapters/claude-code/kubectl_secret_audit_log.ts";
+import { loadClaudeSessionRuntime } from "../adapters/claude-code/bash_policy.ts";
 
 const policies: readonly ValidatedBashPolicy[] = [
   { source: { canonicalPath: "/policy/guard" }, layer: "guard", select: [], evaluate: (event) =>
@@ -25,4 +30,32 @@ test("Claude maps generic allow, deny, and defer without policy-name presentatio
 
 test("Claude evaluation exceptions are observable to the fatal hook wrapper", () => {
   expect(() => evaluateClaudeBashPolicy(event("printf ok"), { runtime, evaluatePolicies: () => { throw new Error("policy failure"); } })).toThrow("policy failure");
+});
+
+test("Claude session manifests keep config immutable and reject changed source bytes", async () => {
+  const root = mkdtempSync(join(tmpdir(), "safety-core-claude-session-"));
+  const home = join(root, "home");
+  const state = join(root, "state");
+  const policy = join(root, "policy.policy.mjs");
+  mkdirSync(join(home, "safety-core"), { recursive: true });
+  writeFileSync(policy, `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`);
+  writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [policy], projectPolicies: { mode: "disabled" }, bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 } }));
+  const env = { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state };
+  const first = await loadClaudeSessionRuntime("session", root, env);
+  writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [join(root, "missing.policy.mjs")], projectPolicies: { mode: "disabled" }, bashAnalysis: first.limits }));
+  await expect(loadClaudeSessionRuntime("session", root, env)).resolves.toMatchObject({ limits: first.limits });
+  writeFileSync(policy, `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "defer" }) });\n`);
+  await expect(loadClaudeSessionRuntime("session", root, env)).rejects.toThrow("digest changed since session startup");
+});
+
+test("Claude startup rejects missing configured policy sources", async () => {
+  const root = mkdtempSync(join(tmpdir(), "safety-core-claude-failure-"));
+  const home = join(root, "home");
+  mkdirSync(join(home, "safety-core"), { recursive: true });
+  writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [join(root, "missing.policy.mjs")], projectPolicies: { mode: "disabled" }, bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 } }));
+  await expect(loadClaudeSessionRuntime("failed", root, { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: join(root, "state") })).rejects.toThrow("cannot canonicalize policy source");
+});
+
+test("Claude audit classifies Kubectl Secret activity without policy reload", () => {
+  expect(classifyKubectlSecretAudit("kubectl get Secret application")).toEqual({ kubectl_subcommand: "get", resource: "secret", command_length: "kubectl get Secret application".length });
 });

@@ -7,26 +7,21 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { appendAuditRecord } from "../../src/index.js";
+import { analyzeBashWithPolicies, analyzeKubectlInvocation, appendAuditRecord, discoverWasmDir, initBashParser } from "../../src/index.js";
 
 import { parseHookEvent, readStdin, run } from "./_shared.js";
 
 const LOG_PATH = join(homedir(), ".claude", "logs", "kubectl-secret-audit.jsonl");
 
 run(async () => {
+  await initBashParser(discoverWasmDir(import.meta.url));
   const event = parseHookEvent(readStdin());
   if (!event || event.tool_name !== "Bash") return;
 
   const command = (event.tool_input?.command as string | undefined) ?? "";
   if (!command) return;
 
-  // This matcher is an audit-only hook. It deliberately does not initialize
-  // or reload policy configuration after the pre-execution decision boundary.
-  const summary = {
-    kubectl_subcommand: null,
-    resource: null,
-    command_length: command.length,
-  };
+  const summary = classifyKubectlSecretAudit(command);
 
   await appendAuditRecord(LOG_PATH, {
     timestamp: new Date().toISOString(),
@@ -35,3 +30,17 @@ run(async () => {
     ...summary,
   });
 });
+
+export function classifyKubectlSecretAudit(command: string) {
+  const analysis = analyzeBashWithPolicies({ source: command, policies: [], initialEnvironment: { kind: "unavailable" } });
+  const invocation = analysis.events.find((event) => event.kind === "invocation"
+    && event.executable?.kind === "known" && event.executable.value.split("/").at(-1) === "kubectl");
+  if (!invocation || invocation.kind !== "invocation") return { kubectl_subcommand: null, resource: null, command_length: command.length };
+  const decision = analyzeKubectlInvocation({ argv: invocation.argv });
+  const kubectl = decision.kind === "ignore" ? undefined : decision.evidence.kubectl;
+  return {
+    kubectl_subcommand: kubectl?.subcommand ?? null,
+    resource: kubectl?.resource ?? null,
+    command_length: command.length,
+  };
+}

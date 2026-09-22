@@ -39,3 +39,24 @@ Task 6 code and this report are committed together in the following commit.
 
 - The CLI explain path deliberately emits unredacted modeled environment data. It is intended for explicit local diagnostics only and must not be routed into audit logs or harness-visible messages.
 - No adversarial-model review was run because the operator explicitly directed that no reviewers be dispatched.
+
+## Fix Round 1/5
+
+### Implementation
+
+- OpenCode now records a terminal per-session policy failure, explicitly sets legacy `permission.ask` status to `deny`, replies `reject` to current permission events, and rejects all later Bash policy callbacks in that session without reevaluation.
+- Pi loads its runtime lazily from `session_start` or the first Bash callback's `ctx.cwd`, then persists a terminal failure reason for the extension session after any runtime/evaluation exception.
+- Claude records a per-session manifest containing the startup cwd, config path, analysis limits, and canonical source digests. Later hook processes reload only manifest sources and reject source-byte drift without consulting current config.
+- Claude Kubectl Secret audit records again derive subcommand and resource from the parsed Bash invocation, while remaining independent of policy config reloads.
+
+### Evidence
+
+```text
+bun test tests/policy-cli.test.ts tests/bash-config.test.ts tests/claude-code-bash-policy.test.ts tests/opencode-bash-guards.test.ts tests/opencode-read-only-cli.test.ts tests/pi-adapter.test.ts
+20 pass, 0 fail, 1067 expect() calls
+
+nix flake check
+all checks passed
+```
+
+The lifecycle tests use real temp `config.json` and code-policy source files for missing-source startup failure, Pi project cwd resolution with `projectPolicies.mode = "all"`, and Claude config/source manifest immutability. They also verify OpenCode's native rejection response and both adapters' no-reevaluation poison persistence.

@@ -1,5 +1,8 @@
 import { expect, mock, test } from "bun:test";
-import type { BashPolicyEvaluation, LoadedPolicyRuntime } from "../src/index.ts";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { loadPolicyRuntime, type BashPolicyEvaluation, type LoadedPolicyRuntime } from "../src/index.ts";
 
 mock.module("@earendil-works/pi-coding-agent", () => ({ createBashTool: () => ({ execute() {} }) }));
 mock.module("@earendil-works/pi-tui", () => ({ Container: class { addChild() {} }, Text: class {} }));
@@ -31,4 +34,40 @@ test("Pi poisons a session on runtime policy failure", async () => {
   });
   const result = await handlers.get("tool_call")!({ toolName: "bash", toolCallId: "failed", input: { command: "id" } }, { ui: { notify() {} } });
   expect(result).toMatchObject({ block: true, reason: "Safety policy failed: startup failure" });
+});
+
+test("Pi persists poison after an evaluation exception without re-evaluating", async () => {
+  const { createPiExtension } = await import("../adapters/pi.ts");
+  const handlers = new Map<string, Function>();
+  let calls = 0;
+  createPiExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerTool() {} } as never, {
+    runtime: Promise.resolve(runtime),
+    evaluatePolicies: () => { calls++; throw new Error("evaluation failure"); },
+  });
+  const context = { cwd: "/project", ui: { notify() {} } };
+  const first = await handlers.get("tool_call")!({ toolName: "bash", toolCallId: "first", input: { command: "id" } }, context);
+  const second = await handlers.get("tool_call")!({ toolName: "bash", toolCallId: "second", input: { command: "id" } }, context);
+  expect(first).toEqual({ block: true, reason: "Safety policy failed: evaluation failure" });
+  expect(second).toEqual({ block: true, reason: "Safety policy failed: evaluation failure" });
+  expect(calls).toBe(1);
+});
+
+test("Pi loads its immutable runtime from the session project cwd", async () => {
+  const { createPiExtension } = await import("../adapters/pi.ts");
+  const root = mkdtempSync(join(tmpdir(), "safety-core-pi-project-"));
+  const home = join(root, "home");
+  const project = join(root, "project");
+  const policy = join(root, "allow.policy.mjs");
+  mkdirSync(join(home, "safety-core"), { recursive: true });
+  mkdirSync(join(project, ".safety-core"), { recursive: true });
+  writeFileSync(policy, `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`);
+  writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [policy], projectPolicies: { mode: "all" }, bashAnalysis: limits }));
+  writeFileSync(join(project, ".safety-core", "config.json"), JSON.stringify({ version: 1, policies: [] }));
+  const handlers = new Map<string, Function>();
+  let loadedCwd: string | undefined;
+  createPiExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerTool() {} } as never, {
+    loadRuntime: async (cwd) => { loadedCwd = cwd; return loadPolicyRuntime(cwd, { SAFETY_CORE_CONFIG_HOME: home }); },
+  });
+  await handlers.get("session_start")!({}, { cwd: project });
+  expect(loadedCwd).toBe(project);
 });
