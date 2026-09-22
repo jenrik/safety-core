@@ -54,7 +54,32 @@ describe("DCRM JSON policy validation", () => {
     expect(compiled.states.command.cases[0]?.origin).toBe("option:namespace");
     expect(compiled.states.command.cases[1]?.origin).toBe("state:command");
     expect(compiled.states.tail.cases[0]?.origin).toBe("option:namespace");
+    expect(compiled.options.namespace).toEqual({
+      names: ["-n", "--namespace"],
+      value: "required",
+      forms: ["separate", "attachedShort", "equalsLong", "cluster"],
+      availableIn: "*",
+      set: { value: { ref: "option.value" } },
+    });
+    expect(compiled.states.command.cases[0]?.action).toMatchObject({
+      kind: "option",
+      forms: ["separate", "attachedShort", "equalsLong", "cluster"],
+      value: "required",
+      minProgress: 1,
+      clusterByteProgress: true,
+    });
+    expect(Object.values(compiled.states).every((state) => state.default.kind === "terminal" && state.end.kind === "terminal")).toBeTrue();
     expect(compiled.metrics.transitions).toBeGreaterThan(0);
+  });
+
+  test("lowers machine-wide and state-local options in declaration order", () => {
+    const document = policy();
+    document.options.tailFlag = { names: ["--tail"], value: "absent", forms: [], availableIn: ["tail"] };
+    const compiled = compilePolicyDocument(validatePolicyDocument(document));
+
+    expect(compiled.states.command.cases.map((entry) => entry.origin)).toEqual(["option:namespace", "state:command"]);
+    expect(compiled.states.tail.cases.map((entry) => entry.origin)).toEqual(["option:namespace", "option:tailFlag", "state:tail"]);
+    expect(compiled.options.tailFlag).toMatchObject({ names: ["--tail"], availableIn: ["tail"] });
   });
 
   test("rejects exact-version and unknown-key violations", () => {
@@ -79,6 +104,17 @@ describe("DCRM JSON policy validation", () => {
     invalid((document) => { document.states.command.cases[0].action.set = { unknown: true }; });
     invalid((document) => { document.states.command.cases[0].when = { call: "doesNotExist", args: [] }; });
     invalid((document) => { document.layer = "guard"; document.states.tail.end.decision = "allow"; });
+    invalid((document) => {
+      document.registers.otherMode = { type: "enum", values: ["other"], initial: "other" };
+      document.states.command.cases[0].action.set = { mode: { ref: "otherMode" } };
+    });
+    invalid((document) => { document.states.command.cases[0].action.set = { mode: { call: "asciiLower", args: ["READ"] } }; });
+    invalid((document) => {
+      document.registers.larger = { type: "count", max: 4, initial: 0 };
+      document.states.command.cases[0].action.set = { count: { ref: "larger" } };
+    });
+    invalid((document) => { document.states.command.cases[0].action.set = { count: { call: "parseBoundedInt", args: [{ ref: "word" }, 4] } }; });
+    expect(() => validatePolicyDocument(withAssignment({ count: { call: "parseBoundedInt", args: [{ ref: "word" }, 3] } }))).not.toThrow();
   });
 
   test("proves every compiled nonterminal transition consumes forward progress", () => {
@@ -110,6 +146,34 @@ describe("DCRM JSON policy validation", () => {
       document.states.command.fragments = ["invalid"];
     });
     invalid((document) => { document.states = Object.fromEntries(Array.from({ length: 129 }, (_, index) => [`s${index}`, { cases: [], default: { decision: "ignore" }, end: { decision: "ignore" } }])); document.start = "s0"; });
+    invalid((document) => { document.select = Array.from({ length: 257 }, () => ({ kind: "invocation" })); });
+    invalid((document) => { document.options.namespace.names = Array.from({ length: 17 }, (_, index) => `--option-${index}`); });
+    invalid((document) => { document.states.command.cases[0].when = { all: Array.from({ length: 32_769 }, () => true) }; });
+  });
+
+  test("rejects malformed restricted regular expressions", () => {
+    for (const pattern of ["[", "[]", "\\q", "a]", "a+", "^a^"]) {
+      invalid((document) => { document.states.command.cases[0].when = { call: "linearRegex", args: [{ ref: "word" }, pattern] }; });
+    }
+    expect(() => validatePolicyDocument(withWhen({ call: "linearRegex", args: [{ ref: "word" }, "^[a-zA-Z._-]$"] }))).not.toThrow();
+  });
+
+  test("rejects shared fragment DAG expansion before compilation allocates it", () => {
+    const document = policy();
+    const fragments: Record<string, unknown> = { leaf: { cases: [{ when: true, action: { consume: "word", next: "command" } }] } };
+    let previous = "leaf";
+    for (let index = 0; index < 12; index++) {
+      const left = `left${index}`;
+      const right = `right${index}`;
+      const next = `join${index}`;
+      fragments[left] = { uses: [previous], cases: [] };
+      fragments[right] = { uses: [previous], cases: [] };
+      fragments[next] = { uses: [left, right], cases: [] };
+      previous = next;
+    }
+    document.fragments = fragments;
+    document.states.command.fragments = [previous];
+    expect(() => validatePolicyDocument(document)).toThrow("expanded fragment");
   });
 
   test("freezes a closed v1 catalogue with total documented operations", () => {
@@ -147,6 +211,7 @@ describe("DCRM JSON policy validation", () => {
 
   test("property: validation work grows linearly with source node count", () => {
     const measures: number[] = [];
+    const work: number[] = [];
     for (const stateCount of [8, 16, 32, 64, 128]) {
       const document = policy();
       document.states = Object.fromEntries(Array.from({ length: stateCount }, (_, index) => [
@@ -158,9 +223,65 @@ describe("DCRM JSON policy validation", () => {
         },
       ]));
       document.start = "state0";
-      measures.push(validatePolicyDocument(document).metrics.nodes);
+      const metrics = validatePolicyDocument(document).metrics;
+      measures.push(metrics.nodes);
+      work.push(metrics.validationWork);
     }
     expect(measures).toEqual([8, 16, 32, 64, 128].map((count) => expect.any(Number)));
     expect(measures[4]! / measures[0]!).toBeLessThan(20);
+    expect(work[4]! / work[0]!).toBeLessThan(20);
+  });
+
+  test("property: cluster options retain every valid form without synthetic unterminated states", () => {
+    const forms = ["separate", "attachedShort", "equalsLong", "cluster"];
+    for (let mask = 1; mask < 16; mask++) {
+      const document = policy();
+      document.options.namespace.forms = forms.filter((_, index) => (mask & (1 << index)) !== 0);
+      if (!document.options.namespace.forms.includes("attachedShort") && !document.options.namespace.forms.includes("cluster")) {
+        document.options.namespace.names = ["--namespace"];
+      }
+      if (!document.options.namespace.forms.includes("equalsLong")) document.options.namespace.names = ["-n"];
+      const compiled = compilePolicyDocument(validatePolicyDocument(document));
+      expect(compiled.options.namespace.forms, `mask ${mask}`).toEqual(document.options.namespace.forms);
+      expect(Object.values(compiled.states).every((state) => state.default.kind === "terminal" && state.end.kind === "terminal"), `mask ${mask}`).toBeTrue();
+    }
+  });
+
+  test("property: bounded shared fragment DAGs compile to their exact materialized case count", () => {
+    for (let depth = 0; depth < 10; depth++) {
+      const document = sharedFragmentDocument(depth);
+      const compiled = compilePolicyDocument(validatePolicyDocument(document));
+      expect(compiled.states.command.cases.filter((entry) => entry.origin.startsWith("fragment:")).length, `depth ${depth}`).toBe(2 ** depth);
+    }
   });
 });
+
+function withWhen(when: unknown): Record<string, unknown> {
+  const document = policy();
+  document.states.command.cases[0].when = when;
+  return document;
+}
+
+function withAssignment(set: Record<string, unknown>): Record<string, unknown> {
+  const document = policy();
+  document.states.command.cases[0].action.set = set;
+  return document;
+}
+
+function sharedFragmentDocument(depth: number): Record<string, unknown> {
+  const document = policy();
+  const fragments: Record<string, unknown> = { leaf: { cases: [{ when: true, action: { consume: "word", next: "command" } }] } };
+  let previous = "leaf";
+  for (let index = 0; index < depth; index++) {
+    const left = `left${index}`;
+    const right = `right${index}`;
+    const next = `join${index}`;
+    fragments[left] = { uses: [previous], cases: [] };
+    fragments[right] = { uses: [previous], cases: [] };
+    fragments[next] = { uses: [left, right], cases: [] };
+    previous = next;
+  }
+  document.fragments = fragments;
+  document.states.command.fragments = [previous];
+  return document;
+}

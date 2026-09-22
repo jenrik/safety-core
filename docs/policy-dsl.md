@@ -96,9 +96,13 @@ and `equalsLong` requires a long name. Option names are globally unique.
 
 `availableIn: "*"` is machine-wide; a non-empty state-name list makes the
 option state-local. Compilation inserts applicable options in declaration order
-before fragment and state cases in every applicable state. It also creates an
-internal cluster state for every `cluster` form. A cluster microstep consumes
-one byte; it is not an authored action.
+before fragment and state cases in every applicable state. A compiled option
+action retains its exact names, value requirement, forms, updates, and static
+resume state; the evaluator therefore distinguishes separate, attached-short,
+equals-long, and cluster values without reconstructing the declaration. Cluster
+parsing sets `clusterByteProgress` and consumes bytes from the current finite
+word inside that action; v1 does not create a standalone synthetic cluster
+state.
 
 ## Fragments and folds
 
@@ -113,8 +117,11 @@ Fragments are compile-time case lists:
 
 State `fragments` are expanded in listed order before local cases. Fragment
 `uses` are expanded before that fragment's cases. References must resolve and
-the graph must be acyclic; expansion has a fixed compiled-case limit. Fragments
-are not runtime calls.
+the graph must be acyclic. Validation computes a saturating materialized cost
+for every fragment: each use site contributes its complete child cost, including
+shared DAG children. It rejects the program before compiler allocation when the
+whole compiled expansion exceeds its fixed limit. Fragments are not runtime
+calls.
 
 Folds declare exactly one finite engine collection: `argv`, `redirects`,
 `assignments`, `provenance`, or `environment`. Operations are `any`, `all`,
@@ -167,8 +174,10 @@ input reference and preserves unknown handling for the evaluator.
 | `isInPipeline` | `() -> bool` | `O(1)` | pipeline context |
 | `processEffectIs` | `(string) -> bool` | `O(1)` | process effects |
 
-`linearRegex` accepts only literal bytes, anchors, dot, character classes, and
-escaped literals. It rejects grouping, alternation, repetition, lookaround,
+`linearRegex` has a handwritten restricted grammar: an optional leading `^`,
+literal bytes, `.`, non-empty terminated character classes, only escapes of
+`\\.^$[]-`, and an optional trailing `$`. It rejects malformed/empty classes,
+truncated or unknown escapes, grouping, alternation, repetition, lookaround,
 and backreferences. `safeGlob` has only literal, `?`, and `*` forms. URL and
 repository parsing are strict lexical parsing, never lookup. No locale,
 filesystem, process, network, clock, randomness, module, or callback access is
@@ -177,11 +186,13 @@ available.
 ## Validation limits and progress proof
 
 v1 limits source JSON to 256 KiB; states to 128; registers to 64; folds to 32;
-options to 64; fragments to 64; cases per state to 128; and source/compiled
-transitions, expanded cases, and templates to 4,096. Expression nodes are
-limited to 32,768, literal bytes to 16,384, regex bytes to 8,192, and audit
-depth to 16. Validation is linear in this bounded source/compiled structure
-(with linear restricted-regex validation).
+options to 64; selectors to 256; option names to 16; fragments to 64; cases
+per state to 128; and source/compiled transitions, expanded cases, and
+templates to 4,096. Expression nodes are limited to 32,768, literal bytes to
+16,384, regex bytes to 8,192, and audit depth to 16. Validation is linear in
+the source structure plus explicit state-local option availability and fragment
+edges. It indexes option availability once and uses saturating DAG accounting;
+it does not scan every option for every state.
 
 Every authored nonterminal has `consume: "word"`, which consumes one forward
 argv boundary. Every compiler-created cluster transition consumes one forward

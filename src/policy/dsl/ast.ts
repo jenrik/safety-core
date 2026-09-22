@@ -86,8 +86,11 @@ export type Selector =
 
 export interface ValidationMetrics {
   readonly nodes: number;
+  readonly validationWork: number;
+  readonly selectors: number;
   readonly states: number;
   readonly transitions: number;
+  readonly compiledCases: number;
   readonly literals: number;
   readonly templateParts: number;
   readonly regexBytes: number;
