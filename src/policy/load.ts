@@ -11,6 +11,7 @@ import { parsePolicyDocument } from "./dsl/validate.js";
 
 export interface LoadedPolicySource {
   readonly canonicalPath: string;
+  readonly scope: "global" | "project";
   readonly sha256: string;
 }
 
@@ -49,7 +50,7 @@ export async function loadPolicySources(
   const seen = new Set<string>();
 
   for (const reference of references) {
-    if (reference.scope !== "global") {
+    if (reference.scope === "project" && !reference.path.endsWith(".policy.json")) {
       throw new PolicyStartupError(reference.path, "trusted code policy sources are permitted only in global configuration");
     }
     const canonicalPath = canonicalizeSource(reference.path);
@@ -57,12 +58,15 @@ export async function loadPolicySources(
     seen.add(canonicalPath);
     const bytes = readSource(canonicalPath);
     const policy = canonicalPath.endsWith(".policy.mjs")
-      ? await loadCodePolicy(canonicalPath, bytes, importCodePolicy)
+      ? reference.scope === "global"
+        ? await loadCodePolicy(canonicalPath, bytes, importCodePolicy)
+        : (() => { throw new PolicyStartupError(canonicalPath, "trusted code policy sources are permitted only in global configuration"); })()
       : canonicalPath.endsWith(".policy.json")
         ? loadDslPolicy(canonicalPath, bytes)
-        : (() => { throw new PolicyStartupError(canonicalPath, "global policy source must use .policy.mjs or .policy.json"); })();
+        : (() => { throw new PolicyStartupError(canonicalPath, `${reference.scope} policy source must use the exact ${reference.scope === "global" ? ".policy.mjs or .policy.json" : ".policy.json"} extension`); })();
     sources.push(Object.freeze({
       canonicalPath,
+      scope: reference.scope,
       sha256: createHash("sha256").update(bytes).digest("hex"),
     }));
     policies.push(policy);

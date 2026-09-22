@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOpenCodePlugin, blockReason } from "../adapters/opencode.ts";
@@ -68,6 +68,32 @@ test("OpenCode source-load failure aborts startup", async () => {
   try {
     process.env.SAFETY_CORE_CONFIG_HOME = home;
     await expect(createOpenCodePlugin()).rejects.toThrow("config.json");
+  } finally {
+    if (previous === undefined) delete process.env.SAFETY_CORE_CONFIG_HOME; else process.env.SAFETY_CORE_CONFIG_HOME = previous;
+  }
+});
+
+test("OpenCode startup loads an all-mode project DSL policy from its plugin directory", async () => {
+  const previous = process.env.SAFETY_CORE_CONFIG_HOME;
+  const root = mkdtempSync(join(tmpdir(), "safety-core-opencode-project-"));
+  const home = join(root, "home");
+  const project = join(root, "project");
+  try {
+    mkdirSync(join(home, "safety-core"), { recursive: true });
+    mkdirSync(join(project, ".safety-core"), { recursive: true });
+    writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({
+      version: 1,
+      policies: [],
+      projectPolicies: { mode: "all" },
+      bashAnalysis: limits,
+    }));
+    writeFileSync(join(project, ".safety-core", "config.json"), JSON.stringify({ version: 1, policies: ["project.policy.json"] }));
+    writeFileSync(join(project, "project.policy.json"), JSON.stringify({
+      language: "safety-core/bash-policy-v1", layer: "permission", select: [{ kind: "invocation" }], registers: {}, start: "start",
+      states: { start: { cases: [], default: { decision: "ignore" }, end: { decision: "allow", reason: ["project allow"] } } },
+    }));
+    process.env.SAFETY_CORE_CONFIG_HOME = home;
+    await expect(createOpenCodePlugin({}, undefined, project)).resolves.toBeDefined();
   } finally {
     if (previous === undefined) delete process.env.SAFETY_CORE_CONFIG_HOME; else process.env.SAFETY_CORE_CONFIG_HOME = previous;
   }

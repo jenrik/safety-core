@@ -73,16 +73,23 @@ test("Pi loads its immutable runtime from the session project cwd", async () => 
   const home = join(root, "home");
   const project = join(root, "project");
   const policy = join(root, "allow.policy.mjs");
+  const projectPolicy = join(project, "project.policy.json");
   mkdirSync(join(home, "safety-core"), { recursive: true });
   mkdirSync(join(project, ".safety-core"), { recursive: true });
   writeFileSync(policy, `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`);
   writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [policy], projectPolicies: { mode: "all" }, bashAnalysis: limits }));
-  writeFileSync(join(project, ".safety-core", "config.json"), JSON.stringify({ version: 1, policies: [] }));
+  writeFileSync(join(project, ".safety-core", "config.json"), JSON.stringify({ version: 1, policies: ["project.policy.json"] }));
+  writeFileSync(projectPolicy, JSON.stringify({
+    language: "safety-core/bash-policy-v1", layer: "permission", select: [{ kind: "invocation" }], registers: {}, start: "start",
+    states: { start: { cases: [], default: { decision: "ignore" }, end: { decision: "allow", reason: ["project allow"] } } },
+  }));
   const handlers = new Map<string, Function>();
   let loadedCwd: string | undefined;
+  let loadedRuntime: LoadedPolicyRuntime | undefined;
   createPiExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerTool() {} } as never, {
-    loadRuntime: async (cwd) => { loadedCwd = cwd; return loadPolicyRuntime(cwd, { SAFETY_CORE_CONFIG_HOME: home }); },
+    loadRuntime: async (cwd) => { loadedCwd = cwd; return loadedRuntime = await loadPolicyRuntime(cwd, { SAFETY_CORE_CONFIG_HOME: home }); },
   });
   await handlers.get("session_start")!({}, { cwd: project });
   expect(loadedCwd).toBe(project);
+  expect(loadedRuntime!.policySet.sources.map((source) => source.canonicalPath)).toContain(projectPolicy);
 });

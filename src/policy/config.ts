@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 
@@ -29,6 +30,7 @@ export interface ProjectPoliciesConfig {
 
 export interface GlobalPolicyConfig {
   readonly path: string;
+  readonly configuration: PolicyConfigurationSource;
   readonly version: 1;
   readonly policies: readonly string[];
   readonly projectPolicies: ProjectPoliciesConfig;
@@ -40,9 +42,17 @@ export interface ResolvedPolicySource {
   readonly scope: "global" | "project";
 }
 
+/** Immutable identity of configuration bytes selected at session startup. */
+export interface PolicyConfigurationSource {
+  readonly canonicalPath: string;
+  readonly scope: "global" | "project";
+  readonly sha256: string;
+}
+
 export interface ResolvedSessionPolicyConfig {
   readonly global: GlobalPolicyConfig;
   readonly projectRoot?: string;
+  readonly configurations: readonly PolicyConfigurationSource[];
   readonly sources: readonly ResolvedPolicySource[];
 }
 
@@ -50,8 +60,9 @@ type Environment = Readonly<Record<string, string | undefined>>;
 
 /** Load the authoritative global file selected solely by environment presence. */
 export function loadGlobalPolicyConfig(env: Environment = process.env): GlobalPolicyConfig {
-  const path = globalConfigPath(env);
-  return parseGlobalConfig(readJson(path), path);
+  const path = canonicalPath(globalConfigPath(env), "global configuration");
+  const document = readJson(path);
+  return parseGlobalConfig(document.value, path, configurationSource(path, "global", document.bytes));
 }
 
 /** Resolve global sources and the one applicable nearest project configuration. */
@@ -63,10 +74,12 @@ export function resolveSessionPolicyConfig(config: GlobalPolicyConfig, cwd: stri
     : [];
   const project = resolveApplicableProjectConfig(config, canonicalCwd, allowedRoots);
   const sources = project === undefined ? globalSources : [...globalSources, ...project.sources];
+  const configurations = project === undefined ? [config.configuration] : [config.configuration, project.configuration];
 
   return Object.freeze({
     global: config,
     ...(project === undefined ? {} : { projectRoot: project.root }),
+    configurations: Object.freeze(configurations),
     sources: Object.freeze(sources),
   });
 }
@@ -88,21 +101,21 @@ function requireAbsolutePath(name: string, value: string | undefined): string {
   return value;
 }
 
-function readJson(path: string): unknown {
-  let source: string;
+function readJson(path: string): { readonly bytes: Buffer; readonly value: unknown } {
+  let bytes: Buffer;
   try {
-    source = readFileSync(path, "utf8");
+    bytes = readFileSync(path);
   } catch (error) {
     throw new PolicyStartupError(path, "cannot read configuration", error);
   }
   try {
-    return JSON.parse(source);
+    return Object.freeze({ bytes, value: JSON.parse(bytes.toString("utf8")) });
   } catch (error) {
     throw new PolicyStartupError(path, "malformed JSON configuration", error);
   }
 }
 
-function parseGlobalConfig(value: unknown, path: string): GlobalPolicyConfig {
+function parseGlobalConfig(value: unknown, path: string, configuration: PolicyConfigurationSource): GlobalPolicyConfig {
   const record = requireRecord(value, path, "configuration must be an object");
   requireOnlyKeys(record, new Set(["version", "policies", "projectPolicies", "bashAnalysis"]), path);
   if (record.version !== 1) throw new PolicyStartupError(path, "version must be 1");
@@ -113,6 +126,7 @@ function parseGlobalConfig(value: unknown, path: string): GlobalPolicyConfig {
 
   return Object.freeze({
     path,
+    configuration,
     version: 1,
     policies: Object.freeze(policies),
     projectPolicies,
@@ -153,7 +167,7 @@ function resolveApplicableProjectConfig(
   config: GlobalPolicyConfig,
   canonicalCwd: string,
   allowedRoots: readonly string[],
-): { readonly root: string; readonly sources: readonly ResolvedPolicySource[] } | undefined {
+): { readonly root: string; readonly configuration: PolicyConfigurationSource; readonly sources: readonly ResolvedPolicySource[] } | undefined {
   if (config.projectPolicies.mode === "disabled") return undefined;
   const root = findNearestProjectRoot(canonicalCwd);
   if (root === undefined) return undefined;
@@ -161,15 +175,20 @@ function resolveApplicableProjectConfig(
     if (!allowedRoots.includes(root)) return undefined;
   }
 
-  const configPath = join(root, ".safety-core", "config.json");
-  const record = requireRecord(readJson(configPath), configPath, "project configuration must be an object");
+  const configPath = canonicalPath(join(root, ".safety-core", "config.json"), "project configuration");
+  const document = readJson(configPath);
+  const record = requireRecord(document.value, configPath, "project configuration must be an object");
   requireOnlyKeys(record, new Set(["version", "policies"]), configPath);
   if (record.version !== 1) throw new PolicyStartupError(configPath, "version must be 1");
   const policies = parsePolicies(record.policies, configPath);
   requireSourceExtensions(policies, ".policy.json", "project", configPath);
   const sources = policies
     .map((reference) => resolveSource(reference, root, "project", configPath));
-  return Object.freeze({ root, sources: Object.freeze(sources) });
+  return Object.freeze({
+    root,
+    configuration: configurationSource(configPath, "project", document.bytes),
+    sources: Object.freeze(sources),
+  });
 }
 
 function findNearestProjectRoot(canonicalCwd: string): string | undefined {
@@ -234,4 +253,12 @@ function canonicalPath(path: string, subject: string): string {
   } catch (error) {
     throw new PolicyStartupError(path, `cannot canonicalize ${subject}`, error);
   }
+}
+
+function configurationSource(canonicalPath: string, scope: PolicyConfigurationSource["scope"], bytes: Buffer): PolicyConfigurationSource {
+  return Object.freeze({
+    canonicalPath,
+    scope,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  });
 }

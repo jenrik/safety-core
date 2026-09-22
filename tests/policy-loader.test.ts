@@ -48,7 +48,7 @@ describe("trusted code policy source loading", () => {
       states: { start: { cases: [], default: { decision: "ignore" }, end: { decision: "allow", reason: ["approved"] } } },
     }));
     const loaded = await loadPolicySet(resolvedConfig(home, [policy]));
-    expect(loaded.sources).toEqual([{ canonicalPath: realpathSync(policy), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }]);
+    expect(loaded.sources).toEqual([{ canonicalPath: realpathSync(policy), scope: "global", sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }]);
     expect(loaded.policies[0]).toMatchObject({ source: { canonicalPath: realpathSync(policy) }, layer: "permission" });
 
     writeFileSync(policy, JSON.stringify({

@@ -26,7 +26,7 @@ run(async () => {
   if (decision?.kind === "deny") emitDeny(decision.reason);
 });
 
-/** Persist only source identity and limits; each hook verifies that snapshot. */
+/** Persist configuration and source identity; each hook verifies that snapshot. */
 export async function loadClaudeSessionRuntime(sessionID: unknown, cwd: string, env: Readonly<Record<string, string | undefined>> = process.env): Promise<LoadedPolicyRuntime> {
   const manifestPath = claudeManifestPath(sessionID, cwd, env);
   if (existsSync(manifestPath)) return loadPolicyRuntimeManifest(parseManifest(readFileSync(manifestPath, "utf8"), manifestPath));
@@ -79,8 +79,8 @@ function requireHome(env: Readonly<Record<string, string | undefined>>): string 
 function parseManifest(source: string, path: string): PolicyRuntimeManifest {
   try {
     const value = JSON.parse(source) as PolicyRuntimeManifest;
-    if (value.version !== 1 || typeof value.cwd !== "string" || typeof value.configPath !== "string"
-      || !Array.isArray(value.sources) || !value.limits) throw new Error("invalid manifest schema");
+    if (value.version !== 2 || typeof value.cwd !== "string" || (value.projectRoot !== undefined && typeof value.projectRoot !== "string")
+      || !Array.isArray(value.configurations) || !Array.isArray(value.sources) || !value.limits) throw new Error("invalid manifest schema");
     return value;
   } catch (error) {
     throw new Error(`${path}: cannot load immutable policy session manifest: ${error instanceof Error ? error.message : "invalid JSON"}`);

@@ -26,9 +26,9 @@ afterEach(() => {
   while (fixtures.length) rmSync(fixtures.pop()!, { force: true, recursive: true });
 });
 
-function cli(home: string, args: readonly string[], extraEnv: Record<string, string> = {}) {
-  return spawnSync("bun", ["src/cli.ts", ...args], {
-    cwd: process.cwd(),
+function cli(home: string, args: readonly string[], extraEnv: Record<string, string> = {}, cwd: string = process.cwd()) {
+  return spawnSync("bun", [join(process.cwd(), "src/cli.ts"), ...args], {
+    cwd,
     encoding: "utf8",
     env: { ...process.env, SAFETY_CORE_CONFIG_HOME: home, ...extraEnv },
   });
@@ -49,6 +49,29 @@ describe("safety-core CLI", () => {
     const result = cli(home, ["validate"]);
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("config.json");
+  });
+
+  test("validate loads the nearest all-mode project DSL policy before starting", () => {
+    const home = fixture();
+    const project = join(home, "project");
+    const projectConfig = join(project, ".safety-core");
+    const policy = join(project, "project.policy.json");
+    mkdirSync(projectConfig, { recursive: true });
+    writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({
+      version: 1,
+      policies: [],
+      projectPolicies: { mode: "all" },
+      bashAnalysis: { maxFunctionDepth: 7, maxNestedScriptDepth: 6, maxSteps: 50, maxWorkItems: 50 },
+    }));
+    writeFileSync(join(projectConfig, "config.json"), JSON.stringify({ version: 1, policies: ["project.policy.json"] }));
+    writeFileSync(policy, JSON.stringify({
+      language: "safety-core/bash-policy-v1", layer: "permission", select: [{ kind: "invocation" }], registers: {}, start: "start",
+      states: { start: { cases: [], default: { decision: "ignore" }, end: { decision: "allow", reason: ["project allow"] } } },
+    }));
+
+    const result = cli(home, ["validate"], {}, project);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(`  ${policy}\n`);
   });
 
   test("explain emits every source decision and the exact modeled canary argv and environment", () => {

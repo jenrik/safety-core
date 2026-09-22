@@ -51,11 +51,13 @@ test("Claude session manifests keep config immutable and reject changed source b
   const policy = join(root, "policy.policy.mjs");
   mkdirSync(join(home, "safety-core"), { recursive: true });
   writeFileSync(policy, `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`);
-  writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [policy], projectPolicies: { mode: "disabled" }, bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 } }));
+  const config = { version: 1, policies: [policy], projectPolicies: { mode: "disabled" }, bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 } };
+  writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify(config));
   const env = { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state };
   const first = await loadClaudeSessionRuntime("session", root, env);
   writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [join(root, "missing.policy.mjs")], projectPolicies: { mode: "disabled" }, bashAnalysis: first.limits }));
-  await expect(loadClaudeSessionRuntime("session", root, env)).resolves.toMatchObject({ limits: first.limits });
+  await expect(loadClaudeSessionRuntime("session", root, env)).rejects.toThrow("configuration digest changed since session startup");
+  writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify(config));
   writeFileSync(policy, `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "defer" }) });\n`);
   await expect(loadClaudeSessionRuntime("session", root, env)).rejects.toThrow("digest changed since session startup");
 });
@@ -68,22 +70,42 @@ test("Claude startup rejects missing configured policy sources", async () => {
   await expect(loadClaudeSessionRuntime("failed", root, { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: join(root, "state") })).rejects.toThrow("cannot canonicalize policy source");
 });
 
+test("Claude project snapshots verify selected project configuration bytes before reloading", async () => {
+  const root = mkdtempSync(join(tmpdir(), "safety-core-claude-project-"));
+  const home = join(root, "home");
+  const state = join(root, "state");
+  const project = join(root, "project");
+  const policy = join(project, "project.policy.json");
+  mkdirSync(join(home, "safety-core"), { recursive: true });
+  mkdirSync(join(project, ".safety-core"), { recursive: true });
+  const limits = { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 };
+  writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [], projectPolicies: { mode: "all" }, bashAnalysis: limits }));
+  writeFileSync(join(project, ".safety-core", "config.json"), JSON.stringify({ version: 1, policies: ["project.policy.json"] }));
+  writeFileSync(policy, JSON.stringify({
+    language: "safety-core/bash-policy-v1", layer: "permission", select: [{ kind: "invocation" }], registers: {}, start: "start",
+    states: { start: { cases: [], default: { decision: "ignore" }, end: { decision: "allow", reason: ["project allow"] } } },
+  }));
+  const env = { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state };
+
+  const runtime = await loadClaudeSessionRuntime("project", project, env);
+  expect(runtime.projectRoot).toBe(project);
+  writeFileSync(join(project, ".safety-core", "config.json"), JSON.stringify({ version: 1, policies: [] }));
+  await expect(loadClaudeSessionRuntime("project", project, env)).rejects.toThrow("configuration digest changed since session startup");
+});
+
 test("Claude concurrent first hooks establish exactly one immutable manifest", async () => {
   const root = mkdtempSync(join(tmpdir(), "safety-core-claude-race-"));
   const home = join(root, "home");
   const state = join(root, "state");
   const firstPolicy = join(root, "first.policy.mjs");
-  const secondPolicy = join(root, "second.policy.mjs");
   const limits = { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 };
   mkdirSync(join(home, "safety-core"), { recursive: true });
   writeFileSync(firstPolicy, `await new Promise((resolve) => setTimeout(resolve, 100)); export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`);
-  writeFileSync(secondPolicy, `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`);
   const configPath = join(home, "safety-core", "config.json");
   writeFileSync(configPath, JSON.stringify({ version: 1, policies: [firstPolicy], projectPolicies: { mode: "disabled" }, bashAnalysis: limits }));
   const env = { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state };
   const first = loadClaudeSessionRuntime("race", root, env);
   await new Promise((resolve) => setTimeout(resolve, 20));
-  writeFileSync(configPath, JSON.stringify({ version: 1, policies: [secondPolicy], projectPolicies: { mode: "disabled" }, bashAnalysis: limits }));
   const runtimes = await Promise.all([first, ...Array.from({ length: 8 }, () => loadClaudeSessionRuntime("race", root, env))]);
   for (const runtime of runtimes) expect(runtime.policySet.sources.map((source) => source.canonicalPath)).toEqual([firstPolicy]);
 });
