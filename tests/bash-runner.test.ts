@@ -269,6 +269,23 @@ describe("iterative Bash authorization runner", () => {
     expect(completed.verdict).toEqual({ kind: "neutral" });
   });
 
+  test("reports every admitted fork target left unexecuted by max steps", () => {
+    const gaps: string[] = [];
+    const targets = ["first", "second", "third"].map((name) => ({
+      ...target(() => result(safe())),
+      reportExecutionGap: (reason: string) => gaps.push(`${name}:${reason}`),
+    }));
+
+    const completed = runSteps(fork(targets), limits({ maxSteps: 1 }));
+
+    expect(completed.outcome).toEqual(analysisFailure("max-steps", span));
+    expect(gaps.sort()).toEqual([
+      "first:max-steps",
+      "second:max-steps",
+      "third:max-steps",
+    ]);
+  });
+
   for (const [field, budget] of [
     ["maxFunctionDepth", "max-function-depth"],
     ["maxNestedScriptDepth", "max-nested-script-depth"],

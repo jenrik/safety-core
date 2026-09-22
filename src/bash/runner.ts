@@ -70,6 +70,7 @@ export function runSteps(initial: Step, limits: BashAnalysisLimits = DEFAULT_BAS
     const step = agenda.pop()!;
     if (steps >= limits.maxSteps) {
       reportStepGap(step, "max-steps");
+      for (const pending of agenda) reportStepGap(pending, "max-steps");
       evidence.push(analysisFailure("max-steps", step.span));
       return complete(evidence);
     }
