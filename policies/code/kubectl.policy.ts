@@ -10,7 +10,7 @@ type CodeGuardDefinition = Omit<LoadedBashPolicy, "source" | "layer" | "evaluate
 const policy: CodeGuardDefinition = Object.freeze({
   apiVersion: 1,
   layer: "guard",
-  select: Object.freeze([{ kind: "invocation" }]),
+  select: Object.freeze([{ kind: "executable-basename", value: "kubectl" }]),
   evaluate(event) {
     if (event.kind !== "invocation" || event.executable?.kind !== "known" || basename(event.executable.value) !== "kubectl") return ignore();
     const decision = analyzeKubectlInvocation(event);

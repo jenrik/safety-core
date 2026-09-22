@@ -164,6 +164,47 @@ describe("DCRM evaluation", () => {
     expect(result.steps.some((step: { readonly folds: readonly string[] }) => step.folds.includes("hasRun"))).toBeTrue();
   });
 
+  test("evaluates terminal folds over input redirects with ordinary path expressions", () => {
+    const document = base();
+    document.options = {};
+    document.folds = {
+      protectedInput: {
+        collection: "redirects",
+        operation: "any",
+        when: {
+          call: "anySafeGlob",
+          args: [{ call: "asciiLower", args: [{ call: "basename", args: [{ ref: "fold.item" }] }] }, ["*.env", "secrets.json", "id_rsa*"]],
+        },
+      },
+    };
+    document.states.command.cases = [{
+      when: { ref: "fold.protectedInput" },
+      action: { decision: "deny", fold: ["protectedInput"], reason: ["protected redirect"] },
+    }];
+    document.states.command.default = { decision: "ignore" };
+
+    const input = { ...event([]), redirects: [{ kind: "input" as const, target: { kind: "known" as const, value: ".ENV" } }] };
+    expect(policy(document).evaluate(input)).toMatchObject({ kind: "deny" });
+  });
+
+  test("matches fallback domain tokens at ASCII hostname boundaries", () => {
+    const document = base();
+    document.options = {};
+    document.states.command.cases = [{
+      when: { call: "domainToken", args: [{ ref: "word" }, "api.github.com"] },
+      action: { decision: "deny", reason: ["blocked domain"] },
+    }];
+    document.states.command.default = { decision: "ignore" };
+
+    const candidate = policy(document);
+    for (const value of ["api.github.com", "--url=https://API.GITHUB.COM/user", "(api.github.com)"]) {
+      expect(candidate.evaluate(event([{ kind: "known", value }]))).toMatchObject({ kind: "deny" });
+    }
+    for (const value of ["notapi.github.com", "api.github.com.example", "api.github.com-"]) {
+      expect(candidate.evaluate(event([{ kind: "known", value }]))).toMatchObject({ kind: "ignore" });
+    }
+  });
+
   test("attaches DSL steps to JSON and human explain traces", () => {
     const candidate = policy(base());
     const input = event([{ kind: "known", value: "run" }]);

@@ -58,11 +58,13 @@ function evaluateProgram(program: CompiledPolicyProgram, event: BashPolicyEvent)
       for (const entry of stateProgram.cases) {
         if (entry.action.kind !== "terminal") continue;
         const context = runtimeContext(event, undefined, undefined, registers, foldCache);
+        computeFolds(program, entry.action.fold, event, registers, foldCache);
         if (evaluateExpression(entry.when, context) !== true) continue;
         const decision = terminalDecision(entry.action, context);
         steps.push(step(state, argvIndex, clusterByteIndex, entry.source, entry.origin, "terminal", [], undefined, decision.kind));
         return frozenEvaluation(decision, steps);
       }
+      computeFolds(program, stateProgram.end.fold, event, registers, foldCache);
       const decision = terminalDecision(stateProgram.end, runtimeContext(event, undefined, undefined, registers, foldCache));
       steps.push(step(state, argvIndex, clusterByteIndex, `$.states.${state}.end`, `state:${state}`, "terminal", [], undefined, decision.kind));
       return frozenEvaluation(decision, steps);
@@ -83,6 +85,7 @@ function evaluateProgram(program: CompiledPolicyProgram, event: BashPolicyEvent)
       if (malformedOption && entry.action.kind !== "option") continue;
       const option = entry.action.kind === "option" ? matchOption(entry.action, activeWord, clusterByteIndex, argv[argvIndex + 1]) : undefined;
       const context = runtimeContext(event, activeWord, option?.value, registers, foldCache);
+      if (entry.action.kind === "terminal") computeFolds(program, entry.action.fold, event, registers, foldCache);
       const guard = isOptionPredicate(entry.when)
         ? option !== undefined && clusterByteIndex !== OPTIONS_ENDED
         : evaluateExpression(entry.when, context) === true;
@@ -110,6 +113,7 @@ function evaluateProgram(program: CompiledPolicyProgram, event: BashPolicyEvent)
     }
     if (matched) continue;
 
+    computeFolds(program, stateProgram.default.fold, event, registers, foldCache);
     const decision = terminalDecision(stateProgram.default, runtimeContext(event, activeWord, undefined, registers, foldCache));
     steps.push(step(state, argvIndex, clusterByteIndex, `$.states.${state}.default`, `state:${state}`, "terminal", [], undefined, decision.kind));
     return frozenEvaluation(decision, steps);
@@ -247,8 +251,10 @@ function evaluateFold(declaration: FoldDeclaration, event: BashPolicyEvent, regi
 }
 
 function foldCollection(collection: FoldDeclaration["collection"], event: BashPolicyEvent): readonly RuntimeValue[] {
-  if (collection === "argv") return event.kind === "invocation" ? event.argv.map(inputReference) : [];
-  if (collection === "redirects") return event.kind === "invocation" ? event.redirects : [];
+  if (collection === "argv") return event.kind === "invocation" ? event.argv.map((word) => inputReference(word)) : [];
+  if (collection === "redirects") return event.kind === "invocation"
+    ? event.redirects.flatMap((redirect) => redirect.kind === "input" && redirect.target !== null ? [inputReference(redirect.target)] : [])
+    : [];
   if (collection === "assignments") return event.kind === "invocation" ? Object.values(event.assignments) : [];
   if (collection === "provenance") return event.provenance.route;
   return Object.values(event.environment);
@@ -369,6 +375,7 @@ function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeCo
     case "parseBoundedInt": return isUnknown(strings[0]) ? UNKNOWN : Math.min(Number.isSafeInteger(Number(strings[0])) && /^\d+$/.test(strings[0] as string) ? Number(strings[0]) : 0, args[1] as number);
     case "boundedIntAtMost": return (args[0] as number) <= (args[1] as number);
     case "safeGlob": return isUnknown(strings[0]) || isUnknown(strings[1]) ? UNKNOWN : glob(strings[0] as string, strings[1] as string);
+    case "anySafeGlob": return isUnknown(strings[0]) ? UNKNOWN : Array.isArray(args[1]) && args[1].some((pattern) => glob(strings[0] as string, pattern));
     case "linearRegex": return matchesLinearRegex(strings[0] as string, strings[1] as string);
     case "parseUrl": return isUnknown(strings[0]) ? UNKNOWN : parseUrl(strings[0] as string);
     case "urlHost": return isUrl(args[0]) ? args[0].host : UNKNOWN;
@@ -392,6 +399,7 @@ function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeCo
     case "processEffectIs": return strings[0] === context.event.processEffect;
     case "inputIsBindingResolved": return isInputReference(args[0]) ? isBindingResolvedWord(args[0].word) : UNKNOWN;
     case "inputBlockedDomain": return isInputReference(args[0]) && !isKnown(args[0].word) ? args[0].word.reason.blockedGithubDomain ?? "" : "";
+    case "domainToken": return isUnknown(strings[0]) || isUnknown(strings[1]) ? UNKNOWN : containsDomainToken(strings[0] as string, strings[1] as string);
     default: throw new TypeError(`unknown compiled DCRM builtin: ${name}`);
   }
 }
@@ -427,6 +435,18 @@ function pathAfterComponents(value: string, count: number): string {
   }
   return value[cursor] === "/" ? value.slice(cursor + 1) : value.slice(cursor);
 }
+function containsDomainToken(value: string, domain: string): boolean {
+  const lowerValue = asciiCase(value, false);
+  const lowerDomain = asciiCase(domain, false);
+  let index = lowerValue.indexOf(lowerDomain);
+  while (index !== -1) {
+    const before = index === 0 ? "" : lowerValue[index - 1]!;
+    const after = lowerValue[index + lowerDomain.length] ?? "";
+    if (!/[a-z0-9.-]/.test(before) && !/[a-z0-9.-]/.test(after)) return true;
+    index = lowerValue.indexOf(lowerDomain, index + 1);
+  }
+  return false;
+}
 function parseUrl(value: string): RuntimeValue { try { const parsed = new URL(value); return Object.freeze({ host: asciiCase(parsed.hostname, false), path: parsed.pathname || "/" }); } catch { return null; } }
 function isUrl(value: unknown): value is { readonly host: string; readonly path: string } { return typeof value === "object" && value !== null && "host" in value && "path" in value; }
 function parseRepository(value: string): RuntimeValue { const match = /^(?:https:\/\/[^/]+\/|git@[^:]+:)?([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/.exec(value); return match ? Object.freeze({ owner: match[1]!, repository: match[2]! }) : null; }
@@ -436,7 +456,7 @@ function normalizeEndpoint(value: string): string { return `/${value.split("/").
 function requiresKnownOperands(name: string): boolean {
   return !["environmentIsPresent", "environmentIsKnown", "environmentIsUnknown", "missingEnvironmentMayBePresent", "isInPipeline"].includes(name);
 }
-function nonStringOperandBuiltin(name: string): boolean { return name === "inStringSet" || name === "wordInAsciiCaseInsensitiveSet" || name === "pathComponent" || name === "pathAfterComponents" || name === "splitComponent" || name === "parseBoundedInt" || name === "boundedIntAtMost" || name === "urlHost" || name === "urlPath" || name === "urlHostEquals" || name === "repositoryEquals" || name === "inputBlockedDomain"; }
+function nonStringOperandBuiltin(name: string): boolean { return name === "inStringSet" || name === "wordInAsciiCaseInsensitiveSet" || name === "pathComponent" || name === "pathAfterComponents" || name === "splitComponent" || name === "parseBoundedInt" || name === "boundedIntAtMost" || name === "anySafeGlob" || name === "urlHost" || name === "urlPath" || name === "urlHostEquals" || name === "repositoryEquals" || name === "inputBlockedDomain"; }
 function inputRedirectTarget(event: Extract<BashPolicyEvent, { readonly kind: "invocation" }>): RuntimeValue {
   const target = event.redirects.find((redirect) => redirect.kind === "input")?.target;
   return target === null || target === undefined ? UNKNOWN : inputReference(target);

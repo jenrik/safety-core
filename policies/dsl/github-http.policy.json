@@ -49,6 +49,14 @@
           ] },
           "action": { "consume": "word", "next": "raw", "set": { "url": { "ref": "word" } } }
         },
+        {
+          "when": { "call": "domainToken", "args": [{ "ref": "word" }, "raw.githubusercontent.com"] },
+          "action": { "consume": "word", "next": "rawToken", "set": {} }
+        },
+        {
+          "when": { "call": "domainToken", "args": [{ "ref": "word" }, "api.github.com"] },
+          "action": { "consume": "word", "next": "apiToken", "set": {} }
+        },
         { "when": true, "action": { "consume": "word", "next": "scan" } }
       ],
       "default": { "decision": "ignore" },
@@ -85,6 +93,14 @@
             { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "raw.githubusercontent.com."] }
           ] },
           "action": { "consume": "word", "next": "raw", "set": { "url": { "ref": "word" } } }
+        },
+        {
+          "when": { "call": "domainToken", "args": [{ "ref": "word" }, "raw.githubusercontent.com"] },
+          "action": { "consume": "word", "next": "rawToken", "set": {} }
+        },
+        {
+          "when": { "call": "domainToken", "args": [{ "ref": "word" }, "api.github.com"] },
+          "action": { "consume": "word", "next": "apiToken", "set": {} }
         },
         { "when": true, "action": { "consume": "word", "next": "scan" } }
       ],
@@ -245,6 +261,16 @@
       ],
       "default": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] } }, "reason": ["Blocked: https://raw.githubusercontent.com", { "ref": "capture.path" }, "\n\nUse gh CLI for single files:\n  gh api repos/<owner>/<repo>/contents/<path>?ref=<ref> | jq -r '.content' | base64 -d\n\nOr clone for multiple files:\n  git clone --depth=1 https://github.com/<owner>/<repo>.git /tmp/agent/<repo>"], "audit": { "invocation": { "ref": "event" } } },
       "end": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] } }, "reason": ["Blocked: https://raw.githubusercontent.com", { "ref": "capture.path" }, "\n\nUse gh CLI for single files:\n  gh api repos/<owner>/<repo>/contents/<path>?ref=<ref> | jq -r '.content' | base64 -d\n\nOr clone for multiple files:\n  git clone --depth=1 https://github.com/<owner>/<repo>.git /tmp/agent/<repo>"], "audit": { "invocation": { "ref": "event" } } }
+    },
+    "apiToken": {
+      "cases": [],
+      "default": { "decision": "deny", "reason": ["Blocked: https://api.github.com/\n\nPrefer native gh commands where possible (always prefer over direct API):\n  gh issue list/view  ·  gh pr list/view  ·  gh release list/view\n  gh run list/view  ·  gh repo view  ·  gh search issues/repos/code\n  gh label list  ·  gh workflow list  ·  gh gist list\n\nUse `gh api <path>` only when no native subcommand covers your use case.\n\n  gh api '/'"] , "audit": { "invocation": { "ref": "event" } } },
+      "end": { "decision": "deny", "reason": ["Blocked: https://api.github.com/\n\nPrefer native gh commands where possible (always prefer over direct API):\n  gh issue list/view  ·  gh pr list/view  ·  gh release list/view\n  gh run list/view  ·  gh repo view  ·  gh search issues/repos/code\n  gh label list  ·  gh workflow list  ·  gh gist list\n\nUse `gh api <path>` only when no native subcommand covers your use case.\n\n  gh api '/'"] , "audit": { "invocation": { "ref": "event" } } }
+    },
+    "rawToken": {
+      "cases": [],
+      "default": { "decision": "deny", "reason": ["Blocked: https://raw.githubusercontent.com/\n\nUse gh CLI for single files:\n  gh api repos/<owner>/<repo>/contents/<path>?ref=<ref> | jq -r '.content' | base64 -d\n\nOr clone for multiple files:\n  git clone --depth=1 https://github.com/<owner>/<repo>.git /tmp/agent/<repo>"] , "audit": { "invocation": { "ref": "event" } } },
+      "end": { "decision": "deny", "reason": ["Blocked: https://raw.githubusercontent.com/\n\nUse gh CLI for single files:\n  gh api repos/<owner>/<repo>/contents/<path>?ref=<ref> | jq -r '.content' | base64 -d\n\nOr clone for multiple files:\n  git clone --depth=1 https://github.com/<owner>/<repo>.git /tmp/agent/<repo>"] , "audit": { "invocation": { "ref": "event" } } }
     }
   }
 }

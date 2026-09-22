@@ -51,6 +51,7 @@ export const BUILTINS_V1: Readonly<Record<string, BuiltinDefinition>> = Object.f
   parseBoundedInt: builtin(["stringish", "count"], "count", "O(n)", "Decimal integer parsing saturated to the supplied bound."),
   boundedIntAtMost: builtin(["count", "count"], "bool", "O(1)", "Bounded integer comparison."),
   safeGlob: builtin(["stringish", "string"], "bool", "O(nm)", "Glob matching with only literal, ?, and * tokens."),
+  anySafeGlob: builtin(["stringish", "string-set"], "bool", "O(nms)", "Finite disjunction of safe glob patterns."),
   linearRegex: builtin(["stringish", "string"], "bool", "O(n + m)", "Restricted linear regular-expression match without groups, alternation, lookaround, or backreferences."),
   parseUrl: builtin(["stringish"], "url", "O(n)", "Strict URL decomposition without network access."),
   urlHostEquals: builtin(["url", "string"], "bool", "O(n)", "Exact ASCII-normalized URL host equality."),
@@ -74,6 +75,7 @@ export const BUILTINS_V1: Readonly<Record<string, BuiltinDefinition>> = Object.f
   urlPath: builtin(["url"], "string", "O(1)", "Parsed URL path without query or fragment."),
   inputIsBindingResolved: builtin(["stringish"], "bool", "O(1)", "Whether an immutable input word came from a resolved binding."),
   inputBlockedDomain: builtin(["stringish"], "string", "O(1)", "Blocked-domain metadata on an immutable unresolved input word."),
+  domainToken: builtin(["stringish", "string"], "bool", "O(nm)", "ASCII case-insensitive domain token match with hostname-boundary semantics."),
 });
 
 export function builtinDefinition(name: string): BuiltinDefinition | undefined {

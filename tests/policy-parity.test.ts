@@ -31,6 +31,7 @@ const guardPairs = Object.freeze([
 ] as const);
 
 const dslPolicies = Object.freeze(guardPairs.map(([, , policy]) => policy as ValidatedBashPolicy));
+const codeGuardPolicies = Object.freeze(guardPairs.map(([name, policy]) => loaded(`/trusted/${name}.policy.mjs`, policy)));
 
 beforeAll(async () => {
   mkdirSync(join(wasmDir, "node_modules"), { recursive: true });
@@ -54,8 +55,10 @@ describe("baseline guard code-policy parity", () => {
     expect(event).toMatchObject({ kind: "invocation", executable: { kind: "known", value: "cat" }, argv: [{ kind: "known", value: "credentials.json" }] });
     if (event?.kind !== "invocation") throw new Error("expected invocation event");
     expect(analyzeSecretReadInvocation(event)).toMatchObject({ kind: "deny" });
-    expect(secretRead.evaluate(event)).toMatchObject({ kind: "deny" });
-    expect((guardPairs[0][2] as typeof guardPairs[0][2] & { evaluateWithTrace(event: typeof event): { steps: readonly { decision?: string }[] } }).evaluateWithTrace(event).steps[0]).toMatchObject({ decision: "deny" });
+    expectPolicyParity("cat credentials.json");
+    const selected = analyzeBashWithPolicies({ source: "cat credentials.json", policies: dslPolicies }).traces
+      .find((trace) => trace.source.canonicalPath.endsWith("secret-read.policy.json"));
+    expect(selected?.decision).toMatchObject({ kind: "deny" });
   });
 
   test("regression: a protected later kubectl resource retains its audited defer", () => {
@@ -123,6 +126,25 @@ describe("baseline guard code-policy parity", () => {
       expectPolicyParity(`curl https://api.github.com/repos/acme/widgets/issues/${identifier}/detail`, `issue ${seed}`);
       expectPolicyParity(`curl https://api.github.com/repos/acme/widgets/actions/runs/${identifier}/logs`, `run ${seed}`);
       expectPolicyParity(`curl https://raw.githubusercontent.com/acme/widgets/main/${nested}`, `raw ${seed}`);
+    }
+  });
+
+  test("property: baseline secret grammar remains case-insensitive for readers and redirects", () => {
+    const paths = [".env", "secrets.json", "id_rsa", "CREDENTIALS.JSON", "service-account-prod.json", "prod.SECRETS.YAML"];
+    for (let seed = 0; seed < 96; seed++) {
+      const path = paths[seed % paths.length]!;
+      const mixed = path.split("").map((character, index) => (seed + index) % 2 === 0 ? character.toUpperCase() : character.toLowerCase()).join("");
+      expectPolicyParity(`cat ${mixed}`, `reader case ${seed}`);
+      expectPolicyParity(`wc < ${mixed}`, `redirect case ${seed}`);
+    }
+  });
+
+  test("property: domain-token fallback and kubectl flag consumption match the baseline", () => {
+    const github = ["api.github.com", "--url=https://api.github.com/user", "RAW.GITHUBUSERCONTENT.COM", "--url=raw.githubusercontent.com/file"];
+    const flags = ["--bogus", "--namespace default", "--output=json", "-n default", "--request-timeout 1s"];
+    for (let seed = 0; seed < 96; seed++) {
+      expectPolicyParity(`curl ${github[seed % github.length]!}`, `domain token ${seed}`);
+      expectPolicyParity(`kubectl get ${flags[seed % flags.length]!} secret`, `kubectl flag ${seed}`);
     }
   });
 
@@ -222,23 +244,33 @@ function dsl(name: string): ValidatedBashPolicy {
 }
 
 function expectPolicyParity(source: string, label = source): void {
-  const events = analyzeBashWithPolicies({ source, policies: dslPolicies }).events;
-  for (const event of events) {
-    for (const [name, code, policy] of guardPairs) {
-      const codeDecision = code.evaluate(event);
-      expect(codeDecision, `${label}: ${name}`).toEqual(policy.evaluate(event));
-    }
-  }
+  const code = analyzeBashWithPolicies({ source, policies: codeGuardPolicies });
+  const dsl = analyzeBashWithPolicies({ source, policies: dslPolicies });
+  expect(code.events, `${label}: walker events`).toEqual(dsl.events);
+  expect(selectedTraces(code.traces, code.events, ".mjs"), `${label}: selected code traces`)
+    .toEqual(selectedTraces(dsl.traces, dsl.events, ".json"));
+}
+
+function selectedTraces(
+  traces: readonly { readonly source: { readonly canonicalPath: string }; readonly event: unknown; readonly decision: unknown }[],
+  events: readonly unknown[],
+  suffix: string,
+): readonly { readonly family: string; readonly eventIndex: number; readonly decision: unknown }[] {
+  return traces.map((trace) => Object.freeze({
+    family: trace.source.canonicalPath.split("/").at(-1)!.replace(suffix, ""),
+    eventIndex: events.indexOf(trace.event),
+    decision: trace.decision,
+  }));
 }
 
 function guardCorpus(): readonly string[] {
   return [
-    "cat credentials.json", "cat README.md", "cat .env", "cat .env.example",
-    "wc < credentials.json", "< credentials.json", "{ cat; } < credentials.json",
-    "curl https://api.github.com/repos/acme/widgets/issues", "curl https://API.GITHUB.COM./user", "curl https://example.test",
+    "cat credentials.json", "cat README.md", "cat .env", "cat .ENV", "cat CREDENTIALS.JSON", "/bin/cat CREDENTIALS.JSON", "cat .env.example",
+    "wc < credentials.json", "wc < .env", "wc < secrets.json", "wc < id_rsa", "< credentials.json", "{ cat; } < credentials.json",
+    "curl https://api.github.com/repos/acme/widgets/issues", "curl https://API.GITHUB.COM./user", "curl --url=https://api.github.com/user", "curl api.github.com", "curl https://example.test",
     "wget https://raw.githubusercontent.com/acme/widgets/main/README.md", "echo https://api.github.com/user",
     "kubectl view-secret application", "kubectl get secret application", "kubectl get secrets", "kubectl get pods",
-    "kubectl --namespace default get secret application", "kubectl get pod secrets/application",
+    "kubectl --namespace default get secret application", "kubectl get pod secrets/application", "kubectl get --bogus secret",
     "fish -c true", "fish --command=\"$(echo source)\"", "fish --version",
     "strace -f curl https://api.github.com/user", "sh -c 'kubectl view-secret application'",
     "unknown-command; cat credentials.json", "curl https://example.test; kubectl view-secret application",

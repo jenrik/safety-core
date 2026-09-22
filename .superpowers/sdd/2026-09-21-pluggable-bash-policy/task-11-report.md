@@ -118,3 +118,60 @@ The existing direct code-policy unit fixture for the equivalent invocation passe
 - No adversarial review was run because the operator explicitly prohibited
   dispatching subagents/reviewers. The differential, mapping-category, and
   generated parity gates remain the available verification evidence.
+
+## Fix Round 2
+
+### Changes
+
+- Replaced the partial secret-read DSL matching with the complete baseline
+  `SECRET_PATTERNS` and `SECRET_EXCEPTIONS` grammar. Paths are normalized with
+  the existing ASCII expression primitive before matching, so protected reader
+  operands and input redirects are case-insensitive while exceptions remain
+  safe.
+- Added bounded generic DSL support for terminal-requested folds, input
+  redirect target fold values, finite `anySafeGlob` tables, and ASCII
+  hostname-boundary `domainToken` matching. These are pure input projections
+  and predicates; no diagnostic builtin, callback, lookup, or policy-specific
+  formatter was added.
+- Kept reader and redirect diagnostics baseline-exact, including the original
+  executable spelling and first protected path basename.
+- Added API/raw token fallback states for `curl --url=https://api.github.com/user`
+  and bare host arguments. Raw-token precedence matches the baseline blocked
+  domain table.
+- Made kubectl consume every flag token in command and `get` resource scans,
+  while the existing declared options alone consume following values.
+- Converted differential parity to compare source-selected traces emitted by
+  complete walker/evaluation runs. Code guard selectors now mirror the DSL
+  executable selectors. Added unit and generated parity coverage for mixed-case
+  secret paths, redirects, domain-token boundaries, flag orderings, wrappers,
+  source order, and diagnostic/audit equality.
+
+### Adversarial Review
+
+- Fresh frontier-model review examined full baseline/DSL selection and trace
+  evaluation, mixed-case path grammar and exceptions, multiple input redirects,
+  original executable-path diagnostics, fallback-domain boundary and precedence
+  behavior, and known/unknown kubectl flags. No further defect was found.
+- The operator prohibited dispatching subagents, so this was an in-session
+  review rather than an independent delegated review.
+
+### Verification
+
+- `bun test tests/policy-parity.test.ts tests/policy-dsl-evaluate.test.ts tests/policy-dsl-validate.test.ts`
+  - PASS: 44 tests, 2,730 assertions.
+- `bun test tests/policy-parity.test.ts tests/bash-hard-block-policies.test.ts tests/bash-guards.test.ts tests/opencode-bash-guards.test.ts tests/claude-code-bash-policy.test.ts tests/pi-adapter.test.ts`
+  - PASS: 106 tests, 3,503 assertions.
+- `bun test tests/policy-cli.test.ts tests/policy-dsl-evaluate.test.ts tests/policy-dsl-validate.test.ts`
+  - PASS: 32 tests, 743 assertions.
+- `nix flake check`
+  - PASS: all six x86_64-linux checks, including `code-policies-runtime` and
+    `cli-loads`.
+- `git diff --check`
+  - PASS.
+
+### Concerns
+
+- Terminal captures and terminal-requested folds remain the approved finite
+  template prototype. They still have no loops, recursion, macros, includes,
+  dynamic lookup, callbacks, or ambient access; redesign is required before
+  broader template capabilities are accepted.

@@ -12,7 +12,14 @@ const httpClients = new Set(["curl", "wget", "http", "httpie", "fetch", "httpx"]
 const policy: CodeGuardDefinition = Object.freeze({
   apiVersion: 1,
   layer: "guard",
-  select: Object.freeze([{ kind: "invocation" }]),
+  select: Object.freeze([
+    { kind: "executable-basename", value: "curl" },
+    { kind: "executable-basename", value: "wget" },
+    { kind: "executable-basename", value: "http" },
+    { kind: "executable-basename", value: "httpie" },
+    { kind: "executable-basename", value: "fetch" },
+    { kind: "executable-basename", value: "httpx" },
+  ]),
   evaluate(event) {
     if (event.kind !== "invocation" || event.executable?.kind !== "known" || !httpClients.has(basename(event.executable.value))) return ignore();
     const decision = analyzeGithubHttpInvocation(event);

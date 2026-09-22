@@ -256,7 +256,7 @@ function parseCase(value: unknown, pointer: string): PolicyCase {
 function parseAction(value: unknown, pointer: string): Action {
   const candidate = record(value, pointer);
   if (hasOwn(candidate, "decision")) {
-    exactKeys(candidate, ["decision", "reason", "suggestion", "audit", "capture"], ["reason", "suggestion", "audit", "capture"], pointer);
+    exactKeys(candidate, ["decision", "reason", "suggestion", "audit", "capture", "fold"], ["reason", "suggestion", "audit", "capture", "fold"], pointer);
     if (!isOneOf(candidate.decision, ["allow", "deny", "defer", "ignore"])) fail(`${pointer}.decision`, "unknown terminal decision");
     if ((candidate.decision === "allow" || candidate.decision === "deny") && candidate.reason === undefined) fail(`${pointer}.reason`, `${candidate.decision} requires a reason template`);
     if (candidate.decision === "ignore" && (candidate.reason !== undefined || candidate.suggestion !== undefined || candidate.audit !== undefined)) {
@@ -272,6 +272,7 @@ function parseAction(value: unknown, pointer: string): Action {
       ...(candidate.suggestion === undefined ? {} : { suggestion: parseTemplate(candidate.suggestion, `${pointer}.suggestion`) }),
       ...(candidate.audit === undefined ? {} : { audit: parseAudit(candidate.audit, `${pointer}.audit`) }),
       capture: parseExpressionRecord(candidate.capture ?? {}, `${pointer}.capture`),
+      fold: candidate.fold === undefined ? [] : strings(candidate.fold, `${pointer}.fold`),
     };
   }
   exactKeys(candidate, ["consume", "next", "set", "fold"], ["set", "fold"], pointer);
@@ -471,6 +472,8 @@ function validateTransition(action: Extract<Action, { readonly kind: "transition
 
 function validateTerminal(action: TerminalAction, layer: string, names: Names, pointer: string): void {
   if (layer === "guard" && action.decision === "allow") fail(`${pointer}.decision`, "guard policies cannot allow");
+  if (new Set(action.fold).size !== action.fold.length) fail(`${pointer}.fold`, "terminal folds must be unique static names");
+  for (const fold of action.fold) if (!names.folds.has(fold)) fail(`${pointer}.fold`, `unknown fold ${fold}`);
   for (const [kind, template] of [["reason", action.reason], ["suggestion", action.suggestion]] as const) {
     for (const [index, part] of (template ?? []).entries()) {
       if (typeof part !== "string" && !("ref" in part && part.ref.startsWith("capture.") && Object.hasOwn(action.capture, part.ref.slice(8)))) {

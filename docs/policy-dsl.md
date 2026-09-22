@@ -25,7 +25,7 @@ layer := "guard" | "permission"
 State := { fragments?, cases, default, end }
 Case := { when, action }
 Transition := { consume: "word", next, set?, fold? }
-Terminal := { decision, reason?, suggestion?, audit? }
+Terminal := { decision, reason?, suggestion?, audit?, capture?, fold? }
 ```
 
 `start` and every transition `next` name one declared state. Names are ASCII
@@ -76,7 +76,11 @@ predicates must have Boolean type. Known input references include `word`,
 `fold.item`, declared registers, and cached `fold.<name>` results. `event` is
 available to audit values as the complete immutable policy event.
 
-Terminal templates are arrays of literal strings and finite expressions. Terminal
+Terminal templates are arrays of literal strings and finite expressions. A terminal
+may list declared `fold` names; those finite folds are evaluated before its condition,
+captures, and templates. The `redirects` fold collection supplies input-redirect target
+words, so a policy can apply ordinary word predicates to every protected input path.
+Terminal
 `capture` values are evaluated once from immutable event inputs, final registers,
 and cached folds before a template renders; templates may reference those values
 as `capture.<name>`.
@@ -174,6 +178,7 @@ input reference and preserves unknown handling for the evaluator.
 | `parseBoundedInt` | `(stringish, count) -> count` | `O(n)` | bounded CLI numbers |
 | `boundedIntAtMost` | `(count, count) -> bool` | `O(1)` | number comparison |
 | `safeGlob` | `(stringish, string) -> bool` | `O(nm)` | secret path patterns |
+| `anySafeGlob` | `(stringish, string-set) -> bool` | `O(nms)` | finite secret path pattern tables |
 | `linearRegex` | `(stringish, string) -> bool` | `O(n + m)` | restricted regex |
 | `parseUrl` | `(stringish) -> url` | `O(n)` | GitHub URL parsing |
 | `urlHost` | `(url) -> string` | `O(1)` | parsed URL hostname |
@@ -197,6 +202,7 @@ input reference and preserves unknown handling for the evaluator.
 | `processEffectIs` | `(string) -> bool` | `O(1)` | process effects |
 | `inputIsBindingResolved` | `(stringish) -> bool` | `O(1)` | binding-derived input provenance |
 | `inputBlockedDomain` | `(stringish) -> string` | `O(1)` | unresolved-input blocked-domain metadata |
+| `domainToken` | `(stringish, string) -> bool` | `O(nm)` | ASCII domain mention with hostname boundaries |
 
 `linearRegex` has a handwritten restricted grammar: an optional leading `^`,
 literal bytes, `.`, non-empty terminated character classes, only escapes of

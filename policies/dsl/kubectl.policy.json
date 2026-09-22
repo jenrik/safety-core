@@ -32,6 +32,7 @@
   "states": {
     "start": {
       "cases": [
+        { "when": { "call": "startsWith", "args": [{ "ref": "word" }, "-"] }, "action": { "consume": "word", "next": "start" } },
         { "when": { "call": "equals", "args": [{ "ref": "word" }, "view-secret"] }, "action": { "decision": "deny", "reason": ["kubectl view-secret is blocked: it decodes and displays Secret values in plaintext."], "audit": { "invocation": { "ref": "event" } } } },
         { "when": { "call": "equals", "args": [{ "ref": "word" }, "get"] }, "action": { "consume": "word", "next": "getFirst" } },
         { "when": true, "action": { "decision": "ignore" } }
@@ -52,6 +53,7 @@
           ] },
           "action": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
         },
+        { "when": { "call": "startsWith", "args": [{ "ref": "word" }, "-"] }, "action": { "consume": "word", "next": "getFirst" } },
         { "when": { "call": "includes", "args": [{ "ref": "word" }, "/"] }, "action": { "consume": "word", "next": "afterNamespacedFirst" } },
         { "when": true, "action": { "consume": "word", "next": "afterBareFirst" } }
       ],
@@ -67,6 +69,7 @@
     },
     "afterBareFirst": {
       "cases": [
+        { "when": { "call": "startsWith", "args": [{ "ref": "word" }, "-"] }, "action": { "consume": "word", "next": "afterBareFirst" } },
         {
           "when": { "call": "includes", "args": [{ "ref": "word" }, "/"] },
           "action": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
