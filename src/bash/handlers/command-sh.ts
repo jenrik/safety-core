@@ -127,7 +127,10 @@ function unsupportedFishSource(context: Parameters<CommandHandler["handle"]>[1] 
     decision: "deny" as const,
     reason: "fish command source is blocked until dedicated parser support is available",
   }));
-  if (!("continueWithOpaque" in context)) return outcome;
+  if (!("continueWithOpaque" in context)) {
+    context.recordExecutionGap?.("unsupported-shell-source", "spawn-and-wait");
+    return outcome;
+  }
   const opaque = context.continueWithOpaque("unsupported-shell-source", undefined, {
     isolate: true,
     route: "shell-command",

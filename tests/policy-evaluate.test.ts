@@ -64,7 +64,7 @@ function policy(
 }
 
 function basename(event: BashPolicyEvent): string | undefined {
-  return event.kind === "invocation" && event.executable.kind === "known"
+  return event.kind === "invocation" && event.executable?.kind === "known"
     ? event.executable.value
     : undefined;
 }

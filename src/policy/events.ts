@@ -13,8 +13,7 @@ export interface BashPolicyEventContext {
 }
 
 /** Project the walker model into a complete, immutable policy-facing event. */
-export function projectInvocationEvent(command: NormalizedCommand, context: BashPolicyEventContext): InvocationView | undefined {
-  if (!command.executable) return undefined;
+export function projectInvocationEvent(command: NormalizedCommand, context: BashPolicyEventContext): InvocationView {
   const environment = modeledBindings(command.environment);
   const assignments = immutableBindings(Object.fromEntries([...command.assignmentPatch.writes]
     .map((name) => [name, lookupBinding(command.assignmentPatch.environment, name).value])));

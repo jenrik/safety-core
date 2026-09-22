@@ -19,7 +19,7 @@ const policy: CodeGuardDefinition = Object.freeze({
     if (event.kind !== "invocation") return ignore();
     const redirect = analyzeSecretRedirectInvocation(event);
     if (redirect.kind === "deny") return deny(redirect.evidence.reason, event);
-    if (event.executable.kind !== "known" || !readers.has(basename(event.executable.value))) return ignore();
+    if (event.executable?.kind !== "known" || !readers.has(basename(event.executable.value))) return ignore();
     const decision = analyzeSecretReadInvocation(event);
     return decision.kind === "deny" ? deny(decision.evidence.reason, event) : ignore();
   },

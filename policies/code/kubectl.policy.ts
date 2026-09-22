@@ -12,7 +12,7 @@ const policy: CodeGuardDefinition = Object.freeze({
   layer: "guard",
   select: Object.freeze([{ kind: "invocation" }]),
   evaluate(event) {
-    if (event.kind !== "invocation" || event.executable.kind !== "known" || basename(event.executable.value) !== "kubectl") return ignore();
+    if (event.kind !== "invocation" || event.executable?.kind !== "known" || basename(event.executable.value) !== "kubectl") return ignore();
     const decision = analyzeKubectlInvocation(event);
     if (decision.kind === "deny") return deny(decision.reason, event);
     if (decision.kind === "defer") return defer(event);

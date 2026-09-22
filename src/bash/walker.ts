@@ -110,7 +110,7 @@ export interface BashDispatchRequest {
 
 export type BashPreflightRequest = Pick<
   BashDispatchRequest,
-  "command" | "span" | "environment" | "inPipeline" | "provenance"
+  "command" | "span" | "environment" | "inPipeline" | "provenance" | "processEffect" | "recordPolicyEvent"
 >;
 
 export type BashPreflightResult =
@@ -309,8 +309,10 @@ function evaluateProgram(program: BashProgram, context: BashWalkContext, initial
     if (statement.kind !== "command" && !work.skipStatementRedirects) {
       const retained = retainedRedirectStatements(statement);
       const hasRedirect = "redirects" in statement && (statement.redirects?.length ?? 0) > 0;
-      const secretRedirect = analyzeStatementSecretRedirects(statement, work.path.state.environment);
+      const redirectInvocation = statementRedirectInvocation(statement, work.path.state.environment);
+      const secretRedirect = redirectInvocation && analyzeSecretRedirectInvocation(redirectInvocation);
       if (secretRedirect?.kind === "deny") {
+        recordInvocationEvent(redirectInvocation!, work.path, context, statement.span, work.inPipeline ?? false);
         completeWithDeny(addOutcome(work.path, policyDeny(statement.span, secretRedirect.evidence)));
         continue;
       }
@@ -473,6 +475,8 @@ function executeCommand(
           environment: input.state.environment,
           inPipeline,
           provenance: input.provenance,
+          processEffect: input.processEffect,
+          recordPolicyEvent: context.recordPolicyEvent,
         }));
         if (preflight.kind === "deny") {
           recordInvocationEvent(preflightCommand, input, context, command.span, inPipeline);
@@ -1138,7 +1142,7 @@ function recordInvocationEvent(
     inPipeline,
     processEffect: input.processEffect,
   });
-  if (event) context.recordPolicyEvent?.(event);
+  context.recordPolicyEvent?.(event);
 }
 
 function recordPathGap(
@@ -1238,10 +1242,10 @@ function retainedRedirectStatements(statement: Exclude<BashStatement, BashComman
     .map(({ statement: nested }) => nested);
 }
 
-/** Apply the same secret-input rule to redirects owned by compound statements. */
-function analyzeStatementSecretRedirects(statement: Exclude<BashStatement, BashCommand>, environment: Environment) {
+/** Normalize compound redirects into executable-less invocation events. */
+function statementRedirectInvocation(statement: Exclude<BashStatement, BashCommand>, environment: Environment): NormalizedCommand | undefined {
   if (!("redirects" in statement) || !statement.redirects || statement.redirects.length === 0) return undefined;
-  const invocation: NormalizedCommand = {
+  return {
     executable: null,
     argv: [],
     redirects: statement.redirects.map((redirect) => ({
@@ -1251,7 +1255,6 @@ function analyzeStatementSecretRedirects(statement: Exclude<BashStatement, BashC
     environment,
     assignmentPatch: { environment, writes: new Set() },
   };
-  return analyzeSecretRedirectInvocation(invocation);
 }
 
 /**

@@ -34,6 +34,10 @@ describe("baseline guard code-policy parity", () => {
       "strace -f curl https://api.github.com/repos/acme/widgets/issues",
       "sh -c 'kubectl view-secret application'",
       "fish -c true",
+      'fish -c "$(echo source)"',
+      "< credentials.json",
+      "(cat) < credentials.json",
+      "{ cat; } < credentials.json",
     ]) {
       const legacy = evaluateBashGuards({ source });
       const generic = analyzeBashWithPolicies({ source, policies });
@@ -63,6 +67,33 @@ describe("baseline guard code-policy parity", () => {
       expect(generic.decision, source).toBe(source.endsWith("credentials.json") ? "deny" : "defer");
       expect(generic.traces.every((trace) => trace.decision.kind !== "allow"), source).toBeTrue();
     }
+  });
+
+  test("retains generic policy denials for binding-derived source and kubectl audit values", () => {
+    const bindingSource = analyzeBashWithPolicies({ source: "SCRIPT='cat credentials.json'; sh -c \"$SCRIPT\"", policies });
+    const kubectlSource = analyzeBashWithPolicies({ source: "kubectl get secret application", policies });
+
+    expect(bindingSource.decision).toBe("deny");
+    expect(bindingSource.traces.find((trace) => trace.decision.kind === "deny")?.event.provenance.route)
+      .toContain("binding-derived-script");
+    const kubectlDecision = kubectlSource.traces.find((trace) => trace.decision.kind === "defer")?.decision;
+    expect(kubectlDecision).toMatchObject({ kind: "defer" });
+    if (kubectlDecision?.kind === "defer") {
+      expect((kubectlDecision.audit?.invocation as { readonly argv: readonly { readonly value: string }[] }).argv)
+        .toEqual([{ kind: "known", value: "get" }, { kind: "known", value: "secret" }, { kind: "known", value: "application" }]);
+    }
+  });
+
+  test("projects early structural boundaries into generic policy events", () => {
+    const fish = analyzeBashWithPolicies({ source: 'fish -c "$(echo source)"', policies });
+    const redirect = analyzeBashWithPolicies({ source: "{ cat; } < credentials.json", policies });
+
+    expect(fish.events).toContainEqual(expect.objectContaining({ kind: "execution-gap", reason: "unsupported-shell-source" }));
+    expect(redirect.events).toContainEqual(expect.objectContaining({
+      kind: "invocation",
+      executable: null,
+      redirects: [{ kind: "input", target: { kind: "known", value: "credentials.json" } }],
+    }));
   });
 
   test("property: wrapper and source order preserve every baseline denial", () => {

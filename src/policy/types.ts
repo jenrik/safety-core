@@ -29,10 +29,11 @@ export interface BashPolicySelector {
   readonly [key: string]: unknown;
 }
 
-/** One fully modeled external invocation, retaining its argv and complete environment. */
+/** One fully modeled command invocation, including executable-less redirect forms. */
 export interface InvocationView {
   readonly kind: "invocation";
-  readonly executable: ResolvedWord;
+  /** Null for redirect-only commands and redirects owned by compound statements. */
+  readonly executable: ResolvedWord | null;
   readonly argv: readonly ResolvedWord[];
   /** Complete modeled bindings, including exact known values and explicit unknowns. */
   readonly environment: Readonly<Record<string, BindingValue>>;

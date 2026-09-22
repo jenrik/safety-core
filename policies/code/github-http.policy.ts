@@ -14,7 +14,7 @@ const policy: CodeGuardDefinition = Object.freeze({
   layer: "guard",
   select: Object.freeze([{ kind: "invocation" }]),
   evaluate(event) {
-    if (event.kind !== "invocation" || event.executable.kind !== "known" || !httpClients.has(basename(event.executable.value))) return ignore();
+    if (event.kind !== "invocation" || event.executable?.kind !== "known" || !httpClients.has(basename(event.executable.value))) return ignore();
     const decision = analyzeGithubHttpInvocation(event);
     return decision.kind === "deny" ? deny(decision.evidence.reason, event) : ignore();
   },

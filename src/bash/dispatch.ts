@@ -23,6 +23,8 @@ export interface PolicyDispatchContext {
   readonly inPipeline: boolean;
   /** Redacted execution-route metadata for policy decisions. */
   readonly provenance: BashDispatchRequest["provenance"];
+  /** Emit a generic execution gap before a structural preflight stops traversal. */
+  readonly recordExecutionGap?: (reason: import("./walker.js").ExecutionUnknownReason, processEffect: import("./walker.js").ProcessEffect) => void;
 }
 
 /** Only structural handlers can schedule a statically materialized child script. */
@@ -120,6 +122,13 @@ export function preflightCommand(
     span: request.span,
     inPipeline: request.inPipeline,
     provenance: request.provenance,
+    recordExecutionGap: (reason, processEffect) => request.recordPolicyEvent?.(projectExecutionGapEvent(reason, {
+      environment: request.command.environment,
+      span: request.span,
+      provenance: request.provenance,
+      inPipeline: request.inPipeline,
+      processEffect,
+    })),
   }));
   return result.kind === "deny" ? result : CONTINUE_PREFLIGHT;
 }
@@ -139,7 +148,7 @@ export function dispatchCommand(
     inPipeline: request.inPipeline,
     processEffect: request.processEffect,
   });
-  if (event) request.recordPolicyEvent?.(event);
+  request.recordPolicyEvent?.(event);
   const redirect = analyzeSecretRedirectInvocation(request.command);
   if (redirect.kind === "deny") return policyDeny(request.span, redirect.evidence);
   const executable = request.command.executable;

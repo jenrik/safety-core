@@ -100,7 +100,7 @@ describe("Bash generic policy events", () => {
       initialEnvironment: { kind: "verified", values: {} },
       policies: [
         policy("permission", () => allow),
-        policy("guard", (event) => event.kind === "invocation" && event.executable.kind === "known" && event.executable.value === "gh" ? deny : { kind: "ignore" }),
+        policy("guard", (event) => event.kind === "invocation" && event.executable?.kind === "known" && event.executable.value === "gh" ? deny : { kind: "ignore" }),
       ],
     });
 

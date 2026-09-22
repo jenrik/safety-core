@@ -24,6 +24,41 @@
           lib = pkgs.lib;
           sc = pkgs.callPackage ./package.nix { };
         in {
+          code-policies-runtime = pkgs.runCommand "safety-core-code-policies-runtime-check" { } ''
+            set -e
+            ${pkgs.nodejs_22}/bin/node --input-type=module -e '
+              const [secretRead, githubHttp, kubectl, unsupportedShellSource] = await Promise.all(
+                process.argv.slice(1).map(async (path) => (await import(path)).default),
+              );
+              for (const policy of [secretRead, githubHttp, kubectl, unsupportedShellSource]) {
+                if (!Object.isFrozen(policy) || policy.apiVersion !== 1 || policy.layer !== "guard"
+                  || typeof policy.evaluate !== "function") process.exit(1);
+              }
+              const invocation = (executable, argv) => Object.freeze({
+                kind: "invocation",
+                executable: Object.freeze({ kind: "known", value: executable }),
+                argv: Object.freeze(argv.map((value) => Object.freeze({ kind: "known", value }))),
+                redirects: Object.freeze([]), environment: Object.freeze({}), missingBindings: "unset",
+                assignments: Object.freeze({}), span: Object.freeze({ start: 0, end: 1 }),
+                provenance: Object.freeze({ route: Object.freeze(["direct"]) }), inPipeline: false, processEffect: "none",
+              });
+              const gap = Object.freeze({
+                kind: "execution-gap", reason: "unsupported-shell-source", environment: Object.freeze({}),
+                missingBindings: "unset", span: Object.freeze({ start: 0, end: 1 }),
+                provenance: Object.freeze({ route: Object.freeze(["direct"]) }), inPipeline: false, processEffect: "spawn-and-wait",
+              });
+              if (secretRead.evaluate(invocation("cat", ["credentials.json"])).kind !== "deny"
+                || githubHttp.evaluate(invocation("curl", ["https://api.github.com/user"])).kind !== "deny"
+                || kubectl.evaluate(invocation("kubectl", ["view-secret", "app"])).kind !== "deny"
+                || unsupportedShellSource.evaluate(gap).kind !== "deny") process.exit(1);
+            ' \
+              ${sc.codePolicies.secretRead}/secret-read.policy.mjs \
+              ${sc.codePolicies.githubHttp}/github-http.policy.mjs \
+              ${sc.codePolicies.kubectl}/kubectl.policy.mjs \
+              ${sc.codePolicies.unsupportedShellSource}/unsupported-shell-source.policy.mjs
+            touch $out
+          '';
+
           hooks-runtime = pkgs.runCommand "safety-core-hooks-runtime-check" { } ''
             set -e
             payload='{"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"credentials.json"}}'
