@@ -37,6 +37,8 @@ export interface InvocationView {
   readonly argv: readonly ResolvedWord[];
   /** Complete modeled bindings, including exact known values and explicit unknowns. */
   readonly environment: Readonly<Record<string, BindingValue>>;
+  /** Export state for every materialized binding in the invocation environment. */
+  readonly exportedEnvironment?: Readonly<Record<string, boolean>>;
   /** Whether bindings absent from the modeled map are unknown or proven unset. */
   readonly missingBindings: "unknown" | "unset";
   readonly redirects: readonly NormalizedRedirect[];

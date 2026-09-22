@@ -22,6 +22,7 @@ export function projectInvocationEvent(command: NormalizedCommand, context: Bash
     executable: command.executable,
     argv: Object.freeze([...command.argv]),
     environment: immutableBindings(environment.values),
+    exportedEnvironment: immutableExports(command.environment, environment.values),
     missingBindings: environment.missingBindings,
     redirects: Object.freeze([...command.redirects]),
     assignments: Object.freeze(assignments),
@@ -61,6 +62,10 @@ function copyProvenance(provenance: BashExecutionProvenance): BashExecutionProve
 
 function immutableBindings(bindings: Readonly<Record<string, import("../bash/environment.js").BindingValue>>): Readonly<Record<string, import("../bash/environment.js").BindingValue>> {
   return Object.freeze(Object.fromEntries(Object.entries(bindings).map(([name, value]) => [name, copyBindingValue(value)])));
+}
+
+function immutableExports(environment: Environment, bindings: Readonly<Record<string, import("../bash/environment.js").BindingValue>>): Readonly<Record<string, boolean>> {
+  return Object.freeze(Object.fromEntries(Object.keys(bindings).map((name) => [name, lookupBinding(environment, name).exported])));
 }
 
 function copyBindingValue(value: import("../bash/environment.js").BindingValue): import("../bash/environment.js").BindingValue {

@@ -42,10 +42,13 @@ export function knownArguments(event: Extract<BashPolicyEvent, { readonly kind: 
     : undefined;
 }
 
-export function hasExplicitExecutionRoute(event: Extract<BashPolicyEvent, { readonly kind: "invocation" }>): boolean {
+export function hasExplicitExecutionRoute(
+  event: Extract<BashPolicyEvent, { readonly kind: "invocation" }>,
+  allowedAssignments: readonly string[] = [],
+): boolean {
   return event.executable?.kind !== "known"
     || event.executable.value.includes("/")
-    || Object.keys(event.assignments).length > 0
+    || Object.keys(event.assignments).some((name) => !allowedAssignments.includes(name))
     || event.redirects.length > 0;
 }
 
@@ -74,6 +77,13 @@ export function hasKnownEnvironment(
   name: string,
 ): boolean {
   return event.environment[name]?.kind === "known";
+}
+
+export function hasKnownExportedEnvironment(
+  event: Extract<BashPolicyEvent, { readonly kind: "invocation" }>,
+  name: string,
+): boolean {
+  return event.environment[name]?.kind === "known" && event.exportedEnvironment?.[name] === true;
 }
 
 export function hasInheritedExecutableFunction(

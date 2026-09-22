@@ -42,6 +42,12 @@ function evaluate(
   return analyzeBashWithPolicies({ source, policies: activePolicies, initialEnvironment: { kind: "verified", values } });
 }
 
+function invocation(source: string, activePolicies: readonly ValidatedBashPolicy[] = policies, initialEnvironment: Parameters<typeof analyzeBashWithPolicies>[0]["initialEnvironment"] = { kind: "verified", values: {} }) {
+  const event = analyzeBashWithPolicies({ source, policies: activePolicies, initialEnvironment }).events.find((candidate) => candidate.kind === "invocation" && candidate.executable?.kind === "known" && candidate.executable.value === "gh");
+  if (!event || event.kind !== "invocation") throw new Error(`Expected a gh invocation for ${source}`);
+  return event;
+}
+
 describe("trusted permission code policies", () => {
   test("covers generic Git, Tea, and checksum reads while ignoring foreign executables", () => {
     for (const source of ["tea --help", "git diff --stat HEAD", "sha256sum README.md"]) expect(evaluate(source).decision, source).toBe("allow");
@@ -79,13 +85,70 @@ describe("trusted permission code policies", () => {
     expect(evaluate("gh pr create --repo github.com/acme/widgets --fill", { GH_PROMPT_DISABLED: "1" }).decision).toBe("allow");
     expect(evaluate("gh pr new --repo github.com/attacker/widgets --fill", { GH_PROMPT_DISABLED: "1" }).decision).toBe("deny");
     expect(evaluate("nice gh pr create --repo github.com/acme/widgets --fill", { GH_PROMPT_DISABLED: "1" }).decision).toBe("defer");
-    expect(evaluate("gh alias set create-pr 'pr create --repo github.com/acme/widgets'", { GH_PROMPT_DISABLED: "1" }).decision).toBe("deny");
+    expect(prCreate.evaluate(invocation("gh api user", [loaded("/trusted/gh-pr-create.policy.mjs", prCreate)])).kind).toBe("ignore");
+    expect(prCreate.evaluate(invocation("gh alias set create-pr 'pr create --repo github.com/acme/widgets'", [loaded("/trusted/gh-pr-create.policy.mjs", prCreate)])).kind).toBe("ignore");
+    expect(prCreate.evaluate(invocation("gh extension exec create-pr", [loaded("/trusted/gh-pr-create.policy.mjs", prCreate)])).kind).toBe("ignore");
+  });
+
+  test("requires exported proof variables and preserves the legal command-prefix forms", () => {
+    const prPolicy = [loaded("/trusted/gh-pr-create.policy.mjs", prCreate)];
+    const apiPolicy = [loaded("/trusted/gh-api.policy.mjs", ghApi)];
+    const prCommand = "gh pr create --repo github.com/acme/widgets --fill";
+
+    const unexportedPrompt = invocation(`GH_PROMPT_DISABLED=1; ${prCommand}`, prPolicy);
+    const exportedPrompt = invocation(`export GH_PROMPT_DISABLED=1; ${prCommand}`, prPolicy);
+    expect(unexportedPrompt.exportedEnvironment?.GH_PROMPT_DISABLED).toBeFalse();
+    expect(exportedPrompt.exportedEnvironment?.GH_PROMPT_DISABLED).toBeTrue();
+    expect(prCreate.evaluate(unexportedPrompt).kind).toBe("deny");
+    expect(prCreate.evaluate(exportedPrompt).kind).toBe("allow");
+    expect(prCreate.evaluate(invocation(`GH_PROMPT_DISABLED=1 ${prCommand}`, prPolicy)).kind).toBe("allow");
+
+    expect(ghApi.evaluate(invocation("GH_PAGER=cat; gh api user", apiPolicy)).kind).toBe("defer");
+    expect(ghApi.evaluate(invocation("export GH_PAGER=cat; gh api user", apiPolicy)).kind).toBe("allow");
+    expect(evaluate("GH_PAGER=cat gh api user", {}, apiPolicy).decision).toBe("allow");
+  });
+
+  test("property: exported proof variables alone authorize their corresponding policy", () => {
+    const prPolicy = [loaded("/trusted/gh-pr-create.policy.mjs", prCreate)];
+    const apiPolicy = [loaded("/trusted/gh-api.policy.mjs", ghApi)];
+    for (let index = 0; index < 64; index++) {
+      const prCommand = `gh pr create --repo github.com/acme/widgets --title title-${index} --body body-${index}`;
+      expect(prCreate.evaluate(invocation(`GH_PROMPT_DISABLED=${index}; ${prCommand}`, prPolicy)).kind, `unexported prompt ${index}`).toBe("deny");
+      expect(prCreate.evaluate(invocation(`export GH_PROMPT_DISABLED=${index}; ${prCommand}`, prPolicy)).kind, `exported prompt ${index}`).toBe("allow");
+      expect(ghApi.evaluate(invocation(`GH_PAGER=cat; gh api repos/acme/widgets/issues/${index}`, apiPolicy)).kind, `unexported pager ${index}`).toBe("defer");
+      expect(ghApi.evaluate(invocation(`export GH_PAGER=cat; gh api repos/acme/widgets/issues/${index}`, apiPolicy)).kind, `exported pager ${index}`).toBe("allow");
+    }
+  });
+
+  test("permits environmentally independent coverage with filtered unknown bindings", () => {
+    const result = analyzeBashWithPolicies({
+      source: "sha256sum README.md",
+      policies: [loaded("/trusted/generic-read-only.policy.mjs", genericReadOnly)],
+      initialEnvironment: {
+        kind: "filtered",
+        values: { __SAFETY_CORE_BASH_FUNCTIONS_CAPTURED: "present" },
+        unset: [],
+      },
+    });
+
+    expect(result.events[0]?.missingBindings).toBe("unknown");
+    expect(result.decision).toBe("allow");
   });
 
   test("allows mixed-policy compound commands when every invocation has a matching policy", () => {
     expect(evaluate("git diff HEAD; docker image ls").decision).toBe("allow");
     const withoutPrCreate = policies.filter((policy) => policy.source.canonicalPath !== "/trusted/gh-pr-create.policy.mjs");
     expect(evaluate("git diff HEAD; helm version; gh api user", { GH_PAGER: "" }, withoutPrCreate).decision).toBe("allow");
+  });
+
+  test("property: independent gh policies compose without the PR policy claiming foreign forms", () => {
+    const apiAndPr = [loaded("/trusted/gh-api.policy.mjs", ghApi), loaded("/trusted/gh-pr-create.policy.mjs", prCreate)];
+    for (const pager of ["", "cat"]) {
+      for (let index = 0; index < 64; index++) {
+        const command = `GH_PAGER=${pager === "" ? "''" : pager} gh api repos/acme/widgets/issues/${index}`;
+        expect(evaluate(command, {}, apiAndPr).decision, command).toBe("allow");
+      }
+    }
   });
 
   test("property: allowlist source generation is deterministic, literal, and validates every generated identifier", () => {

@@ -8,7 +8,7 @@ const gitEnvironment = ["GIT_CONFIG_COUNT", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_PAR
 const policy: CodePermissionDefinition = Object.freeze({
   apiVersion: 1,
   layer: "permission",
-  select: Object.freeze([{ kind: "invocation" }]),
+  select: Object.freeze([{ kind: "invocation", environmentIndependent: true }]),
   evaluate(event) {
     if (!executableIs(event, executables)) return ignore();
     const args = knownArguments(event);

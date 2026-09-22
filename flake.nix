@@ -59,7 +59,7 @@
                  || helmReadOnly.evaluate(invocation("helm", ["version"])).kind !== "allow"
                  || strictReadOnly.evaluate(invocation("docker", ["image", "ls"])).kind !== "allow"
                  || ghReadOnly.evaluate(invocation("gh", ["api", "user"])).kind !== "ignore"
-                 || ghApi.evaluate(Object.freeze({ ...invocation("gh", ["api", "user"]), environment: Object.freeze({ GH_PAGER: Object.freeze({ kind: "known", value: "" }) }) })).kind !== "allow"
+                 || ghApi.evaluate(Object.freeze({ ...invocation("gh", ["api", "user"]), environment: Object.freeze({ GH_PAGER: Object.freeze({ kind: "known", value: "" }) }), exportedEnvironment: Object.freeze({ GH_PAGER: true }) })).kind !== "allow"
                  || ghPrCreate.evaluate(invocation("gh", ["pr", "create", "--repo", "github.com/acme/widgets", "--fill"])).kind !== "deny") process.exit(1);
             ' \
               ${sc.codePolicies.secretRead}/secret-read.policy.mjs \

@@ -8,7 +8,7 @@ const executables = new Set(Object.keys(STRICT_READ_ONLY_COMMANDS));
 const policy: CodePermissionDefinition = Object.freeze({
   apiVersion: 1,
   layer: "permission",
-  select: Object.freeze([{ kind: "invocation" }]),
+  select: Object.freeze([{ kind: "invocation", environmentIndependent: true }]),
   evaluate(event) {
     if (!executableIs(event, executables)) return ignore();
     const executable = event.executable.value;
