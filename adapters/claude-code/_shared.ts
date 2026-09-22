@@ -82,8 +82,8 @@ export function hardBlock(message: string): never {
 }
 
 /**
- * Parser deployment failures are fatal. Other hook errors retain the existing
- * fail-open behavior so Claude Code can continue through native permissions.
+ * Policy startup and evaluation failures are fatal: native permissions must
+ * never become a fallback after the configured policy boundary failed.
  */
 export function run(main: () => Promise<void> | void): void {
   Promise.resolve()
@@ -92,7 +92,7 @@ export function run(main: () => Promise<void> | void): void {
       try {
         process.stderr.write(`[safety-hook] internal error: ${err}\n`);
       } catch {}
-      process.exit(isBashParserFailure(err) ? 2 : 0);
+      process.exit(2);
     });
 }
 

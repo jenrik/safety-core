@@ -119,6 +119,22 @@ let
       fi
     '';
   };
+  mkGhPrCreatePolicy = { allowedRepositories, allowedOrganizations }: stdenv.mkDerivation {
+    pname = "safety-core-gh-pr-create-policy";
+    version = "0";
+    src = ./.;
+    nativeBuildInputs = [ esbuild ];
+    installPhase = ''
+      mkdir -p $out generated
+      printf '%s\n' 'import { createGhPrCreatePolicy } from "${./policies/code/gh-pr-create.policy.ts}";' > generated/entry.ts
+      printf '%s\n' 'export default createGhPrCreatePolicy(${builtins.toJSON { inherit allowedRepositories allowedOrganizations; }});' >> generated/entry.ts
+      esbuild --bundle --platform=node --format=esm --target=node20 --outfile="$out/gh-pr-create.policy.mjs" generated/entry.ts
+      if grep -Eq '^[[:space:]]*(import|export[[:space:]].*from)[[:space:]]' "$out/gh-pr-create.policy.mjs"; then
+        echo "bundled policy retained a runtime import" >&2
+        exit 1
+      fi
+    '';
+  };
 in
 {
   # Directory containing index.ts + src/ + WASM assets.  Home-manager
@@ -143,6 +159,22 @@ in
     strictReadOnly = mkCodePolicy "strict-read-only" "policies/code/strict-read-only.policy.ts";
     ghApi = mkCodePolicy "gh-api" "policies/code/gh-api.policy.ts";
     ghPrCreate = mkCodePolicy "gh-pr-create" "policies/code/gh-pr-create.policy.ts";
+  };
+
+  inherit mkGhPrCreatePolicy;
+
+  safetyCoreCli = stdenv.mkDerivation {
+    pname = "safety-core";
+    version = "0";
+    src = ./.;
+    nativeBuildInputs = [ esbuild ];
+    installPhase = ''
+      mkdir -p $out/bin $out/node_modules
+      cp -r ${wasmAssets}/node_modules/web-tree-sitter $out/node_modules/
+      cp ${wasmAssets}/tree-sitter-bash.wasm $out/tree-sitter-bash.wasm
+      esbuild --bundle --platform=node --format=esm --target=node20 --external:web-tree-sitter --outfile="$out/bin/safety-core" --banner:js='#!${nodejs_22}/bin/node' "$src/src/cli.ts"
+      chmod +x $out/bin/safety-core
+    '';
   };
 
   # Standalone bundled hook scripts for claude-code. Produces a directory of
