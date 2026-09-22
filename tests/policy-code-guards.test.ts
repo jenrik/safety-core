@@ -26,7 +26,7 @@ describe("trusted code baseline guards", () => {
 
     expect(secretRead.evaluate(blocked)).toMatchObject({
       kind: "deny",
-      reason: [{ kind: "literal", value: "bash `cat` on 'credentials.json'" }],
+      reason: [{ kind: "literal", value: "bash reader on a protected secret file" }],
       audit: { invocation: blocked },
     });
     expect(secretRead.evaluate(invocation("cat", ["README.md"]))).toEqual({ kind: "ignore" });

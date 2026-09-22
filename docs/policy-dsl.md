@@ -32,7 +32,9 @@ Terminal := { decision, reason?, suggestion?, audit? }
 identifiers (`[A-Za-z][A-Za-z0-9_]*`) and are unique by their JSON object key.
 Each state has a terminal `default` for unmatched input and a terminal `end`
 for EOF. `allow` and `deny` require a finite `reason` template. A `guard` may
-return `deny`, `defer`, or `ignore`; it cannot return `allow`.
+return `deny`, `defer`, or `ignore`; it cannot return `allow`. `deny` and
+`defer` may attach a source-fixed audit object, including `{ "ref": "event" }`
+when adapters require the complete immutable policy event.
 
 `select` contains one or more exact selectors:
 
@@ -68,8 +70,9 @@ Expressions are literals; finite string arrays; `{ "ref": name }`; builtin
 calls `{ "call": name, "args": [...] }`; and Boolean `{ "all": [...] }`,
 `{ "any": [...] }`, and `{ "not": expression }` nodes. Conditions and fold
 predicates must have Boolean type. Known input references include `word`,
-`option.value`, `event.executable`, `event.kind`, `event.gap.reason`,
-`fold.item`, declared registers, and cached `fold.<name>` results.
+`option.value`, `event`, `event.executable`, `event.kind`, `event.gap.reason`,
+`fold.item`, declared registers, and cached `fold.<name>` results. `event` is
+available to audit values as the complete immutable policy event.
 
 Terminal templates are arrays of literal strings and `{ "ref": name }`.
 Audit objects have source-fixed JSON shape and literal/reference leaves. They

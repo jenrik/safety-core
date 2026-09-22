@@ -181,6 +181,7 @@ function reference(name: string, context: RuntimeContext): RuntimeValue {
   if (name === "option.value") return context.optionValue === undefined ? UNKNOWN : context.optionValue;
   if (name === "fold.item") return context.foldItem ?? UNKNOWN;
   if (name === "event.kind") return context.event.kind;
+  if (name === "event") return context.event;
   if (name === "event.gap.reason") return context.event.kind === "execution-gap" ? context.event.reason : UNKNOWN;
   if (name === "event.executable") return context.event.kind === "invocation" && context.event.executable !== null ? inputReference(context.event.executable) : UNKNOWN;
   if (name.startsWith("fold.")) return context.folds.get(name.slice(5)) ?? UNKNOWN;
@@ -298,7 +299,10 @@ function looksLikeOption(word: ResolvedWord): boolean { return isKnown(word) && 
 
 function terminalDecision(action: TerminalAction, context: RuntimeContext): PolicyDecision {
   if (action.decision === "ignore") return Object.freeze({ kind: "ignore" });
-  if (action.decision === "defer") return Object.freeze({ kind: "defer" });
+  if (action.decision === "defer") {
+    const audit = action.audit === undefined ? undefined : auditValue(action.audit, context) as Readonly<Record<string, unknown>>;
+    return Object.freeze({ kind: "defer", ...(audit === undefined ? {} : { audit }) });
+  }
   const reason = template(action.reason ?? [], context);
   const audit = action.audit === undefined ? undefined : auditValue(action.audit, context) as Readonly<Record<string, unknown>>;
   const suggestion = action.suggestion === undefined ? undefined : template(action.suggestion, context);

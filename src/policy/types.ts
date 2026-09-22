@@ -12,7 +12,7 @@ export type PolicyTemplateValue = readonly PolicyDiagnosticPart[];
 export type PolicyDecision =
   | { readonly kind: "allow"; readonly reason: PolicyTemplateValue; readonly suggestion?: PolicyTemplateValue; readonly audit?: Readonly<Record<string, unknown>> }
   | { readonly kind: "deny"; readonly reason: PolicyTemplateValue; readonly suggestion?: PolicyTemplateValue; readonly audit?: Readonly<Record<string, unknown>> }
-  | { readonly kind: "defer"; readonly reason?: PolicyTemplateValue }
+  | { readonly kind: "defer"; readonly reason?: PolicyTemplateValue; readonly audit?: Readonly<Record<string, unknown>> }
   | { readonly kind: "ignore" };
 
 /**

@@ -1,0 +1,53 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "guard",
+  "select": [{ "kind": "invocation" }],
+  "registers": {},
+  "folds": {},
+  "options": {},
+  "fragments": {},
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [
+        {
+          "when": { "all": [
+            { "call": "inStringSet", "args": [{ "call": "basename", "args": [{ "ref": "event.executable" }] }, ["curl", "wget", "http", "httpie", "fetch", "httpx"]] },
+            { "any": [
+              { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "api.github.com"] },
+              { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "api.github.com."] },
+              { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "raw.githubusercontent.com"] },
+              { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "raw.githubusercontent.com."] }
+            ] }
+          ] },
+          "action": { "decision": "deny", "reason": ["Blocked: direct GitHub HTTP request detected. Use the native gh command where possible."], "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
+          "when": { "call": "inStringSet", "args": [
+            { "call": "basename", "args": [{ "ref": "event.executable" }] },
+            ["curl", "wget", "http", "httpie", "fetch", "httpx"]
+          ] },
+          "action": { "consume": "word", "next": "scan" }
+        }
+      ],
+      "default": { "decision": "ignore" },
+      "end": { "decision": "ignore" }
+    },
+    "scan": {
+      "cases": [
+        {
+          "when": { "any": [
+            { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "api.github.com"] },
+            { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "api.github.com."] },
+            { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "raw.githubusercontent.com"] },
+            { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "raw.githubusercontent.com."] }
+          ] },
+          "action": { "decision": "deny", "reason": ["Blocked: direct GitHub HTTP request detected. Use the native gh command where possible."], "audit": { "invocation": { "ref": "event" } } }
+        },
+        { "when": true, "action": { "consume": "word", "next": "scan" } }
+      ],
+      "default": { "decision": "ignore" },
+      "end": { "decision": "ignore" }
+    }
+  }
+}

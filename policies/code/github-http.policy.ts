@@ -16,7 +16,7 @@ const policy: CodeGuardDefinition = Object.freeze({
   evaluate(event) {
     if (event.kind !== "invocation" || event.executable?.kind !== "known" || !httpClients.has(basename(event.executable.value))) return ignore();
     const decision = analyzeGithubHttpInvocation(event);
-    return decision.kind === "deny" ? deny(decision.evidence.reason, event) : ignore();
+    return decision.kind === "deny" ? deny("Blocked: direct GitHub HTTP request detected. Use the native gh command where possible.", event) : ignore();
   },
 });
 

@@ -4,10 +4,10 @@ let
   cfg = config.programs.safetyCorePermissions;
   safetyCore = pkgs.safety-core or (pkgs.callPackage ../package.nix { });
   completeSources = [
-    safetyCore.codePolicies.secretRead
-    safetyCore.codePolicies.githubHttp
-    safetyCore.codePolicies.kubectl
-    safetyCore.codePolicies.unsupportedShellSource
+    safetyCore.dslPolicies.secretRead
+    safetyCore.dslPolicies.githubHttp
+    safetyCore.dslPolicies.kubectl
+    safetyCore.dslPolicies.unsupportedShellSource
     safetyCore.codePolicies.genericReadOnly
     safetyCore.codePolicies.ghReadOnly
     safetyCore.codePolicies.helmReadOnly

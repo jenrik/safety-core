@@ -148,6 +148,13 @@ in
 
   # Not wired into harness configuration yet; Task 4 only produces trusted,
   # source-provenanced artifacts for loader and differential-policy testing.
+  dslPolicies = {
+    secretRead = ./policies/dsl/secret-read.policy.json;
+    githubHttp = ./policies/dsl/github-http.policy.json;
+    kubectl = ./policies/dsl/kubectl.policy.json;
+    unsupportedShellSource = ./policies/dsl/unsupported-shell-source.policy.json;
+  };
+
   codePolicies = {
     secretRead = mkCodePolicy "secret-read" "policies/code/secret-read.policy.ts";
     githubHttp = mkCodePolicy "github-http" "policies/code/github-http.policy.ts";

@@ -1,0 +1,57 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "guard",
+  "select": [{ "executable": { "projection": "basename", "equals": "kubectl" } }],
+  "registers": {},
+  "folds": {},
+  "options": {
+    "globalValueFlag": {
+      "names": ["--context", "--kubeconfig", "--namespace", "-n", "--cluster", "--user", "--server", "--token", "--certificate-authority", "--client-certificate", "--client-key", "--as", "--as-group", "--as-uid", "--cache-dir", "--request-timeout"],
+      "value": "required",
+      "forms": ["separate", "attachedShort", "equalsLong", "cluster"],
+      "availableIn": "*",
+      "set": {}
+    },
+    "longValueFlag": {
+      "names": ["--tls-server-name", "--output", "--selector", "--field-selector", "--chunk-size", "--sort-by", "--template", "--timeout", "--subresource", "--container", "--since", "--since-time", "--tail", "--limit-bytes", "--field-manager"],
+      "value": "required",
+      "forms": ["separate", "equalsLong"],
+      "availableIn": "*",
+      "set": {}
+    },
+    "shortValueFlag": {
+      "names": ["-o", "-l", "-c"],
+      "value": "required",
+      "forms": ["separate", "attachedShort", "cluster"],
+      "availableIn": "*",
+      "set": {}
+    }
+  },
+  "fragments": {},
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [
+        { "when": { "call": "equals", "args": [{ "ref": "word" }, "view-secret"] }, "action": { "decision": "deny", "reason": ["kubectl view-secret is blocked: it decodes and displays Secret values in plaintext."], "audit": { "invocation": { "ref": "event" } } } },
+        { "when": { "call": "equals", "args": [{ "ref": "word" }, "get"] }, "action": { "consume": "word", "next": "get" } },
+        { "when": true, "action": { "decision": "ignore" } }
+      ],
+      "default": { "decision": "ignore" },
+      "end": { "decision": "ignore" }
+    },
+    "get": {
+      "cases": [
+        {
+          "when": { "call": "wordInAsciiCaseInsensitiveSet", "args": [
+            { "call": "normalizeKubernetesResource", "args": [{ "call": "splitComponent", "args": [{ "call": "splitComponent", "args": [{ "call": "splitComponent", "args": [{ "ref": "word" }, ",", 0] }, "/", 0] }, ".", 0] }] },
+            ["secret", "sa", "serviceaccount", "tokenrequest"]
+          ] },
+          "action": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+        },
+        { "when": true, "action": { "decision": "ignore" } }
+      ],
+      "default": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } },
+      "end": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+    }
+  }
+}

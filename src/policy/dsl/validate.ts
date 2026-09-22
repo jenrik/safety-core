@@ -259,8 +259,11 @@ function parseAction(value: unknown, pointer: string): Action {
     exactKeys(candidate, ["decision", "reason", "suggestion", "audit"], ["reason", "suggestion", "audit"], pointer);
     if (!isOneOf(candidate.decision, ["allow", "deny", "defer", "ignore"])) fail(`${pointer}.decision`, "unknown terminal decision");
     if ((candidate.decision === "allow" || candidate.decision === "deny") && candidate.reason === undefined) fail(`${pointer}.reason`, `${candidate.decision} requires a reason template`);
-    if ((candidate.decision === "defer" || candidate.decision === "ignore") && (candidate.reason !== undefined || candidate.suggestion !== undefined || candidate.audit !== undefined)) {
-      fail(pointer, `${candidate.decision} terminal cannot include reason, suggestion, or audit`);
+    if (candidate.decision === "ignore" && (candidate.reason !== undefined || candidate.suggestion !== undefined || candidate.audit !== undefined)) {
+      fail(pointer, "ignore terminal cannot include reason, suggestion, or audit");
+    }
+    if (candidate.decision === "defer" && (candidate.reason !== undefined || candidate.suggestion !== undefined)) {
+      fail(pointer, "defer terminal cannot include reason or suggestion");
     }
     return {
       kind: "terminal",
@@ -619,6 +622,7 @@ function expressionType(expression: Expression, names: Names, pointer: string, i
 
 function referenceType(reference: string, names: Names, pointer: string, inFold: boolean): ExpressionType {
   if (reference === "word" || reference === "option.value" || reference === "event.executable" || reference === "fold.item") return "stringish";
+  if (reference === "event") return "json";
   if (reference === "event.kind" || reference === "event.gap.reason") return "string";
   const register = names.registers.get(reference);
   if (register) return register;

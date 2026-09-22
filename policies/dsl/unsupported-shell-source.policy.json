@@ -1,0 +1,17 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "guard",
+  "select": [{ "kind": "execution-gap", "reason": "unsupported-shell-source" }],
+  "registers": {},
+  "folds": {},
+  "options": {},
+  "fragments": {},
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [],
+      "default": { "decision": "deny", "reason": ["fish command source is blocked until dedicated parser support is available"], "audit": { "gap": { "ref": "event" } } },
+      "end": { "decision": "deny", "reason": ["fish command source is blocked until dedicated parser support is available"], "audit": { "gap": { "ref": "event" } } }
+    }
+  }
+}

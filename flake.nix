@@ -32,7 +32,7 @@
             set -e
             test -x ${sc.safetyCoreCli}/bin/safety-core
             mkdir -p config/safety-core
-            printf '%s\n' '{"version":1,"policies":["${sc.codePolicies.secretRead}/secret-read.policy.mjs"],"projectPolicies":{"mode":"disabled"},"bashAnalysis":{"maxFunctionDepth":8,"maxNestedScriptDepth":8,"maxSteps":100,"maxWorkItems":100}}' > config/safety-core/config.json
+            printf '%s\n' '{"version":1,"policies":["${sc.dslPolicies.secretRead}"],"projectPolicies":{"mode":"disabled"},"bashAnalysis":{"maxFunctionDepth":8,"maxNestedScriptDepth":8,"maxSteps":100,"maxWorkItems":100}}' > config/safety-core/config.json
             SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.safetyCoreCli}/bin/safety-core validate | grep -Eq '^[0-9a-f]{64}  /nix/store/'
             touch $out
           '';

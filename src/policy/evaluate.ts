@@ -114,6 +114,9 @@ function assertPolicyDecision(decision: PolicyDecision): void {
   }
   if (decision.kind === "defer") {
     if (decision.reason !== undefined && !Array.isArray(decision.reason)) throw new TypeError("Defer reason must be a template");
+    if (decision.audit !== undefined && (typeof decision.audit !== "object" || decision.audit === null || Array.isArray(decision.audit))) {
+      throw new TypeError("Defer audit must be an object");
+    }
     return;
   }
   if (decision.kind !== "ignore") throw new TypeError("Unknown policy decision kind");
