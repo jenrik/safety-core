@@ -317,10 +317,7 @@ function parseTemplate(value: unknown, pointer: string): readonly TemplatePart[]
   if (parts.length > POLICY_DOCUMENT_LIMITS.templateParts) fail(pointer, "template exceeds fixed size limit");
   return parts.map((part, index) => {
     if (typeof part === "string") return part;
-    const reference = record(part, `${pointer}[${index}]`);
-    exactKeys(reference, ["ref"], [], `${pointer}[${index}]`);
-    if (typeof reference.ref !== "string") fail(`${pointer}[${index}].ref`, "template ref must be a string");
-    return { ref: reference.ref };
+    return parseExpression(part, `${pointer}[${index}]`);
   });
 }
 

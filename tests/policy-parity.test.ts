@@ -12,6 +12,7 @@ import { analyzeBashWithPolicies, initBashParser, type LoadedBashPolicy, type Va
 import { compilePolicyDocument } from "../src/policy/dsl/compile.ts";
 import { createDslPolicy } from "../src/policy/dsl/evaluate.ts";
 import { parsePolicyDocument } from "../src/policy/dsl/validate.ts";
+import { analyzeSecretReadInvocation } from "../src/bash/policies/secrets.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-policy-parity-"));
 const policies = Object.freeze([
@@ -46,6 +47,23 @@ describe("baseline guard code-policy parity", () => {
     for (const source of guardCorpus()) {
       expectPolicyParity(source);
     }
+  });
+
+  test("regression: walker-projected protected reader invocations retain code-policy inputs", () => {
+    const event = analyzeBashWithPolicies({ source: "cat credentials.json", policies: dslPolicies }).events[0];
+    expect(event).toMatchObject({ kind: "invocation", executable: { kind: "known", value: "cat" }, argv: [{ kind: "known", value: "credentials.json" }] });
+    if (event?.kind !== "invocation") throw new Error("expected invocation event");
+    expect(analyzeSecretReadInvocation(event)).toMatchObject({ kind: "deny" });
+    expect(secretRead.evaluate(event)).toMatchObject({ kind: "deny" });
+    expect((guardPairs[0][2] as typeof guardPairs[0][2] & { evaluateWithTrace(event: typeof event): { steps: readonly { decision?: string }[] } }).evaluateWithTrace(event).steps[0]).toMatchObject({ decision: "deny" });
+  });
+
+  test("regression: a protected later kubectl resource retains its audited defer", () => {
+    const source = "kubectl get pod secrets/application";
+    expectPolicyParity(source);
+    const result = analyzeBashWithPolicies({ source, policies: dslPolicies });
+    expect(result.traces.find((trace) => trace.source.canonicalPath.endsWith("kubectl.policy.json"))?.decision)
+      .toMatchObject({ kind: "defer", audit: { invocation: expect.any(Object) } });
   });
 
   test("differential: exact-basename DSL selectors only select matching kubectl invocations", () => {
@@ -175,7 +193,8 @@ function expectPolicyParity(source: string, label = source): void {
   const events = analyzeBashWithPolicies({ source, policies: dslPolicies }).events;
   for (const event of events) {
     for (const [name, code, policy] of guardPairs) {
-      expect(code.evaluate(event), `${label}: ${name}`).toEqual(policy.evaluate(event));
+      const codeDecision = code.evaluate(event);
+      expect(codeDecision, `${label}: ${name}`).toEqual(policy.evaluate(event));
     }
   }
 }

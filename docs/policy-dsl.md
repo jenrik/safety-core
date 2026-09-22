@@ -36,7 +36,9 @@ return `deny`, `defer`, or `ignore`; it cannot return `allow`. `deny` and
 `defer` may attach a source-fixed audit object, including `{ "ref": "event" }`
 when adapters require the complete immutable policy event.
 
-`select` contains one or more exact selectors:
+`select` contains one or more exact selectors. A source is selected when any
+selector matches, allowing a finite family of exact executable basenames without
+falling back to all-invocation evaluation.
 
 ```json
 [{ "kind": "invocation" }]
@@ -178,6 +180,8 @@ input reference and preserves unknown handling for the evaluator.
 | `hasProvenanceRoute` | `(string) -> bool` | `O(p)` | shell-wrapper routes |
 | `isInPipeline` | `() -> bool` | `O(1)` | pipeline context |
 | `processEffectIs` | `(string) -> bool` | `O(1)` | process effects |
+| `githubHttpReason` | `(stringish) -> string` | `O(n)` | sanitized GitHub steering diagnostic |
+| `redirectInputReason` | `() -> string` | `O(r + n)` | protected input redirect diagnostic |
 
 `linearRegex` has a handwritten restricted grammar: an optional leading `^`,
 literal bytes, `.`, non-empty terminated character classes, only escapes of

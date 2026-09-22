@@ -65,6 +65,24 @@ describe("DCRM evaluation", () => {
     expect(decision).toMatchObject({ kind: "allow", reason: [{ kind: "literal", value: "output=" }, { kind: "value", value: null }], audit: { count: 1 } });
   });
 
+  test("evaluates nested all, any, and not conditions over event and argv references", () => {
+    const document = base();
+    document.options = {};
+    document.states.command.cases = [{
+      when: {
+        all: [
+          { not: { any: [{ call: "redirectHasInputPath", args: ["credentials.json"] }] } },
+          { call: "inStringSet", args: [{ ref: "event.executable" }, ["tool"]] },
+          { any: [{ call: "equals", args: [{ ref: "word" }, "credentials.json"] }] },
+        ],
+      },
+      action: { decision: "deny", reason: ["protected input"] },
+    }];
+    document.states.command.default = { decision: "ignore" };
+
+    expect(policy(document).evaluate(event([{ kind: "known", value: "credentials.json" }]))).toMatchObject({ kind: "deny" });
+  });
+
   test("consumes required values in separate, attached, equals, and cluster forms", () => {
     for (const [argv, expected] of [[["run", "-o", "one"], "one"], [["run", "-otwo"], "two"], [["run", "--output=three"], "three"], [["run", "-vofour"], "four"]] as const) {
       const decision = policy(base()).evaluate(event(argv.map((value) => ({ kind: "known" as const, value }))));

@@ -1,4 +1,6 @@
 import type { BindingValue } from "../../bash/environment.js";
+import { buildGithubSuggestion } from "../../github.js";
+import { isBindingResolvedWord } from "../../bash/word-provenance.js";
 import type { ResolvedWord } from "../../bash/expand.js";
 import type { BashPolicyEvent, BashPolicySelector, DslPolicyTraceStep, LoadedBashPolicy, PolicyDecision, PolicyDiagnosticPart, PolicySourceIdentity } from "../types.js";
 import type { AuditValue, Expression, FoldDeclaration, RegisterDeclaration, TerminalAction } from "./ast.js";
@@ -52,6 +54,16 @@ function evaluateProgram(program: CompiledPolicyProgram, event: BashPolicyEvent)
     const stateProgram = program.states[state];
     if (!stateProgram) throw new TypeError(`compiled DCRM state is missing: ${state}`);
     if (!activeWord) {
+      // EOF still permits terminal event predicates such as redirect guards.
+      // Transitions are excluded because validation requires them to consume a word.
+      for (const entry of stateProgram.cases) {
+        if (entry.action.kind !== "terminal") continue;
+        const context = runtimeContext(event, undefined, undefined, registers, foldCache);
+        if (evaluateExpression(entry.when, context) !== true) continue;
+        const decision = terminalDecision(entry.action, context);
+        steps.push(step(state, argvIndex, clusterByteIndex, entry.source, entry.origin, "terminal", [], undefined, decision.kind));
+        return frozenEvaluation(decision, steps);
+      }
       const decision = terminalDecision(stateProgram.end, runtimeContext(event, undefined, undefined, registers, foldCache));
       steps.push(step(state, argvIndex, clusterByteIndex, `$.states.${state}.end`, `state:${state}`, "terminal", [], undefined, decision.kind));
       return frozenEvaluation(decision, steps);
@@ -106,7 +118,7 @@ function evaluateProgram(program: CompiledPolicyProgram, event: BashPolicyEvent)
 }
 
 function selects(program: CompiledPolicyProgram, event: BashPolicyEvent): boolean {
-  return program.select.every((selector) => {
+  return program.select.some((selector) => {
     if ("kind" in selector) return event.kind === selector.kind && (selector.kind !== "execution-gap" || selector.reason === undefined || event.reason === selector.reason);
     if (event.kind !== "invocation") return false;
     const identity = event.executableIdentity;
@@ -309,10 +321,16 @@ function terminalDecision(action: TerminalAction, context: RuntimeContext): Poli
   return Object.freeze({ kind: action.decision, reason, ...(suggestion === undefined ? {} : { suggestion }), ...(audit === undefined ? {} : { audit }) }) as PolicyDecision;
 }
 
-function template(parts: readonly (string | { readonly ref: string })[], context: RuntimeContext): readonly PolicyDiagnosticPart[] {
-  return Object.freeze(parts.map((part) => typeof part === "string"
-    ? Object.freeze({ kind: "literal" as const, value: part })
-    : Object.freeze({ kind: "value" as const, value: materialize(reference(part.ref, context)) })));
+function template(parts: readonly (string | Expression)[], context: RuntimeContext): readonly PolicyDiagnosticPart[] {
+  const result: PolicyDiagnosticPart[] = [];
+  for (const part of parts) {
+    const value = typeof part === "string" ? part : materialize(evaluateExpression(part, context));
+    const literal = typeof part === "string" || (typeof part === "object" && part !== null && "call" in part && typeof value === "string");
+    if (literal && typeof value === "string" && result.at(-1)?.kind === "literal") {
+      result[result.length - 1] = Object.freeze({ kind: "literal", value: result.at(-1)!.value + value });
+    } else result.push(Object.freeze(literal ? { kind: "literal" as const, value: value as string } : { kind: "value" as const, value }));
+  }
+  return Object.freeze(result);
 }
 
 function auditValue(value: AuditValue, context: RuntimeContext): unknown {
@@ -324,7 +342,9 @@ function auditValue(value: AuditValue, context: RuntimeContext): unknown {
 
 function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeContext): RuntimeValue {
   const strings = args.map(stringValue);
-  if (requiresKnownOperands(name) && (args.some(isUnknown) || strings.some(isUnknown))) return UNKNOWN;
+  // String-set arguments are literal arrays, not strings. Their stringValue is
+  // intentionally unknown and must not poison finite-set membership.
+  if (requiresKnownOperands(name) && (args.some(isUnknown) || !nonStringOperandBuiltin(name) && strings.some(isUnknown))) return UNKNOWN;
   switch (name) {
     case "equals": return strings[0] === strings[1];
     case "inStringSet": return isUnknown(strings[0]) ? UNKNOWN : Array.isArray(args[1]) && args[1].includes(strings[0] as string);
@@ -360,6 +380,8 @@ function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeCo
     case "hasProvenanceRoute": return typeof strings[0] === "string" && context.event.provenance.route.includes(strings[0]);
     case "isInPipeline": return context.event.inPipeline;
     case "processEffectIs": return strings[0] === context.event.processEffect;
+    case "githubHttpReason": return isUnknown(strings[0]) ? UNKNOWN : buildGithubSuggestion(strings[0] as string);
+    case "redirectInputReason": return redirectInputReason(context.event);
     default: throw new TypeError(`unknown compiled DCRM builtin: ${name}`);
   }
 }
@@ -394,6 +416,13 @@ function normalizeKubernetes(value: string): string { const lower = asciiCase(va
 function normalizeEndpoint(value: string): string { return `/${value.split("/").filter(Boolean).join("/")}`; }
 function requiresKnownOperands(name: string): boolean {
   return !["environmentIsPresent", "environmentIsKnown", "environmentIsUnknown", "missingEnvironmentMayBePresent", "isInPipeline"].includes(name);
+}
+function nonStringOperandBuiltin(name: string): boolean { return name === "inStringSet" || name === "wordInAsciiCaseInsensitiveSet" || name === "urlHostEquals" || name === "repositoryEquals"; }
+function redirectInputReason(event: BashPolicyEvent): string {
+  if (event.kind !== "invocation") return "bash redirect from a protected secret file";
+  const target = event.redirects.find((redirect) => redirect.kind === "input" && redirect.target?.kind === "known")?.target;
+  if (!target || target.kind !== "known") return "bash redirect from a protected secret file";
+  return isBindingResolvedWord(target) ? "bash redirect from a protected secret file" : `bash redirect from '${target.value.split("/").filter(Boolean).at(-1) ?? "protected secret file"}'`;
 }
 function matchesLinearRegex(value: string, pattern: string): boolean {
   try { return new RegExp(pattern).test(value); } catch { return false; }

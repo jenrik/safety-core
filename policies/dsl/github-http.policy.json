@@ -1,7 +1,14 @@
 {
   "language": "safety-core/bash-policy-v1",
   "layer": "guard",
-  "select": [{ "kind": "invocation" }],
+  "select": [
+    { "executable": { "projection": "basename", "equals": "curl" } },
+    { "executable": { "projection": "basename", "equals": "wget" } },
+    { "executable": { "projection": "basename", "equals": "http" } },
+    { "executable": { "projection": "basename", "equals": "httpie" } },
+    { "executable": { "projection": "basename", "equals": "fetch" } },
+    { "executable": { "projection": "basename", "equals": "httpx" } }
+  ],
   "registers": {},
   "folds": {},
   "options": {},
@@ -11,24 +18,15 @@
     "start": {
       "cases": [
         {
-          "when": { "all": [
-            { "call": "inStringSet", "args": [{ "call": "basename", "args": [{ "ref": "event.executable" }] }, ["curl", "wget", "http", "httpie", "fetch", "httpx"]] },
-            { "any": [
+          "when": { "any": [
               { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "api.github.com"] },
               { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "api.github.com."] },
               { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "raw.githubusercontent.com"] },
               { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "raw.githubusercontent.com."] }
-            ] }
           ] },
-          "action": { "decision": "deny", "reason": ["Blocked: direct GitHub HTTP request detected. Use the native gh command where possible."], "audit": { "invocation": { "ref": "event" } } }
+          "action": { "decision": "deny", "reason": [{ "call": "githubHttpReason", "args": [{ "ref": "word" }] }], "audit": { "invocation": { "ref": "event" } } }
         },
-        {
-          "when": { "call": "inStringSet", "args": [
-            { "call": "basename", "args": [{ "ref": "event.executable" }] },
-            ["curl", "wget", "http", "httpie", "fetch", "httpx"]
-          ] },
-          "action": { "consume": "word", "next": "scan" }
-        }
+        { "when": true, "action": { "consume": "word", "next": "scan" } }
       ],
       "default": { "decision": "ignore" },
       "end": { "decision": "ignore" }
@@ -42,7 +40,7 @@
             { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "raw.githubusercontent.com"] },
             { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "raw.githubusercontent.com."] }
           ] },
-          "action": { "decision": "deny", "reason": ["Blocked: direct GitHub HTTP request detected. Use the native gh command where possible."], "audit": { "invocation": { "ref": "event" } } }
+          "action": { "decision": "deny", "reason": [{ "call": "githubHttpReason", "args": [{ "ref": "word" }] }], "audit": { "invocation": { "ref": "event" } } }
         },
         { "when": true, "action": { "consume": "word", "next": "scan" } }
       ],

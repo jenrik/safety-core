@@ -26,7 +26,7 @@ export type Expression =
   | { readonly any: readonly Expression[] }
   | { readonly not: Expression };
 
-export type TemplatePart = string | { readonly ref: string };
+export type TemplatePart = string | Expression;
 export type AuditValue = string | number | boolean | null | { readonly ref: string } | { readonly [key: string]: AuditValue } | readonly AuditValue[];
 
 export interface TransitionAction {

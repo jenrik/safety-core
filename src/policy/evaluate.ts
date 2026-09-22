@@ -95,7 +95,7 @@ function isTraceablePolicy(policy: ValidatedBashPolicy): policy is ValidatedBash
 function policySelectsEvent(policy: ValidatedBashPolicy, event: BashPolicyEvent): boolean {
   const selectors = policy.select.filter((selector) => isExecutableSelector(selector));
   if (selectors.length === 0) return true;
-  return event.kind === "invocation" && selectors.every((selector) => matchesExecutableSelector(event.executableIdentity, selector));
+  return event.kind === "invocation" && selectors.some((selector) => matchesExecutableSelector(event.executableIdentity, selector));
 }
 
 function isExecutableSelector(selector: import("./types.js").BashPolicySelector): boolean {

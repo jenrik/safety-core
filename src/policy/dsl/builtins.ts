@@ -68,6 +68,8 @@ export const BUILTINS_V1: Readonly<Record<string, BuiltinDefinition>> = Object.f
   hasProvenanceRoute: builtin(["string"], "bool", "O(p)", "Exact execution provenance route membership."),
   isInPipeline: builtin([], "bool", "O(1)", "Pipeline-context predicate."),
   processEffectIs: builtin(["string"], "bool", "O(1)", "Exact process-effect predicate."),
+  githubHttpReason: builtin(["stringish"], "string", "O(n)", "Sanitized native-GitHub steering diagnostic."),
+  redirectInputReason: builtin([], "string", "O(r + n)", "Redacted first protected input-redirect diagnostic."),
 });
 
 export function builtinDefinition(name: string): BuiltinDefinition | undefined {

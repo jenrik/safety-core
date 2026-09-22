@@ -34,7 +34,7 @@
       "cases": [
         { "when": { "call": "equals", "args": [{ "ref": "word" }, "view-secret"] }, "action": { "decision": "deny", "reason": ["kubectl view-secret is blocked: it decodes and displays Secret values in plaintext."], "audit": { "invocation": { "ref": "event" } } } },
         { "when": { "call": "equals", "args": [{ "ref": "word" }, "get"] }, "action": { "consume": "word", "next": "get" } },
-        { "when": true, "action": { "decision": "ignore" } }
+        { "when": true, "action": { "consume": "word", "next": "tail" } }
       ],
       "default": { "decision": "ignore" },
       "end": { "decision": "ignore" }
@@ -42,16 +42,40 @@
     "get": {
       "cases": [
         {
+          "when": { "call": "wordInAsciiCaseInsensitiveSet", "args": [{ "ref": "word" }, ["secret", "secrets", "sa", "serviceaccount", "serviceaccounts", "tokenrequest", "tokenrequests"]] },
+          "action": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
           "when": { "call": "wordInAsciiCaseInsensitiveSet", "args": [
             { "call": "normalizeKubernetesResource", "args": [{ "call": "splitComponent", "args": [{ "call": "splitComponent", "args": [{ "call": "splitComponent", "args": [{ "ref": "word" }, ",", 0] }, "/", 0] }, ".", 0] }] },
             ["secret", "sa", "serviceaccount", "tokenrequest"]
           ] },
           "action": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
         },
-        { "when": true, "action": { "decision": "ignore" } }
+        { "when": true, "action": { "consume": "word", "next": "tail" } }
       ],
       "default": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } },
       "end": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+    },
+    "tail": {
+      "cases": [
+        {
+          "when": { "any": [
+            { "call": "wordInAsciiCaseInsensitiveSet", "args": [{ "ref": "word" }, ["secret", "secrets", "sa", "serviceaccount", "serviceaccounts", "tokenrequest", "tokenrequests"]] },
+            { "call": "safeGlob", "args": [{ "ref": "word" }, "secret/*"] },
+            { "call": "safeGlob", "args": [{ "ref": "word" }, "secrets/*"] },
+            { "call": "safeGlob", "args": [{ "ref": "word" }, "sa/*"] },
+            { "call": "safeGlob", "args": [{ "ref": "word" }, "serviceaccount/*"] },
+            { "call": "safeGlob", "args": [{ "ref": "word" }, "serviceaccounts/*"] },
+            { "call": "safeGlob", "args": [{ "ref": "word" }, "tokenrequest/*"] },
+            { "call": "safeGlob", "args": [{ "ref": "word" }, "tokenrequests/*"] }
+          ] },
+          "action": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+        },
+        { "when": true, "action": { "consume": "word", "next": "tail" } }
+      ],
+      "default": { "decision": "ignore" },
+      "end": { "decision": "ignore" }
     }
   }
 }

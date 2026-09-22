@@ -43,6 +43,7 @@ export * from "./secrets.js";
 export * from "./github.js";
 export * from "./kubectl.js";
 export * from "./authorization.js";
+export * from "./legacy-config.js";
 export { analyzeSecretReadInvocation } from "./bash/policies/secrets.js";
 export { analyzeGithubHttpInvocation } from "./bash/policies/github.js";
 export { analyzeKubectlInvocation } from "./bash/policies/kubectl.js";
