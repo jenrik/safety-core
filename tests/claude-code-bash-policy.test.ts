@@ -32,6 +32,18 @@ test("Claude evaluation exceptions are observable to the fatal hook wrapper", ()
   expect(() => evaluateClaudeBashPolicy(event("printf ok"), { runtime, evaluatePolicies: () => { throw new Error("policy failure"); } })).toThrow("policy failure");
 });
 
+test("Claude supplies hook cwd and an explicit executable resolver", () => {
+  let context: { readonly cwd?: string; readonly executableFilesystem?: unknown } | undefined;
+  evaluateClaudeBashPolicy({ ...event("printf ok"), cwd: "/workspace" }, {
+    runtime,
+    evaluatePolicies: (_runtime, _source, value) => {
+      context = value;
+      return { decision: "defer", analysis: { complete: false }, events: [], traces: [] };
+    },
+  });
+  expect(context).toMatchObject({ cwd: "/workspace", executableFilesystem: expect.any(Object) });
+});
+
 test("Claude session manifests keep config immutable and reject changed source bytes", async () => {
   const root = mkdtempSync(join(tmpdir(), "safety-core-claude-session-"));
   const home = join(root, "home");

@@ -48,6 +48,7 @@ import { analyzeSecretRedirectInvocation } from "./policies/secrets.js";
 import type { DispatchTarget, Step } from "./runner.js";
 import { projectExecutionGapEvent, projectInvocationEvent } from "../policy/events.js";
 import type { BashPolicyEvent } from "../policy/types.js";
+import type { ExecutableFilesystem } from "../policy/filesystem.js";
 
 export interface BashWalkContext {
   readonly environment: Environment;
@@ -57,6 +58,9 @@ export interface BashWalkContext {
   readonly preflightCommand: (request: BashPreflightRequest) => BashPreflightResult;
   /** Shadow-only generic policy trace sink; it cannot alter traversal. */
   readonly recordPolicyEvent?: (event: BashPolicyEvent) => void;
+  /** Explicit filesystem facts for event-only executable identity projection. */
+  readonly cwd?: string;
+  readonly executableFilesystem?: ExecutableFilesystem;
 }
 
 /** Metadata-only execution route; never contains source, arguments, or values. */
@@ -86,6 +90,8 @@ export interface BashDispatchRequest {
   readonly inPipeline: boolean;
   readonly provenance: BashExecutionProvenance;
   readonly processEffect: ProcessEffect;
+  readonly cwd?: string;
+  readonly executableFilesystem?: ExecutableFilesystem;
   /** Optional immutable event sink used by generic shadow policy evaluation. */
   readonly recordPolicyEvent?: (event: BashPolicyEvent) => void;
   /** Returns a scheduled nested script without giving dispatch code ambient execution access. */
@@ -110,7 +116,7 @@ export interface BashDispatchRequest {
 
 export type BashPreflightRequest = Pick<
   BashDispatchRequest,
-  "command" | "span" | "environment" | "inPipeline" | "provenance" | "processEffect" | "recordPolicyEvent"
+  "command" | "span" | "environment" | "inPipeline" | "provenance" | "processEffect" | "recordPolicyEvent" | "cwd" | "executableFilesystem"
 >;
 
 export type BashPreflightResult =
@@ -477,6 +483,8 @@ function executeCommand(
           provenance: input.provenance,
           processEffect: input.processEffect,
           recordPolicyEvent: context.recordPolicyEvent,
+          cwd: context.cwd,
+          executableFilesystem: context.executableFilesystem,
         }));
         if (preflight.kind === "deny") {
           recordInvocationEvent(preflightCommand, input, context, command.span, inPipeline);
@@ -624,6 +632,8 @@ function dispatchNormalized(
     inPipeline,
     provenance: input.provenance,
     processEffect: input.processEffect,
+    cwd: context.cwd,
+    executableFilesystem: context.executableFilesystem,
     recordPolicyEvent: context.recordPolicyEvent,
     continueWithSource: (source, environment, options = {}) => freeze({
       outcome: safe(),
@@ -1141,6 +1151,8 @@ function recordInvocationEvent(
     provenance: input.provenance,
     inPipeline,
     processEffect: input.processEffect,
+    cwd: context.cwd,
+    executableFilesystem: context.executableFilesystem,
   });
   context.recordPolicyEvent?.(event);
 }

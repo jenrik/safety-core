@@ -3,6 +3,8 @@ import { lookupBinding, modeledBindings, type Environment } from "../bash/enviro
 import type { BashExecutionProvenance, ProcessEffect } from "../bash/walker.js";
 import type { SourceSpan } from "../bash/cst.js";
 import type { BashPolicyEvent, ExecutionGapView, InvocationView } from "./types.js";
+import { resolveExecutableIdentity, unresolvedExecutableIdentity } from "./executable.js";
+import { unavailableExecutableFilesystem, type ExecutableFilesystem } from "./filesystem.js";
 
 export interface BashPolicyEventContext {
   readonly environment: Environment;
@@ -10,6 +12,8 @@ export interface BashPolicyEventContext {
   readonly provenance: BashExecutionProvenance;
   readonly inPipeline: boolean;
   readonly processEffect: ProcessEffect;
+  readonly cwd?: string;
+  readonly executableFilesystem?: ExecutableFilesystem;
 }
 
 /** Project the walker model into a complete, immutable policy-facing event. */
@@ -20,6 +24,9 @@ export function projectInvocationEvent(command: NormalizedCommand, context: Bash
   return Object.freeze({
     kind: "invocation",
     executable: command.executable,
+    executableIdentity: command.executable?.kind === "known"
+      ? resolveExecutableIdentity(command.executable.value, environment.values, context.cwd ?? "/", context.executableFilesystem ?? unavailableExecutableFilesystem)
+      : unresolvedExecutableIdentity(),
     argv: Object.freeze([...command.argv]),
     environment: immutableBindings(environment.values),
     exportedEnvironment: immutableExports(command.environment, environment.values),

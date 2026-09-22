@@ -9,6 +9,7 @@ import type {
   PolicyTrace,
   ValidatedBashPolicy,
 } from "./types.js";
+import { matchesExecutableSelector } from "./executable.js";
 
 /**
  * Validate a loader-provided policy without assigning semantics to its source
@@ -49,6 +50,7 @@ export function evaluatePolicyEvents(
   for (const [eventIndex, event] of events.entries()) {
     if (event.kind === "execution-gap") hasExecutionGap = true;
     for (const policy of validatedPolicies) {
+      if (!policySelectsEvent(policy, event)) continue;
       const decision = policy.evaluate(event);
       assertPolicyDecision(decision);
       if (policy.layer === "guard" && decision.kind === "allow") {
@@ -80,6 +82,21 @@ export function evaluatePolicyEvents(
       : "defer";
 
   return Object.freeze({ decision, traces: Object.freeze(traces) });
+}
+
+/** Only typed executable selectors constrain evaluation; legacy selector data remains loader-owned. */
+function policySelectsEvent(policy: ValidatedBashPolicy, event: BashPolicyEvent): boolean {
+  const selectors = policy.select.filter((selector) => isExecutableSelector(selector));
+  if (selectors.length === 0) return true;
+  return event.kind === "invocation" && selectors.every((selector) => matchesExecutableSelector(event.executableIdentity, selector));
+}
+
+function isExecutableSelector(selector: import("./types.js").BashPolicySelector): boolean {
+  return selector.kind === "executable"
+    || selector.kind === "executable-basename"
+    || selector.kind === "executable-selected-path"
+    || selector.kind === "executable-canonical-target"
+    || selector.kind === "executable-chain-contains";
 }
 
 function assertPolicyDecision(decision: PolicyDecision): void {

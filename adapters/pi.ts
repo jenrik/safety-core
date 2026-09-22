@@ -11,6 +11,7 @@ import {
   initBashParser,
   isSecretPath,
   loadPolicyRuntime,
+  nodeExecutableFilesystem,
   policyInitialEnvironment,
   setJudgeVerdict,
   getJudgeVerdict,
@@ -18,12 +19,14 @@ import {
   shouldInvokeJudge,
   type BashPolicyEvaluation,
   type LoadedPolicyRuntime,
+  type ExecutableFilesystem,
 } from "../src/index.js";
 
 export interface PiExtensionDependencies {
   readonly runtime?: Promise<LoadedPolicyRuntime>;
   readonly loadRuntime?: (cwd: string) => Promise<LoadedPolicyRuntime>;
-  readonly evaluatePolicies?: (runtime: LoadedPolicyRuntime, source: string) => BashPolicyEvaluation;
+  readonly evaluatePolicies?: (runtime: LoadedPolicyRuntime, source: string, context?: { readonly cwd?: string; readonly executableFilesystem?: ExecutableFilesystem }) => BashPolicyEvaluation;
+  readonly executableFilesystem?: ExecutableFilesystem;
 }
 
 /** Pi loads one policy set for the extension lifetime and never reloads it. */
@@ -36,7 +39,8 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
     runtimeReady ??= (dependencies.loadRuntime ?? loadPolicyRuntime)(cwd);
     return runtimeReady;
   };
-  const evaluate = dependencies.evaluatePolicies ?? ((runtime, source) => evaluateLoadedPolicies(runtime, source, policyInitialEnvironment(process.env)));
+  const executableFilesystem = dependencies.executableFilesystem ?? nodeExecutableFilesystem;
+  const evaluate = dependencies.evaluatePolicies ?? ((runtime, source, context) => evaluateLoadedPolicies(runtime, source, policyInitialEnvironment(process.env), context));
 
   pi.on("session_start", async (_event, ctx) => {
     try {
@@ -61,7 +65,7 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
     let result: BashPolicyEvaluation;
     try {
       await parserReady;
-      result = evaluate(await ensureRuntime(ctx.cwd), source);
+      result = evaluate(await ensureRuntime(ctx.cwd), source, { cwd: ctx.cwd, executableFilesystem });
     } catch (error) {
       poisoned = policyFailureReason(error);
       setJudgeVerdict(event.toolCallId, { safe: false, reasoning: poisoned });

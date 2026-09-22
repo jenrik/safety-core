@@ -9,6 +9,7 @@ import {
   type ResolvedPolicySource,
 } from "./config.js";
 import { loadPolicySet, loadPolicySources, type LoadedPolicySet, type LoadedPolicySource } from "./load.js";
+import type { ExecutableFilesystem } from "./filesystem.js";
 
 export interface LoadedPolicyRuntime {
   readonly config: GlobalPolicyConfig;
@@ -69,11 +70,14 @@ export function evaluateLoadedPolicies(
   runtime: LoadedPolicyRuntime,
   source: string,
   initialEnvironment?: BashInitialEnvironment,
+  context: { readonly cwd?: string; readonly executableFilesystem?: ExecutableFilesystem } = {},
 ): BashPolicyEvaluation {
   return analyzeBashWithPolicies({
     source,
     limits: runtime.limits,
     initialEnvironment,
+    cwd: context.cwd,
+    executableFilesystem: context.executableFilesystem,
     policies: runtime.policySet.policies,
   });
 }

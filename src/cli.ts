@@ -3,6 +3,7 @@ import { pathToFileURL } from "node:url";
 import { PolicyStartupError } from "./policy/config.js";
 import { createExplainTrace, renderExplainTrace } from "./policy/trace.js";
 import { evaluateLoadedPolicies, loadPolicyRuntime } from "./policy/runtime.js";
+import { nodeExecutableFilesystem } from "./policy/filesystem.js";
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
   const [command, ...rest] = argv;
@@ -20,7 +21,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     return;
   }
   await initBashParser(discoverWasmDir(import.meta.url));
-  const evaluation = evaluateLoadedPolicies(runtime, sourceArguments[1]!, { kind: "verified", values: process.env as Record<string, string> });
+  const evaluation = evaluateLoadedPolicies(runtime, sourceArguments[1]!, { kind: "verified", values: process.env as Record<string, string> }, { cwd: process.cwd(), executableFilesystem: nodeExecutableFilesystem });
   process.stdout.write(renderExplainTrace(createExplainTrace(runtime, evaluation), json));
 }
 

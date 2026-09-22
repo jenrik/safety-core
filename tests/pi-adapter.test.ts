@@ -26,6 +26,21 @@ test("Pi blocks generic denial and prompts only generic defer", async () => {
   expect(deferred).toEqual({ block: true, reason: "Command requires policy approval" });
 });
 
+test("Pi supplies tool cwd and an explicit executable resolver", async () => {
+  const { createPiExtension } = await import("../adapters/pi.ts");
+  const handlers = new Map<string, Function>();
+  let context: { readonly cwd?: string; readonly executableFilesystem?: unknown } | undefined;
+  createPiExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerTool() {} } as never, {
+    runtime: Promise.resolve(runtime),
+    evaluatePolicies: (_runtime, _source, value) => {
+      context = value;
+      return defer;
+    },
+  });
+  await handlers.get("tool_call")!({ toolName: "bash", toolCallId: "cwd", input: { command: "id" } }, { cwd: "/workspace", ui: { notify() {} } });
+  expect(context).toMatchObject({ cwd: "/workspace", executableFilesystem: expect.any(Object) });
+});
+
 test("Pi poisons a session on runtime policy failure", async () => {
   const { createPiExtension } = await import("../adapters/pi.ts");
   const handlers = new Map<string, Function>();

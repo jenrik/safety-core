@@ -8,6 +8,7 @@ import {
   initBashParser,
   isSecretPath,
   loadPolicyRuntime,
+  nodeExecutableFilesystem,
   policyInitialEnvironment,
   setJudgeProvider,
   invokeJudge,
@@ -16,14 +17,16 @@ import {
   createOpenAIJudge,
   type LoadedPolicyRuntime,
   type BashPolicyEvaluation,
+  type ExecutableFilesystem,
 } from "../src/index.js";
 
-type PolicyEvaluator = (runtime: LoadedPolicyRuntime, source: string) => BashPolicyEvaluation;
+type PolicyEvaluator = (runtime: LoadedPolicyRuntime, source: string, context?: { readonly cwd?: string; readonly executableFilesystem?: ExecutableFilesystem }) => BashPolicyEvaluation;
 
 export interface OpenCodePluginDependencies {
   readonly runtime?: LoadedPolicyRuntime;
   readonly loadRuntime?: (cwd: string) => Promise<LoadedPolicyRuntime>;
   readonly evaluatePolicies?: PolicyEvaluator;
+  readonly executableFilesystem?: ExecutableFilesystem;
 }
 
 /** Load once at plugin startup; a startup failure prevents the plugin from running. */
@@ -34,12 +37,13 @@ export async function createOpenCodePlugin(
 ) {
   await initBashParser(discoverWasmDir(import.meta.url));
   const runtime = dependencies.runtime ?? await (dependencies.loadRuntime ?? loadPolicyRuntime)(directory ?? process.cwd());
-  const evaluate = dependencies.evaluatePolicies ?? ((loaded, source) => evaluateLoadedPolicies(loaded, source, policyInitialEnvironment(process.env)));
+  const executableFilesystem = dependencies.executableFilesystem ?? nodeExecutableFilesystem;
+  const evaluate = dependencies.evaluatePolicies ?? ((loaded, source, context) => evaluateLoadedPolicies(loaded, source, policyInitialEnvironment(process.env), context));
   const results = new Map<string, BashPolicyEvaluation>();
   const poisonedSessions = new Map<string, string>();
   setJudgeProvider(buildJudgeProvider());
 
-  const evaluateCommand = (source: string) => evaluate(runtime, source);
+  const evaluateCommand = (source: string) => evaluate(runtime, source, { cwd: directory ?? process.cwd(), executableFilesystem });
   const cacheKey = (value: Record<string, unknown>, source: string) =>
     typeof value.sessionID === "string" && typeof value.callID === "string" ? `${value.sessionID}\u0000${value.callID}\u0000${source}` : undefined;
   const sessionKey = (value: Record<string, unknown>) => typeof value.sessionID === "string" && value.sessionID.length > 0 ? value.sessionID : "<unknown-session>";

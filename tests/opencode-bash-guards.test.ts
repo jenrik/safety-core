@@ -24,6 +24,19 @@ test("OpenCode maps generic allow and deny to native status and leaves defer unc
   expect(blockReason(deny)).toBe("Blocked by safety policy: generic denial");
 });
 
+test("OpenCode supplies plugin cwd and an explicit executable resolver", async () => {
+  let context: { readonly cwd?: string; readonly executableFilesystem?: unknown } | undefined;
+  const plugin = await createOpenCodePlugin({
+    runtime,
+    evaluatePolicies: (_runtime, _source, value) => {
+      context = value;
+      return defer;
+    },
+  }, undefined, "/workspace");
+  await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "id" }, { status: "ask" });
+  expect(context).toMatchObject({ cwd: "/workspace", executableFilesystem: expect.any(Object) });
+});
+
 test("OpenCode rejects runtime evaluation failures rather than falling back", async () => {
   const plugin = await createOpenCodePlugin({ runtime, evaluatePolicies: () => { throw new Error("policy failure"); } });
   await expect((plugin["tool.execute.before"] as Function)({ tool: "bash" }, { args: { command: "anything" } })).rejects.toThrow("policy failure");

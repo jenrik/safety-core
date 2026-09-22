@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { initBashParser, setJudgeProvider } from "../src/index.ts";
+import { initBashParser, setJudgeProvider, unavailableExecutableFilesystem } from "../src/index.ts";
 
 /**
  * Replay recorded OpenCode Bash calls through the production plugin hooks.
@@ -90,7 +90,7 @@ async function loadPlugin(): Promise<OpenCodePlugin> {
   const original = new Map(keys.map((key) => [key, process.env[key]]));
   try {
     for (const key of keys) delete process.env[key];
-    const plugin = (await (await import("../adapters/opencode.ts")).default()) as OpenCodePlugin;
+    const plugin = await (await import("../adapters/opencode.ts")).createOpenCodePlugin({ executableFilesystem: unavailableExecutableFilesystem }) as OpenCodePlugin;
     setJudgeProvider(null);
     return plugin;
   } finally {

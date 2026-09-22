@@ -1,14 +1,17 @@
 import {
   evaluateLoadedPolicies,
+  nodeExecutableFilesystem,
   policyInitialEnvironment,
   type BashPolicyEvaluation,
   type LoadedPolicyRuntime,
+  type ExecutableFilesystem,
 } from "../../src/index.js";
 import type { HookEvent } from "./_shared.js";
 
 export interface ClaudeBashPolicyDependencies {
   readonly runtime: LoadedPolicyRuntime;
-  readonly evaluatePolicies?: (runtime: LoadedPolicyRuntime, source: string) => BashPolicyEvaluation;
+  readonly evaluatePolicies?: (runtime: LoadedPolicyRuntime, source: string, context?: { readonly cwd?: string; readonly executableFilesystem?: ExecutableFilesystem }) => BashPolicyEvaluation;
+  readonly executableFilesystem?: ExecutableFilesystem;
 }
 
 export type ClaudeBashPolicyDecision =
@@ -23,8 +26,11 @@ export function isBashPreToolUse(event: HookEvent | null): boolean {
 export function evaluateClaudeBashPolicy(event: HookEvent, dependencies: ClaudeBashPolicyDependencies): ClaudeBashPolicyDecision {
   if (!isBashPreToolUse(event)) return undefined;
   const source = event.tool_input!.command as string;
-  const evaluation = (dependencies.evaluatePolicies ?? ((runtime, command) =>
-    evaluateLoadedPolicies(runtime, command, policyInitialEnvironment(process.env))))(dependencies.runtime, source);
+  const evaluation = (dependencies.evaluatePolicies ?? ((runtime, command, context) =>
+    evaluateLoadedPolicies(runtime, command, policyInitialEnvironment(process.env), context)))(dependencies.runtime, source, {
+    cwd: event.cwd ?? process.cwd(),
+    executableFilesystem: dependencies.executableFilesystem ?? nodeExecutableFilesystem,
+  });
   if (evaluation.decision === "defer") return undefined;
   const trace = evaluation.decision === "deny" ? evaluation.traces.find((value) => value.decision.kind === "deny") : undefined;
   const reason = trace?.decision.reason?.map((part) => part.kind === "literal" ? part.value : String(part.value)).join("")

@@ -7,6 +7,7 @@ import { parseBashProgram } from "./shell.js";
 import { evaluatePolicyEvents } from "./policy/evaluate.js";
 import { projectExecutionGapEvent } from "./policy/events.js";
 import type { BashPolicyAnalysis, BashPolicyEvent, PolicyEvaluation, ValidatedBashPolicy } from "./policy/types.js";
+import { unavailableExecutableFilesystem, type ExecutableFilesystem } from "./policy/filesystem.js";
 
 export type BashInitialEnvironment =
   | { readonly kind: "unavailable" }
@@ -18,6 +19,9 @@ export interface BashPolicyAnalysisOptions {
   readonly limits?: BashAnalysisLimits;
   readonly initialEnvironment?: BashInitialEnvironment;
   readonly policies: readonly ValidatedBashPolicy[];
+  /** Supplied by live harness adapters; omitted evaluation is offline-safe. */
+  readonly cwd?: string;
+  readonly executableFilesystem?: ExecutableFilesystem;
 }
 
 export interface BashPolicyEvaluation extends PolicyEvaluation {
@@ -47,6 +51,8 @@ export function analyzeBashWithPolicies(options: BashPolicyAnalysisOptions): Bas
     dispatchCommand: (request) => dispatchCommand(request, registry),
     preflightCommand: (request) => preflightCommand(request, registry),
     recordPolicyEvent: (event) => events.push(event),
+    cwd: options.cwd ?? "/",
+    executableFilesystem: options.executableFilesystem ?? unavailableExecutableFilesystem,
   }, parsed.kind === "parse-failure" ? failure(parsed.span) : undefined);
   const completed = runSteps(initial, limits);
   const analysis = Object.freeze({ complete: completed.outcome.kind !== "failure" });

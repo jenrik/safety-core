@@ -22,7 +22,7 @@ afterAll(() => {
 
 describe("OpenCode historical Bash replay adapter", () => {
   test("injects a production-shaped Bash event without executing its command", async () => {
-    writeFileSync(join(configHome, "safety-core", "profiles.json"), "{}");
+    writeConfig({});
 
     const result = await replayHistoricalBashEvent({ command: "printf replay-only" });
 
@@ -37,17 +37,19 @@ describe("OpenCode historical Bash replay adapter", () => {
   });
 
   test("reports a hard-block as a policy denial", async () => {
-    writeFileSync(join(configHome, "safety-core", "profiles.json"), "{}");
+    const guard = join(configHome, "secret-read.policy.mjs");
+    writeFileSync(guard, `export default Object.freeze({ apiVersion: 1, layer: "guard", select: Object.freeze([]), evaluate: (event) => event.kind === "invocation" && event.executable?.kind === "known" && event.executable.value === "cat" && event.argv.some((word) => word.kind === "known" && word.value === "credentials.json") ? Object.freeze({ kind: "deny", reason: Object.freeze([{ kind: "literal", value: "protected read" }]) }) : Object.freeze({ kind: "ignore" }) });\n`);
+    writeConfig({ policies: [guard] });
 
     const result = await replayHistoricalBashEvent({ command: "cat credentials.json" });
 
     expect(result.policyDecision).toBe("deny");
     expect(result.policyDenied).toBe(true);
-    expect(result.reason).toContain("credentials.json");
+    expect(result.reason).toContain("protected read");
   });
 
   test("keeps replay offline when a judge provider has already been installed", async () => {
-    writeFileSync(join(configHome, "safety-core", "profiles.json"), "{}");
+    writeConfig({});
     setJudgeProvider(async () => {
       throw new Error("The historical replay must not invoke the judge");
     });
@@ -58,7 +60,7 @@ describe("OpenCode historical Bash replay adapter", () => {
   });
 
   test("property: each replay decision has exactly one matching decision flag", async () => {
-    writeFileSync(join(configHome, "safety-core", "profiles.json"), JSON.stringify({ ghReadOnly: true }));
+    writeConfig({});
     const commands = Array.from({ length: 128 }, (_, index) => [
       "gh issue list", "cat credentials.json", `printf replay-${index}`, "gh issue list; id",
     ][index % 4]!);
@@ -72,3 +74,13 @@ describe("OpenCode historical Bash replay adapter", () => {
     }
   });
 });
+
+function writeConfig(value: Readonly<Record<string, unknown>>): void {
+  writeFileSync(join(configHome, "safety-core", "config.json"), JSON.stringify({
+    version: 1,
+    policies: [],
+    projectPolicies: { mode: "disabled" },
+    bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 },
+    ...value,
+  }));
+}

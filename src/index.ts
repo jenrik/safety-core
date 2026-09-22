@@ -59,5 +59,7 @@ export * from "./policy/evaluate.js";
 export * from "./policy/config.js";
 export * from "./policy/load.js";
 export * from "./policy/events.js";
+export * from "./policy/filesystem.js";
+export * from "./policy/executable.js";
 export * from "./policy/runtime.js";
 export * from "./policy/trace.js";

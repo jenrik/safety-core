@@ -147,6 +147,8 @@ export function dispatchCommand(
     provenance: request.provenance,
     inPipeline: request.inPipeline,
     processEffect: request.processEffect,
+    cwd: request.cwd,
+    executableFilesystem: request.executableFilesystem,
   });
   request.recordPolicyEvent?.(event);
   const redirect = analyzeSecretRedirectInvocation(request.command);

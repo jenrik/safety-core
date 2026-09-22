@@ -2,6 +2,7 @@ import type { SourceSpan } from "../bash/cst.js";
 import type { NormalizedRedirect, ResolvedWord } from "../bash/expand.js";
 import type { BindingValue } from "../bash/environment.js";
 import type { BashExecutionProvenance, ProcessEffect } from "../bash/walker.js";
+import type { ExecutableIdentity } from "./executable.js";
 
 export type PolicyDiagnosticPart =
   | { readonly kind: "literal"; readonly value: string }
@@ -29,11 +30,27 @@ export interface BashPolicySelector {
   readonly [key: string]: unknown;
 }
 
+/** Exact executable selectors supported by code and future DSL policy loaders. */
+export type ExecutablePolicySelector =
+  | { readonly kind: "executable-basename"; readonly value: string }
+  | { readonly kind: "executable-selected-path"; readonly value: string }
+  | { readonly kind: "executable-canonical-target"; readonly value: string }
+  | { readonly kind: "executable-chain-contains"; readonly value: string }
+  | {
+    readonly kind: "executable";
+    readonly basename?: string;
+    readonly selectedPath?: string;
+    readonly canonicalTarget?: string;
+    readonly chainContains?: string;
+  };
+
 /** One fully modeled command invocation, including executable-less redirect forms. */
 export interface InvocationView {
   readonly kind: "invocation";
   /** Null for redirect-only commands and redirects owned by compound statements. */
   readonly executable: ResolvedWord | null;
+  /** Filesystem-qualified identity; unresolved path facts remain explicit. */
+  readonly executableIdentity: ExecutableIdentity;
   readonly argv: readonly ResolvedWord[];
   /** Complete modeled bindings, including exact known values and explicit unknowns. */
   readonly environment: Readonly<Record<string, BindingValue>>;
