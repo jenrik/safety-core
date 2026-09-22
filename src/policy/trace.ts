@@ -33,7 +33,10 @@ export function renderExplainTrace(trace: ExplainTrace, json: boolean): string {
     "sources:",
     ...trace.sources.map((source) => `  ${source.sha256}  ${source.canonicalPath}`),
     "decisions:",
-    ...trace.decisions.map((decision) => `  ${decision.layer} ${decision.decision.kind} ${decision.source.canonicalPath}`),
+    ...trace.decisions.flatMap((decision) => [
+      `  ${decision.layer} ${decision.decision.kind} ${decision.source.canonicalPath}`,
+      ...(decision.dslSteps ?? []).map((step) => `    ${step.action} ${step.source} state=${step.state} argv=${step.argvIndex} cluster=${step.clusterByteIndex}${step.nextState === undefined ? "" : ` -> ${step.nextState}`}${step.decision === undefined ? "" : ` decision=${step.decision}`}`),
+    ]),
   ];
   return `${lines.join("\n")}\n`;
 }

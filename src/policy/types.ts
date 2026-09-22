@@ -10,8 +10,8 @@ export type PolicyDiagnosticPart =
 export type PolicyTemplateValue = readonly PolicyDiagnosticPart[];
 
 export type PolicyDecision =
-  | { readonly kind: "allow"; readonly reason: PolicyTemplateValue; readonly audit?: Readonly<Record<string, unknown>> }
-  | { readonly kind: "deny"; readonly reason: PolicyTemplateValue; readonly audit?: Readonly<Record<string, unknown>> }
+  | { readonly kind: "allow"; readonly reason: PolicyTemplateValue; readonly suggestion?: PolicyTemplateValue; readonly audit?: Readonly<Record<string, unknown>> }
+  | { readonly kind: "deny"; readonly reason: PolicyTemplateValue; readonly suggestion?: PolicyTemplateValue; readonly audit?: Readonly<Record<string, unknown>> }
   | { readonly kind: "defer"; readonly reason?: PolicyTemplateValue }
   | { readonly kind: "ignore" };
 
@@ -96,6 +96,23 @@ export interface LoadedBashPolicy {
   evaluate(event: BashPolicyEvent): PolicyDecision;
 }
 
+/** A deterministic DSL machine step retained only for explain diagnostics. */
+export interface DslPolicyTraceStep {
+  readonly state: string;
+  readonly argvIndex: number;
+  readonly clusterByteIndex: number;
+  readonly source: string;
+  readonly origin: string;
+  readonly action: "transition" | "option" | "terminal" | "end-options";
+  readonly folds: readonly string[];
+  readonly nextState?: string;
+  readonly decision?: PolicyDecision["kind"];
+}
+
+export interface TraceableLoadedBashPolicy extends LoadedBashPolicy {
+  evaluateWithTrace(event: BashPolicyEvent): { readonly decision: PolicyDecision; readonly steps: readonly DslPolicyTraceStep[] };
+}
+
 /** A guard may never grant permission. */
 export interface GuardBashPolicy extends Omit<LoadedBashPolicy, "layer" | "evaluate"> {
   readonly layer: "guard";
@@ -121,6 +138,7 @@ export interface PolicyTrace {
   readonly layer: LoadedBashPolicy["layer"];
   readonly event: BashPolicyEvent;
   readonly decision: PolicyDecision;
+  readonly dslSteps?: readonly DslPolicyTraceStep[];
 }
 
 export interface PolicyEvaluation {

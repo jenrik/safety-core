@@ -97,7 +97,7 @@ describe("authoritative global policy configuration", () => {
     expect(Object.isFrozen(loaded.bashAnalysis)).toBeTrue();
   });
 
-  test("resolves global references from their configuration and only permits code sources", () => {
+  test("resolves global references from their configuration and permits code or DSL sources", () => {
     const home = fixtureDirectory();
     const configPath = writeGlobalConfig(home, globalConfig(["policies/read.policy.mjs", "/installed/absolute.policy.mjs"]));
     const loaded = resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), fixtureDirectory());
@@ -110,8 +110,8 @@ describe("authoritative global policy configuration", () => {
     expect(Object.isFrozen(loaded.sources)).toBeTrue();
 
     writeGlobalConfig(home, globalConfig(["policies/read.policy.json"]));
-    expect(() => resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), fixtureDirectory()))
-      .toThrow(PolicyStartupError);
+    expect(resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), fixtureDirectory()).sources)
+      .toEqual([{ path: join(configPath, "..", "policies", "read.policy.json"), scope: "global" }]);
   });
 
   test("discovers only the nearest permitted project config and rejects code policy references", () => {

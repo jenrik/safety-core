@@ -107,7 +107,7 @@ function parseGlobalConfig(value: unknown, path: string): GlobalPolicyConfig {
   requireOnlyKeys(record, new Set(["version", "policies", "projectPolicies", "bashAnalysis"]), path);
   if (record.version !== 1) throw new PolicyStartupError(path, "version must be 1");
   const policies = parsePolicies(record.policies, path);
-  requireSourceExtensions(policies, ".policy.mjs", "global", path);
+  requireGlobalSourceExtensions(policies, path);
   const projectPolicies = parseProjectPolicies(record.projectPolicies, path);
   const bashAnalysis = parseBashAnalysis(record.bashAnalysis, path);
 
@@ -184,11 +184,17 @@ function findNearestProjectRoot(canonicalCwd: string): string | undefined {
 
 function resolveSource(reference: string, base: string, scope: ResolvedPolicySource["scope"], configPath: string): ResolvedPolicySource {
   const path = isAbsolute(reference) ? reference : resolvePath(base, reference);
-  const extension = scope === "global" ? ".policy.mjs" : ".policy.json";
-  if (!path.endsWith(extension)) {
-    throw new PolicyStartupError(configPath, `${scope} policy source must use the exact ${extension} extension: ${reference}`);
+  const valid = scope === "global" ? path.endsWith(".policy.mjs") || path.endsWith(".policy.json") : path.endsWith(".policy.json");
+  if (!valid) {
+    const extensions = scope === "global" ? ".policy.mjs or .policy.json" : ".policy.json";
+    throw new PolicyStartupError(configPath, `${scope} policy source must use the exact ${extensions} extension: ${reference}`);
   }
   return Object.freeze({ path, scope });
+}
+
+function requireGlobalSourceExtensions(references: readonly string[], path: string): void {
+  const invalid = references.find((reference) => !reference.endsWith(".policy.mjs") && !reference.endsWith(".policy.json"));
+  if (invalid !== undefined) throw new PolicyStartupError(path, `global policy source must use .policy.mjs or .policy.json: ${invalid}`);
 }
 
 function parsePolicies(value: unknown, path: string): string[] {

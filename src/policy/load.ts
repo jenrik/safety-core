@@ -5,6 +5,9 @@ import { pathToFileURL } from "node:url";
 import { PolicyStartupError, type ResolvedSessionPolicyConfig } from "./config.js";
 import { validateLoadedBashPolicy } from "./evaluate.js";
 import type { BashPolicyEvent, BashPolicySelector, LoadedBashPolicy, PolicyDecision, ValidatedBashPolicy } from "./types.js";
+import { compilePolicyDocument } from "./dsl/compile.js";
+import { createDslPolicy } from "./dsl/evaluate.js";
+import { parsePolicyDocument } from "./dsl/validate.js";
 
 export interface LoadedPolicySource {
   readonly canonicalPath: string;
@@ -52,14 +55,12 @@ export async function loadPolicySources(
     const canonicalPath = canonicalizeSource(reference.path);
     if (seen.has(canonicalPath)) continue;
     seen.add(canonicalPath);
-    if (!canonicalPath.endsWith(".policy.mjs")) {
-      throw new PolicyStartupError(canonicalPath, "DSL policy sources are not supported by this loader stage");
-    }
-
     const bytes = readSource(canonicalPath);
-    rejectRelativeRuntimeImports(canonicalPath, bytes.toString("utf8"));
-    const definition = await importDefinition(canonicalPath, importCodePolicy);
-    const policy = loadDefinition(canonicalPath, definition);
+    const policy = canonicalPath.endsWith(".policy.mjs")
+      ? await loadCodePolicy(canonicalPath, bytes, importCodePolicy)
+      : canonicalPath.endsWith(".policy.json")
+        ? loadDslPolicy(canonicalPath, bytes)
+        : (() => { throw new PolicyStartupError(canonicalPath, "global policy source must use .policy.mjs or .policy.json"); })();
     sources.push(Object.freeze({
       canonicalPath,
       sha256: createHash("sha256").update(bytes).digest("hex"),
@@ -68,6 +69,20 @@ export async function loadPolicySources(
   }
 
   return Object.freeze({ policies: Object.freeze(policies), sources: Object.freeze(sources) });
+}
+
+async function loadCodePolicy(path: string, bytes: Buffer, importCodePolicy: NonNullable<PolicyLoaderOptions["importCodePolicy"]>): Promise<ValidatedBashPolicy> {
+  rejectRelativeRuntimeImports(path, bytes.toString("utf8"));
+  return loadDefinition(path, await importDefinition(path, importCodePolicy));
+}
+
+function loadDslPolicy(path: string, bytes: Buffer): ValidatedBashPolicy {
+  try {
+    return validateLoadedBashPolicy(createDslPolicy(compilePolicyDocument(parsePolicyDocument(bytes.toString("utf8"))), path));
+  } catch (error) {
+    const detail = error instanceof Error ? `invalid DSL policy: ${error.message}` : "invalid DSL policy";
+    throw new PolicyStartupError(path, detail, error);
+  }
 }
 
 function canonicalizeSource(path: string): string {

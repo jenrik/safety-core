@@ -7,6 +7,7 @@ import type {
   PolicyDecision,
   PolicyEvaluation,
   PolicyTrace,
+  TraceableLoadedBashPolicy,
   ValidatedBashPolicy,
 } from "./types.js";
 import { matchesExecutableSelector } from "./executable.js";
@@ -51,7 +52,8 @@ export function evaluatePolicyEvents(
     if (event.kind === "execution-gap") hasExecutionGap = true;
     for (const policy of validatedPolicies) {
       if (!policySelectsEvent(policy, event)) continue;
-      const decision = policy.evaluate(event);
+      const traced = isTraceablePolicy(policy) ? policy.evaluateWithTrace(event) : undefined;
+      const decision = traced?.decision ?? policy.evaluate(event);
       assertPolicyDecision(decision);
       if (policy.layer === "guard" && decision.kind === "allow") {
         throw new Error("Guard policies cannot allow; guards may only deny, defer, or ignore");
@@ -62,6 +64,7 @@ export function evaluatePolicyEvents(
         layer: policy.layer,
         event,
         decision,
+        ...(traced === undefined ? {} : { dslSteps: traced.steps }),
       }));
 
       if (decision.kind === "deny") denied = true;
@@ -82,6 +85,10 @@ export function evaluatePolicyEvents(
       : "defer";
 
   return Object.freeze({ decision, traces: Object.freeze(traces) });
+}
+
+function isTraceablePolicy(policy: ValidatedBashPolicy): policy is ValidatedBashPolicy & TraceableLoadedBashPolicy {
+  return "evaluateWithTrace" in policy && typeof (policy as Partial<TraceableLoadedBashPolicy>).evaluateWithTrace === "function";
 }
 
 /** Only typed executable selectors constrain evaluation; legacy selector data remains loader-owned. */

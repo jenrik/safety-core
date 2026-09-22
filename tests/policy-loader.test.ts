@@ -40,6 +40,24 @@ function resolvedConfig(home: string, policies: readonly string[]) {
 }
 
 describe("trusted code policy source loading", () => {
+  test("loads global JSON DCRM policies with canonical provenance and source-positioned fatal diagnostics", async () => {
+    const home = fixtureDirectory();
+    const policy = join(home, "strict.policy.json");
+    writeFileSync(policy, JSON.stringify({
+      language: "safety-core/bash-policy-v1", layer: "permission", select: [{ kind: "invocation" }], registers: {}, start: "start",
+      states: { start: { cases: [], default: { decision: "ignore" }, end: { decision: "allow", reason: ["approved"] } } },
+    }));
+    const loaded = await loadPolicySet(resolvedConfig(home, [policy]));
+    expect(loaded.sources).toEqual([{ canonicalPath: realpathSync(policy), sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }]);
+    expect(loaded.policies[0]).toMatchObject({ source: { canonicalPath: realpathSync(policy) }, layer: "permission" });
+
+    writeFileSync(policy, JSON.stringify({
+      language: "wrong", layer: "permission", select: [{ kind: "invocation" }], registers: {}, start: "start",
+      states: { start: { cases: [], default: { decision: "ignore" }, end: { decision: "ignore" } } },
+    }));
+    await expect(loadPolicySet(resolvedConfig(home, [policy]))).rejects.toThrow(`${realpathSync(policy)}: invalid DSL policy: $.language`);
+  });
+
   test("uses canonical paths as identity, collapsing aliases but not identical source bytes", async () => {
     const home = fixtureDirectory();
     const policyDirectory = join(home, "policies");
