@@ -60,3 +60,22 @@ all checks passed
 ```
 
 The lifecycle tests use real temp `config.json` and code-policy source files for missing-source startup failure, Pi project cwd resolution with `projectPolicies.mode = "all"`, and Claude config/source manifest immutability. They also verify OpenCode's native rejection response and both adapters' no-reevaluation poison persistence.
+
+## Fix Round 2/5
+
+### Implementation
+
+- Replaced Claude's check-then-rename manifest creation with an exclusive directory lock. Exactly one first hook reads config and sources; waiters reload its atomically renamed manifest. A stuck creator times out fail-closed.
+- Kubectl audit classification now examines all parsed `kubectl` invocations and selects the one whose classifier reports Secret activity, falling back to the first invocation only when no invocation is Secret-related.
+
+### Evidence
+
+```text
+bun test tests/policy-cli.test.ts tests/bash-config.test.ts tests/claude-code-bash-policy.test.ts tests/opencode-bash-guards.test.ts tests/opencode-read-only-cli.test.ts tests/pi-adapter.test.ts
+21 pass, 0 fail, 1077 expect() calls
+
+nix flake check
+all checks passed
+```
+
+The deterministic concurrent-manifest test holds the first policy import open, changes `config.json`, and starts eight competing loaders; every returned runtime uses the first source. The audit regression verifies `kubectl get pods; kubectl get secret application` logs the Secret resource.

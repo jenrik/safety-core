@@ -33,11 +33,13 @@ run(async () => {
 
 export function classifyKubectlSecretAudit(command: string) {
   const analysis = analyzeBashWithPolicies({ source: command, policies: [], initialEnvironment: { kind: "unavailable" } });
-  const invocation = analysis.events.find((event) => event.kind === "invocation"
-    && event.executable?.kind === "known" && event.executable.value.split("/").at(-1) === "kubectl");
-  if (!invocation || invocation.kind !== "invocation") return { kubectl_subcommand: null, resource: null, command_length: command.length };
-  const decision = analyzeKubectlInvocation({ argv: invocation.argv });
-  const kubectl = decision.kind === "ignore" ? undefined : decision.evidence.kubectl;
+  const candidates: { readonly decision: ReturnType<typeof analyzeKubectlInvocation> }[] = [];
+  for (const event of analysis.events) {
+    if (event.kind !== "invocation" || event.executable?.kind !== "known" || event.executable.value.split("/").at(-1) !== "kubectl") continue;
+    candidates.push({ decision: analyzeKubectlInvocation({ argv: event.argv }) });
+  }
+  const selected = candidates.find(({ decision }) => decision.kind !== "ignore" && decision.evidence.kubectl?.mentionsSecret) ?? candidates[0];
+  const kubectl = selected?.decision.kind === "ignore" ? undefined : selected?.decision.evidence.kubectl;
   return {
     kubectl_subcommand: kubectl?.subcommand ?? null,
     resource: kubectl?.resource ?? null,

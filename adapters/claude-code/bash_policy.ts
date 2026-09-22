@@ -1,7 +1,7 @@
 // Claude Code hook: one configured, single-pass policy evaluation for Bash.
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import {
@@ -29,16 +29,40 @@ run(async () => {
 /** Persist only source identity and limits; each hook verifies that snapshot. */
 export async function loadClaudeSessionRuntime(sessionID: unknown, cwd: string, env: Readonly<Record<string, string | undefined>> = process.env): Promise<LoadedPolicyRuntime> {
   const manifestPath = claudeManifestPath(sessionID, cwd, env);
-  if (!existsSync(manifestPath)) {
-    const runtime = await loadPolicyRuntime(cwd, env);
-    const manifest = policyRuntimeManifest(runtime, cwd);
-    mkdirSync(dirname(manifestPath), { recursive: true });
-    const temporary = `${manifestPath}.${process.pid}.tmp`;
-    writeFileSync(temporary, JSON.stringify(manifest));
-    renameSync(temporary, manifestPath);
-    return runtime;
+  if (existsSync(manifestPath)) return loadPolicyRuntimeManifest(parseManifest(readFileSync(manifestPath, "utf8"), manifestPath));
+
+  const lock = await acquireManifestLock(manifestPath);
+  if (lock) {
+    try {
+      if (existsSync(manifestPath)) return loadPolicyRuntimeManifest(parseManifest(readFileSync(manifestPath, "utf8"), manifestPath));
+      const runtime = await loadPolicyRuntime(cwd, env);
+      const manifest = policyRuntimeManifest(runtime, cwd);
+      const temporary = `${manifestPath}.${process.pid}.tmp`;
+      writeFileSync(temporary, JSON.stringify(manifest), { flag: "wx" });
+      renameSync(temporary, manifestPath);
+      return runtime;
+    } finally {
+      rmSync(lock, { force: true, recursive: true });
+    }
   }
   return loadPolicyRuntimeManifest(parseManifest(readFileSync(manifestPath, "utf8"), manifestPath));
+}
+
+/** An exclusive directory lock serializes first-session config/source selection. */
+async function acquireManifestLock(manifestPath: string): Promise<string | undefined> {
+  const lock = `${manifestPath}.lock`;
+  mkdirSync(dirname(manifestPath), { recursive: true });
+  for (let attempt = 0; attempt < 500; attempt++) {
+    try {
+      mkdirSync(lock);
+      return lock;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (existsSync(manifestPath)) return undefined;
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  throw new Error(`${manifestPath}: timed out waiting for immutable policy session manifest`);
 }
 
 function claudeManifestPath(sessionID: unknown, cwd: string, env: Readonly<Record<string, string | undefined>>): string {
