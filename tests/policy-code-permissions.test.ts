@@ -12,6 +12,8 @@ import helmReadOnly from "../policies/code/helm-read-only.policy.ts";
 import strictReadOnly from "../policies/code/strict-read-only.policy.ts";
 import { renderGhPrCreateCodePolicy } from "../scripts/render-gh-pr-create-code-policy.ts";
 import { STRICT_BASH_PROFILE_EXECUTABLES, analyzeBashWithPolicies, evaluateConfiguredBash, initBashParser, type BashProfileSnapshot, type LoadedBashPolicy, type ValidatedBashPolicy } from "../src/index.ts";
+import { BASH_FUNCTIONS_CAPTURED_FACT, GH_API_DEFER_ENVIRONMENT_NAMES, GH_DEFER_ENVIRONMENT_NAMES, GH_GLOBAL_DEFER_ENVIRONMENT_NAMES } from "../src/bash/policy-environment.ts";
+import { evaluatePolicyEvents } from "../src/policy/evaluate.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-policy-code-permissions-"));
 const prCreate = createGhPrCreatePolicy({ allowedRepositories: ["acme/widgets"], allowedOrganizations: ["trusted-org"] });
@@ -61,8 +63,24 @@ function snapshot(overrides: Partial<BashProfileSnapshot> = {}): BashProfileSnap
   });
 }
 
-function legacy(source: string, profileSnapshot: BashProfileSnapshot): string {
-  return evaluateConfiguredBash({ source, profileSnapshot, initialEnvironment: { kind: "verified", values: {} } }).permission.kind;
+function legacy(
+  source: string,
+  profileSnapshot: BashProfileSnapshot,
+  initialEnvironment: Parameters<typeof evaluateConfiguredBash>[0]["initialEnvironment"] = { kind: "verified", values: {} },
+): string {
+  return evaluateConfiguredBash({ source, profileSnapshot, initialEnvironment }).permission.kind;
+}
+
+function filteredEnvironment(names: readonly string[] = [], values: Readonly<Record<string, string>> = {}) {
+  return {
+    kind: "filtered" as const,
+    values: Object.freeze({
+      [BASH_FUNCTIONS_CAPTURED_FACT]: "present",
+      ...Object.fromEntries(names.map((name) => [name, ""])),
+      ...values,
+    }),
+    unset: Object.freeze([]),
+  };
 }
 
 describe("trusted permission code policies", () => {
@@ -177,6 +195,28 @@ describe("trusted permission code policies", () => {
 
     expect(result.events[0]?.missingBindings).toBe("unknown");
     expect(result.decision).toBe("allow");
+  });
+
+  test("covers every migrated family through aggregate evaluation with filtered bindings", () => {
+    const dockerProfile = STRICT_BASH_PROFILE_EXECUTABLES.find(([, executable]) => executable === "docker")?.[0];
+    if (!dockerProfile) throw new Error("Expected docker strict profile");
+    const cases = [
+      { source: "sha256sum README.md", policy: genericReadOnly, executable: "sha256sum", environment: filteredEnvironment(), profile: snapshot({ readOnlyBash: true }), decision: "allow", legacy: "allow" },
+      { source: "gh issue list", policy: ghReadOnly, executable: "gh", environment: filteredEnvironment(GH_DEFER_ENVIRONMENT_NAMES), profile: snapshot({ ghReadOnly: true }), decision: "defer", legacy: "defer" },
+      { source: "helm version", policy: helmReadOnly, executable: "helm", environment: filteredEnvironment(), profile: snapshot({ helmReadOnly: true }), decision: "allow", legacy: "allow" },
+      { source: "docker image ls", policy: strictReadOnly, executable: "docker", environment: filteredEnvironment(["DOCKER_CONFIG"]), profile: snapshot({ strictProfiles: Object.freeze({ ...snapshot().strictProfiles, [dockerProfile]: true }) }), decision: "allow", legacy: "allow" },
+      { source: "gh api user", policy: ghApi, executable: "gh", environment: filteredEnvironment(GH_API_DEFER_ENVIRONMENT_NAMES, { GH_PAGER: "cat" }), profile: snapshot({ ghApiReadOnly: true }), decision: "allow", legacy: "defer" },
+      { source: "gh pr create --repo github.com/acme/widgets --fill", policy: prCreate, executable: "gh", environment: filteredEnvironment(GH_GLOBAL_DEFER_ENVIRONMENT_NAMES, { GH_PROMPT_DISABLED: "1" }), profile: snapshot({ ghPrCreate: Object.freeze({ enabled: true, allowedRepositories: Object.freeze(["acme/widgets"]), allowedOrganizations: Object.freeze([]) }) }), decision: "allow", legacy: "defer" },
+    ] as const;
+
+    for (const scenario of cases) {
+      const active = [loaded(`/trusted/${scenario.executable}.policy.mjs`, scenario.policy)];
+      const result = analyzeBashWithPolicies({ source: scenario.source, policies: active, initialEnvironment: scenario.environment });
+      expect(result.events[0]?.missingBindings, scenario.source).toBe("unknown");
+      expect(scenario.policy.select.some((selector) => selector.environmentIndependent === true), scenario.source).toBeTrue();
+      expect(evaluatePolicyEvents(result.events, active, result.analysis).decision, scenario.source).toBe(scenario.decision);
+      expect(legacy(scenario.source, scenario.profile, scenario.environment), scenario.source).toBe(scenario.legacy);
+    }
   });
 
   test("allows mixed-policy compound commands when every invocation has a matching policy", () => {
