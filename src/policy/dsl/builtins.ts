@@ -45,7 +45,9 @@ export const BUILTINS_V1: Readonly<Record<string, BuiltinDefinition>> = Object.f
   includes: builtin(["stringish", "stringish"], "bool", "O(nm)", "Substring test."),
   basename: builtin(["stringish"], "string", "O(n)", "Lexical final non-empty slash-delimited path component."),
   pathComponent: builtin(["stringish", "count"], "string", "O(n)", "Lexical slash-delimited component at a bounded literal index."),
+  pathAfterComponents: builtin(["stringish", "count"], "string", "O(n)", "Suffix after a fixed number of slash-delimited components, preserving remaining separators."),
   splitComponent: builtin(["stringish", "string", "count"], "string", "O(n)", "Fixed-delimiter component at a bounded literal index."),
+  leadingAsciiDigits: builtin(["stringish"], "string", "O(n)", "Leading ASCII decimal-digit prefix."),
   parseBoundedInt: builtin(["stringish", "count"], "count", "O(n)", "Decimal integer parsing saturated to the supplied bound."),
   boundedIntAtMost: builtin(["count", "count"], "bool", "O(1)", "Bounded integer comparison."),
   safeGlob: builtin(["stringish", "string"], "bool", "O(nm)", "Glob matching with only literal, ?, and * tokens."),
@@ -68,8 +70,10 @@ export const BUILTINS_V1: Readonly<Record<string, BuiltinDefinition>> = Object.f
   hasProvenanceRoute: builtin(["string"], "bool", "O(p)", "Exact execution provenance route membership."),
   isInPipeline: builtin([], "bool", "O(1)", "Pipeline-context predicate."),
   processEffectIs: builtin(["string"], "bool", "O(1)", "Exact process-effect predicate."),
-  githubHttpReason: builtin(["stringish"], "string", "O(n)", "Sanitized native-GitHub steering diagnostic."),
-  redirectInputReason: builtin([], "string", "O(r + n)", "Redacted first protected input-redirect diagnostic."),
+  urlHost: builtin(["url"], "string", "O(1)", "Parsed URL hostname."),
+  urlPath: builtin(["url"], "string", "O(1)", "Parsed URL path without query or fragment."),
+  inputIsBindingResolved: builtin(["stringish"], "bool", "O(1)", "Whether an immutable input word came from a resolved binding."),
+  inputBlockedDomain: builtin(["stringish"], "string", "O(1)", "Blocked-domain metadata on an immutable unresolved input word."),
 });
 
 export function builtinDefinition(name: string): BuiltinDefinition | undefined {

@@ -66,6 +66,28 @@ describe("baseline guard code-policy parity", () => {
       .toMatchObject({ kind: "defer", audit: { invocation: expect.any(Object) } });
   });
 
+  test("regression: kubectl get classifies only positional resource operands", () => {
+    expectPolicyParity("kubectl get pod secret");
+    expectPolicyParity("kubectl get pod configmap/app");
+    expectPolicyParity("kubectl get pod --namespace secret");
+  });
+
+  test("regression: finite GitHub endpoint mappings preserve legacy steering", () => {
+    const endpoints = [
+      "/repos/acme/widgets/issues/42", "/repos/acme/widgets/issues/not-a-number",
+      "/repos/acme/widgets/pulls/17", "/repos/acme/widgets/pulls",
+      "/repos/acme/widgets/releases/latest", "/repos/acme/widgets/releases/tags/v1.2.3", "/repos/acme/widgets/releases",
+      "/repos/acme/widgets/actions/runs/9", "/repos/acme/widgets/actions/runs", "/repos/acme/widgets/actions/workflows",
+      "/repos/acme/widgets/labels", "/repos/acme/widgets",
+      "/search/issues", "/search/repositories", "/search/code", "/gists/123",
+      "/unmapped/route",
+    ];
+
+    for (const endpoint of endpoints) expectPolicyParity(`curl https://api.github.com${endpoint}`, endpoint);
+    expectPolicyParity("curl https://raw.githubusercontent.com/acme/widgets/main/src/nested/file.ts");
+    expectPolicyParity("curl https://raw.githubusercontent.com/acme/widgets/main");
+  });
+
   test("differential: exact-basename DSL selectors only select matching kubectl invocations", () => {
     const dsl = analyzeBashWithPolicies({ source: "echo https://api.github.com/user; cat README.md", policies: dslPolicies });
 
@@ -91,6 +113,16 @@ describe("baseline guard code-policy parity", () => {
       const suffix = violations[(seed * 11) % violations.length]!;
       const source = `${prefix}; ${wrappers[seed % wrappers.length]!(violation)}; ${suffix}`;
       expectPolicyParity(source, `${seed}: ${source}`);
+    }
+  });
+
+  test("property: GitHub numeric route prefixes and raw path suffixes stay differential", () => {
+    for (let seed = 0; seed < 96; seed++) {
+      const identifier = `${seed}${seed % 3 === 0 ? "suffix" : ""}`;
+      const nested = Array.from({ length: seed % 5 + 1 }, (_, index) => `part-${index}`).join("/");
+      expectPolicyParity(`curl https://api.github.com/repos/acme/widgets/issues/${identifier}/detail`, `issue ${seed}`);
+      expectPolicyParity(`curl https://api.github.com/repos/acme/widgets/actions/runs/${identifier}/logs`, `run ${seed}`);
+      expectPolicyParity(`curl https://raw.githubusercontent.com/acme/widgets/main/${nested}`, `raw ${seed}`);
     }
   });
 

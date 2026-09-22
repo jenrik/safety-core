@@ -256,7 +256,7 @@ function parseCase(value: unknown, pointer: string): PolicyCase {
 function parseAction(value: unknown, pointer: string): Action {
   const candidate = record(value, pointer);
   if (hasOwn(candidate, "decision")) {
-    exactKeys(candidate, ["decision", "reason", "suggestion", "audit"], ["reason", "suggestion", "audit"], pointer);
+    exactKeys(candidate, ["decision", "reason", "suggestion", "audit", "capture"], ["reason", "suggestion", "audit", "capture"], pointer);
     if (!isOneOf(candidate.decision, ["allow", "deny", "defer", "ignore"])) fail(`${pointer}.decision`, "unknown terminal decision");
     if ((candidate.decision === "allow" || candidate.decision === "deny") && candidate.reason === undefined) fail(`${pointer}.reason`, `${candidate.decision} requires a reason template`);
     if (candidate.decision === "ignore" && (candidate.reason !== undefined || candidate.suggestion !== undefined || candidate.audit !== undefined)) {
@@ -271,6 +271,7 @@ function parseAction(value: unknown, pointer: string): Action {
       ...(candidate.reason === undefined ? {} : { reason: parseTemplate(candidate.reason, `${pointer}.reason`) }),
       ...(candidate.suggestion === undefined ? {} : { suggestion: parseTemplate(candidate.suggestion, `${pointer}.suggestion`) }),
       ...(candidate.audit === undefined ? {} : { audit: parseAudit(candidate.audit, `${pointer}.audit`) }),
+      capture: parseExpressionRecord(candidate.capture ?? {}, `${pointer}.capture`),
     };
   }
   exactKeys(candidate, ["consume", "next", "set", "fold"], ["set", "fold"], pointer);
@@ -471,8 +472,13 @@ function validateTransition(action: Extract<Action, { readonly kind: "transition
 function validateTerminal(action: TerminalAction, layer: string, names: Names, pointer: string): void {
   if (layer === "guard" && action.decision === "allow") fail(`${pointer}.decision`, "guard policies cannot allow");
   for (const [kind, template] of [["reason", action.reason], ["suggestion", action.suggestion]] as const) {
-    for (const [index, part] of (template ?? []).entries()) if (typeof part !== "string") expressionType(part, names, `${pointer}.${kind}[${index}]`);
+    for (const [index, part] of (template ?? []).entries()) {
+      if (typeof part !== "string" && !("ref" in part && part.ref.startsWith("capture.") && Object.hasOwn(action.capture, part.ref.slice(8)))) {
+        expressionType(part, names, `${pointer}.${kind}[${index}]`);
+      }
+    }
   }
+  for (const [name, expression] of Object.entries(action.capture)) expressionType(expression, names, `${pointer}.capture.${name}`);
   if (action.audit) validateAuditReferences(action.audit, names, `${pointer}.audit`);
 }
 
@@ -618,7 +624,7 @@ function expressionType(expression: Expression, names: Names, pointer: string, i
 }
 
 function referenceType(reference: string, names: Names, pointer: string, inFold: boolean): ExpressionType {
-  if (reference === "word" || reference === "option.value" || reference === "event.executable" || reference === "fold.item") return "stringish";
+  if (reference === "word" || reference === "option.value" || reference === "event.executable" || reference === "event.redirect.input.target" || reference === "fold.item") return "stringish";
   if (reference === "event") return "json";
   if (reference === "event.kind" || reference === "event.gap.reason") return "string";
   const register = names.registers.get(reference);

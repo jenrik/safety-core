@@ -55,3 +55,66 @@ The existing direct code-policy unit fixture for the equivalent invocation passe
 - `kubectl get` now transitions from an unprotected first resource to the tail state, which retains audited defer decisions for protected later resources. The parity regression covers `kubectl get pod secrets/application`.
 - `bun test tests/policy-parity.test.ts tests/bash-hard-block-policies.test.ts tests/bash-guards.test.ts tests/opencode-bash-guards.test.ts tests/claude-code-bash-policy.test.ts tests/pi-adapter.test.ts`: PASS, 101 tests and 4,872 assertions.
 - `nix flake check`: PASS. The CLI smoke check loads all four DSL sources and verifies four validated source digests.
+
+## Final Completion
+
+### Changes
+
+- Replaced the generic direct-GitHub-HTTP DSL diagnostic with the legacy
+  analyzer's ordered finite endpoint table. It preserves all 16 API mappings:
+  issue, pull request, release, workflow run, workflow, label, repository,
+  search, and gist steering variants.
+- Preserved raw-content detailed and fallback steering, including nested raw
+  paths, sanitized host/path output, case-insensitive blocked hosts, trailing
+  host dots, binding-derived generic steering, and unresolved-input
+  blocked-domain diagnostics.
+- Kept unknown API routes on the legacy generic `gh api '<path>'` fallback;
+  route matching is finite policy state/case logic, not a formatter builtin.
+- Added general lexical `pathAfterComponents`, `leadingAsciiDigits`, and
+  immutable-input `inputBlockedDomain` primitives. They only project supplied
+  values needed by finite template cases; they perform no formatting, lookup,
+  callback, or policy-specific classification.
+- Kept the constrained terminal-capture design. The HTTP source stores only an
+  immutable URL input reference before terminal cases and derives host/path
+  template values at the terminal boundary.
+- Retained the four completed kubectl parity paths: protected first resources,
+  protected later resources, positional-resource-only classification, and safe
+  non-secret resources.
+
+### Files
+
+- `policies/dsl/github-http.policy.json`: finite ordered endpoint states,
+  terminal captures, legacy fallback cases, and unresolved-domain parity.
+- `policies/dsl/kubectl.policy.json`: accumulated positional-resource parity
+  fixes retained.
+- `policies/dsl/secret-read.policy.json`: accumulated redirect diagnostic
+  parity fix retained.
+- `src/policy/dsl/{ast,builtins,evaluate,validate}.ts`: constrained terminal
+  capture support and typed lexical/input metadata projectors.
+- `tests/policy-parity.test.ts`: explicit endpoint-category regressions plus
+  96 generated numeric-route and nested-raw-path differential cases.
+- `docs/policy-dsl.md`: capture debt boundary and complete closed builtin table.
+
+### Verification
+
+- `bun test tests/policy-parity.test.ts tests/policy-dsl-evaluate.test.ts tests/policy-dsl-validate.test.ts`
+  - PASS: 40 tests, 5,330 assertions.
+- `bun test tests/policy-parity.test.ts tests/bash-hard-block-policies.test.ts tests/bash-guards.test.ts tests/opencode-bash-guards.test.ts tests/claude-code-bash-policy.test.ts tests/pi-adapter.test.ts`
+  - PASS: 104 tests, 6,112 assertions.
+- `nix flake check`
+  - PASS: all six x86_64-linux checks, including `cli-loads`.
+- `git diff --check`
+  - PASS.
+
+### Commit
+
+- This completion is committed as `fix(policy): complete GitHub HTTP DSL parity`.
+
+### Concerns
+
+- The terminal-template mechanism remains intentionally constrained design debt;
+  no loops, recursion, macros, includes, dynamic lookup, callbacks, or
+  policy-specific diagnostic formatter builtins were added.
+- No adversarial review was run because the operator explicitly prohibited
+  dispatching subagents/reviewers. The differential, mapping-category, and
+  generated parity gates remain the available verification evidence.

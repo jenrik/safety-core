@@ -1,5 +1,4 @@
 import type { BindingValue } from "../../bash/environment.js";
-import { buildGithubSuggestion } from "../../github.js";
 import { isBindingResolvedWord } from "../../bash/word-provenance.js";
 import type { ResolvedWord } from "../../bash/expand.js";
 import type { BashPolicyEvent, BashPolicySelector, DslPolicyTraceStep, LoadedBashPolicy, PolicyDecision, PolicyDiagnosticPart, PolicySourceIdentity } from "../types.js";
@@ -155,10 +154,11 @@ interface RuntimeContext {
   readonly registers: Readonly<Record<string, RuntimeValue>>;
   readonly folds: ReadonlyMap<string, RuntimeValue>;
   readonly foldItem?: RuntimeValue;
+  readonly captures: Readonly<Record<string, RuntimeValue>>;
 }
 
-function runtimeContext(event: BashPolicyEvent, word: ResolvedWord | undefined, optionValue: InputReference | null | undefined, registers: Readonly<Record<string, RuntimeValue>>, folds: ReadonlyMap<string, RuntimeValue>, foldItem?: RuntimeValue): RuntimeContext {
-  return { event, word, optionValue, registers, folds, foldItem };
+function runtimeContext(event: BashPolicyEvent, word: ResolvedWord | undefined, optionValue: InputReference | null | undefined, registers: Readonly<Record<string, RuntimeValue>>, folds: ReadonlyMap<string, RuntimeValue>, foldItem?: RuntimeValue, captures: Readonly<Record<string, RuntimeValue>> = {}): RuntimeContext {
+  return { event, word, optionValue, registers, folds, foldItem, captures };
 }
 
 function evaluateExpression(expression: Expression, context: RuntimeContext): RuntimeValue {
@@ -196,6 +196,9 @@ function reference(name: string, context: RuntimeContext): RuntimeValue {
   if (name === "event") return context.event;
   if (name === "event.gap.reason") return context.event.kind === "execution-gap" ? context.event.reason : UNKNOWN;
   if (name === "event.executable") return context.event.kind === "invocation" && context.event.executable !== null ? inputReference(context.event.executable) : UNKNOWN;
+  if (name === "event.redirect.input.target") return context.event.kind === "invocation"
+    ? inputRedirectTarget(context.event) : UNKNOWN;
+  if (name.startsWith("capture.")) return context.captures[name.slice(8)] ?? UNKNOWN;
   if (name.startsWith("fold.")) return context.folds.get(name.slice(5)) ?? UNKNOWN;
   return Object.hasOwn(context.registers, name) ? context.registers[name]! : UNKNOWN;
 }
@@ -310,6 +313,9 @@ function optionSpellingMatches(action: CompiledOptionAction, word: ResolvedWord,
 function looksLikeOption(word: ResolvedWord): boolean { return isKnown(word) && word.value.startsWith("-") && word.value !== "-"; }
 
 function terminalDecision(action: TerminalAction, context: RuntimeContext): PolicyDecision {
+  // Deliberately constrained template prototype: captures are finite, typed
+  // expressions over immutable inputs only. Redesign before broadening templates.
+  context = { ...context, captures: Object.freeze(Object.fromEntries(Object.entries(action.capture).map(([name, expression]) => [name, evaluateExpression(expression, context)]))) };
   if (action.decision === "ignore") return Object.freeze({ kind: "ignore" });
   if (action.decision === "defer") {
     const audit = action.audit === undefined ? undefined : auditValue(action.audit, context) as Readonly<Record<string, unknown>>;
@@ -325,7 +331,7 @@ function template(parts: readonly (string | Expression)[], context: RuntimeConte
   const result: PolicyDiagnosticPart[] = [];
   for (const part of parts) {
     const value = typeof part === "string" ? part : materialize(evaluateExpression(part, context));
-    const literal = typeof part === "string" || (typeof part === "object" && part !== null && "call" in part && typeof value === "string");
+    const literal = typeof part === "string" || (typeof part === "object" && part !== null && (("call" in part) || ("ref" in part && part.ref.startsWith("capture."))) && typeof value === "string");
     if (literal && typeof value === "string" && result.at(-1)?.kind === "literal") {
       result[result.length - 1] = Object.freeze({ kind: "literal", value: result.at(-1)!.value + value });
     } else result.push(Object.freeze(literal ? { kind: "literal" as const, value: value as string } : { kind: "value" as const, value }));
@@ -357,12 +363,16 @@ function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeCo
     case "includes": return (strings[0] as string).includes(strings[1] as string);
     case "basename": return isUnknown(strings[0]) ? UNKNOWN : (strings[0] as string).split("/").filter(Boolean).at(-1) ?? "";
     case "pathComponent": return isUnknown(strings[0]) ? UNKNOWN : (strings[0] as string).split("/").filter(Boolean)[args[1] as number] ?? "";
+    case "pathAfterComponents": return isUnknown(strings[0]) ? UNKNOWN : pathAfterComponents(strings[0] as string, args[1] as number);
     case "splitComponent": return isUnknown(strings[0]) || isUnknown(strings[1]) ? UNKNOWN : (strings[0] as string).split(strings[1] as string)[args[2] as number] ?? "";
+    case "leadingAsciiDigits": return isUnknown(strings[0]) ? UNKNOWN : (/^[0-9]*/.exec(strings[0] as string)?.[0] ?? "");
     case "parseBoundedInt": return isUnknown(strings[0]) ? UNKNOWN : Math.min(Number.isSafeInteger(Number(strings[0])) && /^\d+$/.test(strings[0] as string) ? Number(strings[0]) : 0, args[1] as number);
     case "boundedIntAtMost": return (args[0] as number) <= (args[1] as number);
     case "safeGlob": return isUnknown(strings[0]) || isUnknown(strings[1]) ? UNKNOWN : glob(strings[0] as string, strings[1] as string);
     case "linearRegex": return matchesLinearRegex(strings[0] as string, strings[1] as string);
     case "parseUrl": return isUnknown(strings[0]) ? UNKNOWN : parseUrl(strings[0] as string);
+    case "urlHost": return isUrl(args[0]) ? args[0].host : UNKNOWN;
+    case "urlPath": return isUrl(args[0]) ? args[0].path : UNKNOWN;
     case "urlHostEquals": return isUnknown(args[0]) || isUnknown(strings[1]) ? UNKNOWN : isUrl(args[0]) && args[0].host === asciiCase(strings[1] as string, false);
     case "parseRepository": return isUnknown(strings[0]) ? UNKNOWN : parseRepository(strings[0] as string);
     case "repositoryEquals": return isRepository(args[0]) && args[0].owner === strings[1] && args[0].repository === strings[2];
@@ -380,8 +390,8 @@ function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeCo
     case "hasProvenanceRoute": return typeof strings[0] === "string" && context.event.provenance.route.includes(strings[0]);
     case "isInPipeline": return context.event.inPipeline;
     case "processEffectIs": return strings[0] === context.event.processEffect;
-    case "githubHttpReason": return isUnknown(strings[0]) ? UNKNOWN : buildGithubSuggestion(strings[0] as string);
-    case "redirectInputReason": return redirectInputReason(context.event);
+    case "inputIsBindingResolved": return isInputReference(args[0]) ? isBindingResolvedWord(args[0].word) : UNKNOWN;
+    case "inputBlockedDomain": return isInputReference(args[0]) && !isKnown(args[0].word) ? args[0].word.reason.blockedGithubDomain ?? "" : "";
     default: throw new TypeError(`unknown compiled DCRM builtin: ${name}`);
   }
 }
@@ -408,8 +418,17 @@ function isUnknown(value: unknown): value is typeof UNKNOWN { return value === U
 function isBinding(value: unknown): value is BindingValue { return typeof value === "object" && value !== null && "kind" in value && ["known", "unknown", "unset"].includes((value as { kind: string }).kind); }
 function asciiCase(value: string, upper: boolean): string { return value.replace(/[A-Za-z]/g, (character) => upper ? character.toUpperCase() : character.toLowerCase()); }
 function glob(value: string, pattern: string): boolean { const row = Array<boolean>(pattern.length + 1).fill(false); row[0] = true; for (let j = 1; j <= pattern.length; j++) row[j] = pattern[j - 1] === "*" && row[j - 1]!; for (const character of value) { let previous = row[0]!; row[0] = false; for (let j = 1; j <= pattern.length; j++) { const before = row[j]!; row[j] = pattern[j - 1] === "*" ? row[j - 1]! || before : (pattern[j - 1] === "?" || pattern[j - 1] === character) && previous; previous = before; } } return row[pattern.length]!; }
-function parseUrl(value: string): RuntimeValue { try { const parsed = new URL(value); return Object.freeze({ host: asciiCase(parsed.hostname, false) }); } catch { return null; } }
-function isUrl(value: unknown): value is { readonly host: string } { return typeof value === "object" && value !== null && "host" in value; }
+function pathAfterComponents(value: string, count: number): string {
+  let cursor = 0;
+  for (let index = 0; index < count; index++) {
+    if (value[cursor] === "/") cursor++;
+    while (cursor < value.length && value[cursor] !== "/") cursor++;
+    if (cursor === value.length) return "";
+  }
+  return value[cursor] === "/" ? value.slice(cursor + 1) : value.slice(cursor);
+}
+function parseUrl(value: string): RuntimeValue { try { const parsed = new URL(value); return Object.freeze({ host: asciiCase(parsed.hostname, false), path: parsed.pathname || "/" }); } catch { return null; } }
+function isUrl(value: unknown): value is { readonly host: string; readonly path: string } { return typeof value === "object" && value !== null && "host" in value && "path" in value; }
 function parseRepository(value: string): RuntimeValue { const match = /^(?:https:\/\/[^/]+\/|git@[^:]+:)?([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/.exec(value); return match ? Object.freeze({ owner: match[1]!, repository: match[2]! }) : null; }
 function isRepository(value: unknown): value is { readonly owner: string; readonly repository: string } { return typeof value === "object" && value !== null && "owner" in value && "repository" in value; }
 function normalizeKubernetes(value: string): string { const lower = asciiCase(value, false); return lower.endsWith("ies") ? `${lower.slice(0, -3)}y` : lower.endsWith("s") ? lower.slice(0, -1) : lower; }
@@ -417,12 +436,10 @@ function normalizeEndpoint(value: string): string { return `/${value.split("/").
 function requiresKnownOperands(name: string): boolean {
   return !["environmentIsPresent", "environmentIsKnown", "environmentIsUnknown", "missingEnvironmentMayBePresent", "isInPipeline"].includes(name);
 }
-function nonStringOperandBuiltin(name: string): boolean { return name === "inStringSet" || name === "wordInAsciiCaseInsensitiveSet" || name === "urlHostEquals" || name === "repositoryEquals"; }
-function redirectInputReason(event: BashPolicyEvent): string {
-  if (event.kind !== "invocation") return "bash redirect from a protected secret file";
-  const target = event.redirects.find((redirect) => redirect.kind === "input" && redirect.target?.kind === "known")?.target;
-  if (!target || target.kind !== "known") return "bash redirect from a protected secret file";
-  return isBindingResolvedWord(target) ? "bash redirect from a protected secret file" : `bash redirect from '${target.value.split("/").filter(Boolean).at(-1) ?? "protected secret file"}'`;
+function nonStringOperandBuiltin(name: string): boolean { return name === "inStringSet" || name === "wordInAsciiCaseInsensitiveSet" || name === "pathComponent" || name === "pathAfterComponents" || name === "splitComponent" || name === "parseBoundedInt" || name === "boundedIntAtMost" || name === "urlHost" || name === "urlPath" || name === "urlHostEquals" || name === "repositoryEquals" || name === "inputBlockedDomain"; }
+function inputRedirectTarget(event: Extract<BashPolicyEvent, { readonly kind: "invocation" }>): RuntimeValue {
+  const target = event.redirects.find((redirect) => redirect.kind === "input")?.target;
+  return target === null || target === undefined ? UNKNOWN : inputReference(target);
 }
 function matchesLinearRegex(value: string, pattern: string): boolean {
   try { return new RegExp(pattern).test(value); } catch { return false; }

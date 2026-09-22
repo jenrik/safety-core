@@ -76,7 +76,18 @@ predicates must have Boolean type. Known input references include `word`,
 `fold.item`, declared registers, and cached `fold.<name>` results. `event` is
 available to audit values as the complete immutable policy event.
 
-Terminal templates are arrays of literal strings and `{ "ref": name }`.
+Terminal templates are arrays of literal strings and finite expressions. Terminal
+`capture` values are evaluated once from immutable event inputs, final registers,
+and cached folds before a template renders; templates may reference those values
+as `capture.<name>`.
+
+> **Prototype / design debt:** terminal captures are a deliberately constrained
+> diagnostic-template prototype. They have no loops, recursion, includes,
+> macros, dynamic property or index lookup, user functions, collection traversal,
+> or ambient access. Captures and templates are bounded by the source template
+> limit and only evaluate typed, finite expressions, so rendering terminates and
+> cannot create unbounded output. This mechanism must be redesigned or explicitly
+> expanded before accepting broader template requirements.
 Audit objects have source-fixed JSON shape and literal/reference leaves. They
 cannot perform calls or scans. A terminal audit has one recursive 4,096-value
 budget: every nested object value, array element, and leaf consumes one unit,
@@ -157,12 +168,16 @@ input reference and preserves unknown handling for the evaluator.
 | `includes` | `(stringish, stringish) -> bool` | `O(nm)` | bounded substring |
 | `basename` | `(stringish) -> string` | `O(n)` | secret reader paths |
 | `pathComponent` | `(stringish, count) -> string` | `O(n)` | lexical paths |
+| `pathAfterComponents` | `(stringish, count) -> string` | `O(n)` | separator-preserving path suffixes |
 | `splitComponent` | `(stringish, string, count) -> string` | `O(n)` | fixed-delimiter parsing |
+| `leadingAsciiDigits` | `(stringish) -> string` | `O(n)` | numeric route identifiers |
 | `parseBoundedInt` | `(stringish, count) -> count` | `O(n)` | bounded CLI numbers |
 | `boundedIntAtMost` | `(count, count) -> bool` | `O(1)` | number comparison |
 | `safeGlob` | `(stringish, string) -> bool` | `O(nm)` | secret path patterns |
 | `linearRegex` | `(stringish, string) -> bool` | `O(n + m)` | restricted regex |
 | `parseUrl` | `(stringish) -> url` | `O(n)` | GitHub URL parsing |
+| `urlHost` | `(url) -> string` | `O(1)` | parsed URL hostname |
+| `urlPath` | `(url) -> string` | `O(1)` | parsed URL path |
 | `urlHostEquals` | `(url, string) -> bool` | `O(n)` | exact host check |
 | `parseRepository` | `(stringish) -> repository` | `O(n)` | owner/repository parsing |
 | `repositoryEquals` | `(repository, string, string) -> bool` | `O(n)` | PR allowlists |
@@ -180,8 +195,8 @@ input reference and preserves unknown handling for the evaluator.
 | `hasProvenanceRoute` | `(string) -> bool` | `O(p)` | shell-wrapper routes |
 | `isInPipeline` | `() -> bool` | `O(1)` | pipeline context |
 | `processEffectIs` | `(string) -> bool` | `O(1)` | process effects |
-| `githubHttpReason` | `(stringish) -> string` | `O(n)` | sanitized GitHub steering diagnostic |
-| `redirectInputReason` | `() -> string` | `O(r + n)` | protected input redirect diagnostic |
+| `inputIsBindingResolved` | `(stringish) -> bool` | `O(1)` | binding-derived input provenance |
+| `inputBlockedDomain` | `(stringish) -> string` | `O(1)` | unresolved-input blocked-domain metadata |
 
 `linearRegex` has a handwritten restricted grammar: an optional leading `^`,
 literal bytes, `.`, non-empty terminated character classes, only escapes of

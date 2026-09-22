@@ -9,7 +9,9 @@
     { "executable": { "projection": "basename", "equals": "fetch" } },
     { "executable": { "projection": "basename", "equals": "httpx" } }
   ],
-  "registers": {},
+  "registers": {
+    "url": { "type": "inputRef", "initial": null }
+  },
   "folds": {},
   "options": {},
   "fragments": {},
@@ -18,13 +20,34 @@
     "start": {
       "cases": [
         {
-          "when": { "any": [
+          "when": { "not": { "call": "equals", "args": [{ "call": "inputBlockedDomain", "args": [{ "ref": "word" }] }, ""] } },
+          "action": { "decision": "deny", "capture": { "domain": { "call": "inputBlockedDomain", "args": [{ "ref": "word" }] } }, "reason": ["Blocked: direct HTTP request to ", { "ref": "capture.domain" }, " detected.\n\nUse the native gh command where possible.\n\nPrefer native gh commands where possible (always prefer over direct API):\n  gh issue list/view  ·  gh pr list/view  ·  gh release list/view\n  gh run list/view  ·  gh repo view  ·  gh search issues/repos/code\n  gh label list  ·  gh workflow list  ·  gh gist list\n\nUse `gh api <path>` only when no native subcommand covers your use case.\n\nFor raw file content use:\n  gh api repos/<owner>/<repo>/contents/<path>?ref=<ref> | jq -r '.content' | base64 -d\n  git clone --depth=1 https://github.com/<owner>/<repo>.git /tmp/agent/<repo>"], "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
+          "when": { "all": [
+            { "any": [
               { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "api.github.com"] },
               { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "api.github.com."] },
               { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "raw.githubusercontent.com"] },
               { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "raw.githubusercontent.com."] }
+            ] },
+            { "call": "inputIsBindingResolved", "args": [{ "ref": "word" }] }
           ] },
-          "action": { "decision": "deny", "reason": [{ "call": "githubHttpReason", "args": [{ "ref": "word" }] }], "audit": { "invocation": { "ref": "event" } } }
+          "action": { "decision": "deny", "reason": ["Blocked: direct GitHub HTTP request detected. Use the native gh command where possible."], "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
+          "when": { "any": [
+            { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "api.github.com"] },
+            { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "api.github.com."] }
+          ] },
+          "action": { "consume": "word", "next": "api", "set": { "url": { "ref": "word" } } }
+        },
+        {
+          "when": { "any": [
+            { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "raw.githubusercontent.com"] },
+            { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "raw.githubusercontent.com."] }
+          ] },
+          "action": { "consume": "word", "next": "raw", "set": { "url": { "ref": "word" } } }
         },
         { "when": true, "action": { "consume": "word", "next": "scan" } }
       ],
@@ -34,18 +57,194 @@
     "scan": {
       "cases": [
         {
+          "when": { "not": { "call": "equals", "args": [{ "call": "inputBlockedDomain", "args": [{ "ref": "word" }] }, ""] } },
+          "action": { "decision": "deny", "capture": { "domain": { "call": "inputBlockedDomain", "args": [{ "ref": "word" }] } }, "reason": ["Blocked: direct HTTP request to ", { "ref": "capture.domain" }, " detected.\n\nUse the native gh command where possible.\n\nPrefer native gh commands where possible (always prefer over direct API):\n  gh issue list/view  ·  gh pr list/view  ·  gh release list/view\n  gh run list/view  ·  gh repo view  ·  gh search issues/repos/code\n  gh label list  ·  gh workflow list  ·  gh gist list\n\nUse `gh api <path>` only when no native subcommand covers your use case.\n\nFor raw file content use:\n  gh api repos/<owner>/<repo>/contents/<path>?ref=<ref> | jq -r '.content' | base64 -d\n  git clone --depth=1 https://github.com/<owner>/<repo>.git /tmp/agent/<repo>"], "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
+          "when": { "all": [
+            { "any": [
+              { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "api.github.com"] },
+              { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "api.github.com."] },
+              { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "raw.githubusercontent.com"] },
+              { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "raw.githubusercontent.com."] }
+            ] },
+            { "call": "inputIsBindingResolved", "args": [{ "ref": "word" }] }
+          ] },
+          "action": { "decision": "deny", "reason": ["Blocked: direct GitHub HTTP request detected. Use the native gh command where possible."], "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
           "when": { "any": [
             { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "api.github.com"] },
-            { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "api.github.com."] },
+            { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "api.github.com."] }
+          ] },
+          "action": { "consume": "word", "next": "api", "set": { "url": { "ref": "word" } } }
+        },
+        {
+          "when": { "any": [
             { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "raw.githubusercontent.com"] },
             { "call": "urlHostEquals", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }, "raw.githubusercontent.com."] }
           ] },
-          "action": { "decision": "deny", "reason": [{ "call": "githubHttpReason", "args": [{ "ref": "word" }] }], "audit": { "invocation": { "ref": "event" } } }
+          "action": { "consume": "word", "next": "raw", "set": { "url": { "ref": "word" } } }
         },
         { "when": true, "action": { "consume": "word", "next": "scan" } }
       ],
       "default": { "decision": "ignore" },
       "end": { "decision": "ignore" }
+    },
+    "api": {
+      "cases": [
+        {
+          "when": { "all": [
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 1] }, "repos"] },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, ""] } },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] }, ""] } },
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 4] }, "issues"] },
+            { "not": { "call": "equals", "args": [{ "call": "leadingAsciiDigits", "args": [{ "call": "pathAfterComponents", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, 4] }] }, ""] } }
+          ] },
+          "action": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "owner": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, "repo": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] }, "id": { "call": "leadingAsciiDigits", "args": [{ "call": "pathAfterComponents", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, 4] }] } }, "reason": ["Blocked: https://api.github.com", { "ref": "capture.path" }, "\n\nUse the native gh command:\n  gh issue view ", { "ref": "capture.id" }, " --repo ", { "ref": "capture.owner" }, "/", { "ref": "capture.repo" }, "\n\nOnly fall back to `gh api` if the native subcommand doesn't suffice:\n  gh api '", { "ref": "capture.path" }, "'"], "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
+          "when": { "all": [
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 1] }, "repos"] },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, ""] } },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] }, ""] } },
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 4] }, "issues"] }
+          ] },
+          "action": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "owner": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, "repo": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] } }, "reason": ["Blocked: https://api.github.com", { "ref": "capture.path" }, "\n\nUse the native gh command:\n  gh issue list --repo ", { "ref": "capture.owner" }, "/", { "ref": "capture.repo" }, "\n\nOnly fall back to `gh api` if the native subcommand doesn't suffice:\n  gh api '", { "ref": "capture.path" }, "'"], "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
+          "when": { "all": [
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 1] }, "repos"] },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, ""] } },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] }, ""] } },
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 4] }, "pulls"] },
+            { "not": { "call": "equals", "args": [{ "call": "leadingAsciiDigits", "args": [{ "call": "pathAfterComponents", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, 4] }] }, ""] } }
+          ] },
+          "action": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "owner": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, "repo": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] }, "id": { "call": "leadingAsciiDigits", "args": [{ "call": "pathAfterComponents", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, 4] }] } }, "reason": ["Blocked: https://api.github.com", { "ref": "capture.path" }, "\n\nUse the native gh command:\n  gh pr view ", { "ref": "capture.id" }, " --repo ", { "ref": "capture.owner" }, "/", { "ref": "capture.repo" }, "\n\nOnly fall back to `gh api` if the native subcommand doesn't suffice:\n  gh api '", { "ref": "capture.path" }, "'"], "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
+          "when": { "all": [
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 1] }, "repos"] },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, ""] } },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] }, ""] } },
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 4] }, "pulls"] }
+          ] },
+          "action": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "owner": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, "repo": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] } }, "reason": ["Blocked: https://api.github.com", { "ref": "capture.path" }, "\n\nUse the native gh command:\n  gh pr list --repo ", { "ref": "capture.owner" }, "/", { "ref": "capture.repo" }, "\n\nOnly fall back to `gh api` if the native subcommand doesn't suffice:\n  gh api '", { "ref": "capture.path" }, "'"], "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
+          "when": { "all": [
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 1] }, "repos"] },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, ""] } },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] }, ""] } },
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 4] }, "releases"] },
+            { "call": "startsWith", "args": [{ "call": "pathAfterComponents", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, 4] }, "latest"] }
+          ] },
+          "action": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "owner": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, "repo": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] } }, "reason": ["Blocked: https://api.github.com", { "ref": "capture.path" }, "\n\nUse the native gh command:\n  gh release view --repo ", { "ref": "capture.owner" }, "/", { "ref": "capture.repo" }, "\n\nOnly fall back to `gh api` if the native subcommand doesn't suffice:\n  gh api '", { "ref": "capture.path" }, "'"], "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
+          "when": { "all": [
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 1] }, "repos"] },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, ""] } },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] }, ""] } },
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 4] }, "releases"] },
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 5] }, "tags"] },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 6] }, ""] } }
+          ] },
+          "action": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "owner": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, "repo": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] }, "tag": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 6] } }, "reason": ["Blocked: https://api.github.com", { "ref": "capture.path" }, "\n\nUse the native gh command:\n  gh release view ", { "ref": "capture.tag" }, " --repo ", { "ref": "capture.owner" }, "/", { "ref": "capture.repo" }, "\n\nOnly fall back to `gh api` if the native subcommand doesn't suffice:\n  gh api '", { "ref": "capture.path" }, "'"], "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
+          "when": { "all": [
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 1] }, "repos"] },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, ""] } },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] }, ""] } },
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 4] }, "releases"] }
+          ] },
+          "action": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "owner": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, "repo": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] } }, "reason": ["Blocked: https://api.github.com", { "ref": "capture.path" }, "\n\nUse the native gh command:\n  gh release list --repo ", { "ref": "capture.owner" }, "/", { "ref": "capture.repo" }, "\n\nOnly fall back to `gh api` if the native subcommand doesn't suffice:\n  gh api '", { "ref": "capture.path" }, "'"], "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
+          "when": { "all": [
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 1] }, "repos"] },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, ""] } },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] }, ""] } },
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 4] }, "actions"] },
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 5] }, "runs"] },
+            { "not": { "call": "equals", "args": [{ "call": "leadingAsciiDigits", "args": [{ "call": "pathAfterComponents", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, 5] }] }, ""] } }
+          ] },
+          "action": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "owner": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, "repo": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] }, "id": { "call": "leadingAsciiDigits", "args": [{ "call": "pathAfterComponents", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, 5] }] } }, "reason": ["Blocked: https://api.github.com", { "ref": "capture.path" }, "\n\nUse the native gh command:\n  gh run view ", { "ref": "capture.id" }, " --repo ", { "ref": "capture.owner" }, "/", { "ref": "capture.repo" }, "\n\nOnly fall back to `gh api` if the native subcommand doesn't suffice:\n  gh api '", { "ref": "capture.path" }, "'"], "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
+          "when": { "all": [
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 1] }, "repos"] },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, ""] } },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] }, ""] } },
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 4] }, "actions"] },
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 5] }, "runs"] }
+          ] },
+          "action": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "owner": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, "repo": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] } }, "reason": ["Blocked: https://api.github.com", { "ref": "capture.path" }, "\n\nUse the native gh command:\n  gh run list --repo ", { "ref": "capture.owner" }, "/", { "ref": "capture.repo" }, "\n\nOnly fall back to `gh api` if the native subcommand doesn't suffice:\n  gh api '", { "ref": "capture.path" }, "'"], "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
+          "when": { "all": [
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 1] }, "repos"] },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, ""] } },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] }, ""] } },
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 4] }, "actions"] },
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 5] }, "workflows"] }
+          ] },
+          "action": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "owner": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, "repo": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] } }, "reason": ["Blocked: https://api.github.com", { "ref": "capture.path" }, "\n\nUse the native gh command:\n  gh workflow list --repo ", { "ref": "capture.owner" }, "/", { "ref": "capture.repo" }, "\n\nOnly fall back to `gh api` if the native subcommand doesn't suffice:\n  gh api '", { "ref": "capture.path" }, "'"], "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
+          "when": { "all": [
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 1] }, "repos"] },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, ""] } },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] }, ""] } },
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 4] }, "labels"] }
+          ] },
+          "action": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "owner": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, "repo": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] } }, "reason": ["Blocked: https://api.github.com", { "ref": "capture.path" }, "\n\nUse the native gh command:\n  gh label list --repo ", { "ref": "capture.owner" }, "/", { "ref": "capture.repo" }, "\n\nOnly fall back to `gh api` if the native subcommand doesn't suffice:\n  gh api '", { "ref": "capture.path" }, "'"], "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
+          "when": { "all": [
+            { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 1] }, "repos"] },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, ""] } },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] }, ""] } },
+            { "call": "equals", "args": [{ "call": "pathAfterComponents", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, 3] }, ""] },
+            { "not": { "call": "endsWith", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/"] } }
+          ] },
+          "action": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "owner": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, "repo": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] } }, "reason": ["Blocked: https://api.github.com", { "ref": "capture.path" }, "\n\nUse the native gh command:\n  gh repo view ", { "ref": "capture.owner" }, "/", { "ref": "capture.repo" }, "\n\nOnly fall back to `gh api` if the native subcommand doesn't suffice:\n  gh api '", { "ref": "capture.path" }, "'"], "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
+          "when": { "call": "startsWith", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/search/issues"] },
+          "action": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] } }, "reason": ["Blocked: https://api.github.com", { "ref": "capture.path" }, "\n\nUse the native gh command:\n  gh search issues <query>\n\nOnly fall back to `gh api` if the native subcommand doesn't suffice:\n  gh api '", { "ref": "capture.path" }, "'"], "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
+          "when": { "call": "startsWith", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/search/repositories"] },
+          "action": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] } }, "reason": ["Blocked: https://api.github.com", { "ref": "capture.path" }, "\n\nUse the native gh command:\n  gh search repos <query>\n\nOnly fall back to `gh api` if the native subcommand doesn't suffice:\n  gh api '", { "ref": "capture.path" }, "'"], "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
+          "when": { "call": "startsWith", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/search/code"] },
+          "action": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] } }, "reason": ["Blocked: https://api.github.com", { "ref": "capture.path" }, "\n\nUse the native gh command:\n  gh search code <query>\n\nOnly fall back to `gh api` if the native subcommand doesn't suffice:\n  gh api '", { "ref": "capture.path" }, "'"], "audit": { "invocation": { "ref": "event" } } }
+        },
+        {
+          "when": { "call": "startsWith", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/gists"] },
+          "action": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] } }, "reason": ["Blocked: https://api.github.com", { "ref": "capture.path" }, "\n\nUse the native gh command:\n  gh gist list\n\nOnly fall back to `gh api` if the native subcommand doesn't suffice:\n  gh api '", { "ref": "capture.path" }, "'"], "audit": { "invocation": { "ref": "event" } } }
+        }
+      ],
+      "default": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] } }, "reason": ["Blocked: https://api.github.com", { "ref": "capture.path" }, "\n\nPrefer native gh commands where possible (always prefer over direct API):\n  gh issue list/view  ·  gh pr list/view  ·  gh release list/view\n  gh run list/view  ·  gh repo view  ·  gh search issues/repos/code\n  gh label list  ·  gh workflow list  ·  gh gist list\n\nUse `gh api <path>` only when no native subcommand covers your use case.\n\n  gh api '", { "ref": "capture.path" }, "'"], "audit": { "invocation": { "ref": "event" } } },
+      "end": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] } }, "reason": ["Blocked: https://api.github.com", { "ref": "capture.path" }, "\n\nPrefer native gh commands where possible (always prefer over direct API):\n  gh issue list/view  ·  gh pr list/view  ·  gh release list/view\n  gh run list/view  ·  gh repo view  ·  gh search issues/repos/code\n  gh label list  ·  gh workflow list  ·  gh gist list\n\nUse `gh api <path>` only when no native subcommand covers your use case.\n\n  gh api '", { "ref": "capture.path" }, "'"], "audit": { "invocation": { "ref": "event" } } }
+    },
+    "raw": {
+      "cases": [
+        {
+          "when": { "all": [
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 1] }, ""] } },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, ""] } },
+            { "not": { "call": "equals", "args": [{ "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] }, ""] } },
+            { "not": { "call": "equals", "args": [{ "call": "pathAfterComponents", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, 3] }, ""] } }
+          ] },
+          "action": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "owner": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 1] }, "repo": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 2] }, "ref": { "call": "splitComponent", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, "/", 3] }, "file": { "call": "pathAfterComponents", "args": [{ "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] }, 3] } }, "reason": ["Blocked: https://raw.githubusercontent.com", { "ref": "capture.path" }, "\n\nOption 1 — single file via gh:\n  gh api repos/", { "ref": "capture.owner" }, "/", { "ref": "capture.repo" }, "/contents/", { "ref": "capture.file" }, "?ref=", { "ref": "capture.ref" }, " | jq -r '.content' | base64 -d\n\nOption 2 — multiple files (clone repo):\n  git clone --depth=1 https://github.com/", { "ref": "capture.owner" }, "/", { "ref": "capture.repo" }, ".git /tmp/agent/", { "ref": "capture.repo" }, "\n  # then read files directly from /tmp/agent/", { "ref": "capture.repo" }, "/"], "audit": { "invocation": { "ref": "event" } } }
+        }
+      ],
+      "default": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] } }, "reason": ["Blocked: https://raw.githubusercontent.com", { "ref": "capture.path" }, "\n\nUse gh CLI for single files:\n  gh api repos/<owner>/<repo>/contents/<path>?ref=<ref> | jq -r '.content' | base64 -d\n\nOr clone for multiple files:\n  git clone --depth=1 https://github.com/<owner>/<repo>.git /tmp/agent/<repo>"], "audit": { "invocation": { "ref": "event" } } },
+      "end": { "decision": "deny", "capture": { "path": { "call": "urlPath", "args": [{ "call": "parseUrl", "args": [{ "ref": "url" }] }] } }, "reason": ["Blocked: https://raw.githubusercontent.com", { "ref": "capture.path" }, "\n\nUse gh CLI for single files:\n  gh api repos/<owner>/<repo>/contents/<path>?ref=<ref> | jq -r '.content' | base64 -d\n\nOr clone for multiple files:\n  git clone --depth=1 https://github.com/<owner>/<repo>.git /tmp/agent/<repo>"], "audit": { "invocation": { "ref": "event" } } }
     }
   }
 }

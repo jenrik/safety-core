@@ -43,6 +43,7 @@ export interface TerminalAction {
   readonly reason?: readonly TemplatePart[];
   readonly suggestion?: readonly TemplatePart[];
   readonly audit?: Readonly<Record<string, AuditValue>>;
+  readonly capture: Readonly<Record<string, Expression>>;
 }
 
 export type Action = TransitionAction | TerminalAction;

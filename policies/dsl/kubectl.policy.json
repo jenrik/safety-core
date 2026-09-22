@@ -33,13 +33,13 @@
     "start": {
       "cases": [
         { "when": { "call": "equals", "args": [{ "ref": "word" }, "view-secret"] }, "action": { "decision": "deny", "reason": ["kubectl view-secret is blocked: it decodes and displays Secret values in plaintext."], "audit": { "invocation": { "ref": "event" } } } },
-        { "when": { "call": "equals", "args": [{ "ref": "word" }, "get"] }, "action": { "consume": "word", "next": "get" } },
-        { "when": true, "action": { "consume": "word", "next": "tail" } }
+        { "when": { "call": "equals", "args": [{ "ref": "word" }, "get"] }, "action": { "consume": "word", "next": "getFirst" } },
+        { "when": true, "action": { "decision": "ignore" } }
       ],
       "default": { "decision": "ignore" },
       "end": { "decision": "ignore" }
     },
-    "get": {
+    "getFirst": {
       "cases": [
         {
           "when": { "call": "wordInAsciiCaseInsensitiveSet", "args": [{ "ref": "word" }, ["secret", "secrets", "sa", "serviceaccount", "serviceaccounts", "tokenrequest", "tokenrequests"]] },
@@ -52,27 +52,26 @@
           ] },
           "action": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
         },
-        { "when": true, "action": { "consume": "word", "next": "tail" } }
+        { "when": { "call": "includes", "args": [{ "ref": "word" }, "/"] }, "action": { "consume": "word", "next": "afterNamespacedFirst" } },
+        { "when": true, "action": { "consume": "word", "next": "afterBareFirst" } }
       ],
       "default": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } },
       "end": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
     },
-    "tail": {
+    "afterNamespacedFirst": {
+      "cases": [
+        { "when": true, "action": { "consume": "word", "next": "afterNamespacedFirst" } }
+      ],
+      "default": { "decision": "ignore" },
+      "end": { "decision": "ignore" }
+    },
+    "afterBareFirst": {
       "cases": [
         {
-          "when": { "any": [
-            { "call": "wordInAsciiCaseInsensitiveSet", "args": [{ "ref": "word" }, ["secret", "secrets", "sa", "serviceaccount", "serviceaccounts", "tokenrequest", "tokenrequests"]] },
-            { "call": "safeGlob", "args": [{ "ref": "word" }, "secret/*"] },
-            { "call": "safeGlob", "args": [{ "ref": "word" }, "secrets/*"] },
-            { "call": "safeGlob", "args": [{ "ref": "word" }, "sa/*"] },
-            { "call": "safeGlob", "args": [{ "ref": "word" }, "serviceaccount/*"] },
-            { "call": "safeGlob", "args": [{ "ref": "word" }, "serviceaccounts/*"] },
-            { "call": "safeGlob", "args": [{ "ref": "word" }, "tokenrequest/*"] },
-            { "call": "safeGlob", "args": [{ "ref": "word" }, "tokenrequests/*"] }
-          ] },
+          "when": { "call": "includes", "args": [{ "ref": "word" }, "/"] },
           "action": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
         },
-        { "when": true, "action": { "consume": "word", "next": "tail" } }
+        { "when": true, "action": { "consume": "word", "next": "afterBareFirst" } }
       ],
       "default": { "decision": "ignore" },
       "end": { "decision": "ignore" }
