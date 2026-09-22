@@ -54,6 +54,9 @@ export async function loadPolicySources(
       throw new PolicyStartupError(reference.path, "trusted code policy sources are permitted only in global configuration");
     }
     const canonicalPath = canonicalizeSource(reference.path);
+    if (reference.scope === "project" && !canonicalPath.endsWith(".policy.json")) {
+      throw new PolicyStartupError(canonicalPath, "trusted code policy sources are permitted only in global configuration");
+    }
     if (seen.has(canonicalPath)) continue;
     seen.add(canonicalPath);
     const bytes = readSource(canonicalPath);

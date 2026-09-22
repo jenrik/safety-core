@@ -144,6 +144,22 @@ describe("globally gated project DSL policies", () => {
     }
   });
 
+  test("rejects a project JSON-suffixed alias to an already-global code source", async () => {
+    const root = fixtureDirectory();
+    const home = join(root, "home");
+    const project = join(root, "project");
+    const codePolicy = join(root, "global.policy.mjs");
+    const projectAlias = join(project, "alias.policy.json");
+    mkdirSync(project, { recursive: true });
+    writeFileSync(codePolicy, `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`);
+    symlinkSync(codePolicy, projectAlias);
+    writeGlobalConfig(home, "all", [codePolicy]);
+    writeProjectConfig(project, ["alias.policy.json"]);
+
+    const resolved = resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), project);
+    await expect(loadPolicySet(resolved)).rejects.toThrow("only in global configuration");
+  });
+
   test("loads one canonical additive set, lets project permissions expand coverage, and retains global deny dominance", async () => {
     const root = fixtureDirectory();
     const home = join(root, "home");

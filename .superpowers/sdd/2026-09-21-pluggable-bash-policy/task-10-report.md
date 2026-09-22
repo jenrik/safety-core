@@ -130,3 +130,71 @@ feat(policy): load trusted project DSL policies
   reviewer-driven corrections are pending for operator discussion.
 - The full repository Bun suite remains blocked by the pre-existing failures
   listed above; Task 10's requested focused and package checks pass.
+
+## Fix Round 1/5
+
+### Finding
+
+Project source validation checked the configured lexical filename before source
+canonicalization. A project `alias.policy.json` symlink to a global
+`.policy.mjs` passed that lexical check, canonicalized to the already-loaded
+global source, and was skipped by canonical duplicate collapse before its
+actual type was validated.
+
+### Red
+
+Added a regression with a valid global code policy and a project
+JSON-suffixed symlink alias to it.
+
+```text
+bun test tests/policy-project-config.test.ts
+```
+
+Output before the correction:
+
+```text
+4 pass
+1 fail
+Expected promise that rejects
+Received promise that resolved
+```
+
+### Correction
+
+`loadPolicySources` now validates that every project reference's canonical
+source path ends in `.policy.json` immediately after canonicalization and
+before duplicate elimination. The existing lexical check remains to preserve
+the immediate diagnostic for an unavailable direct project code reference.
+Global duplicate behavior and global-first additive source ordering are
+unchanged.
+
+### Verification
+
+```text
+bun test tests/policy-project-config.test.ts tests/policy-config.test.ts tests/policy-loader.test.ts tests/policy-cli.test.ts tests/claude-code-bash-policy.test.ts tests/opencode-bash-guards.test.ts tests/pi-adapter.test.ts
+```
+
+Output:
+
+```text
+53 pass
+0 fail
+20599 expect() calls
+```
+
+`git diff --check` passed before commit.
+
+### Commit
+
+Commit created immediately after this fix record:
+
+```text
+fix(policy): reject project code aliases
+```
+
+### Concerns
+
+- The controller routed the prior adversarial-review item to Task 14; no
+  adversarial review was dispatched or acted on in this Task 10 correction.
+- The unrelated full-suite baseline failures remain as recorded above. This
+  correction ran the requested focused suite only.
