@@ -1,0 +1,192 @@
+# DCRM policy language v1
+
+`safety-core/bash-policy-v1` is a JSON-only deterministic consuming register
+machine (DCRM). It classifies one immutable policy event. It cannot call host
+code, mutate the event, access files/processes/network/clock/modules, allocate
+dynamic collections, retain state across events, recurse, rewind input, or
+compute a jump target.
+
+The loader for JSON sources is introduced separately. This document specifies
+the source document accepted by `parsePolicyDocument`,
+`validatePolicyDocument`, and `compilePolicyDocument`.
+
+## Document
+
+Every object is closed: an unknown member is an error. The language value is
+exactly `safety-core/bash-policy-v1`; compatible prefixes and later versions
+are not accepted. JSON text is scanned for duplicate object keys before it is
+decoded, so a later declaration cannot silently replace an earlier one.
+
+```text
+Policy := {
+  language, layer, select, registers?, folds?, options?, fragments?, start, states
+}
+layer := "guard" | "permission"
+State := { fragments?, cases, default, end }
+Case := { when, action }
+Transition := { consume: "word", next, set?, fold? }
+Terminal := { decision, reason?, suggestion?, audit? }
+```
+
+`start` and every transition `next` name one declared state. Names are ASCII
+identifiers (`[A-Za-z][A-Za-z0-9_]*`) and are unique by their JSON object key.
+Each state has a terminal `default` for unmatched input and a terminal `end`
+for EOF. `allow` and `deny` require a finite `reason` template. A `guard` may
+return `deny`, `defer`, or `ignore`; it cannot return `allow`.
+
+`select` contains one or more exact selectors:
+
+```json
+[{ "kind": "invocation" }]
+```
+
+```json
+[{ "kind": "execution-gap", "reason": "unsupported-shell-source" }]
+```
+
+```json
+[{ "executable": { "projection": "basename", "equals": "kubectl" } }]
+```
+
+Executable projections are exactly `basename`, `selected-path`,
+`canonical-target`, and `chain-contains`. They are exact, case-sensitive
+matches; rich matching belongs in a machine expression.
+
+## Registers and expressions
+
+Registers are fixed declarations. `bool`, `enum`, `count`, `inputRef`, and a
+fixed `tuple` are the complete v1 domains. `count` has a positive literal
+`max` and an in-range literal `initial`; enum values are a unique finite string
+set. `inputRef` starts as `null` and holds a reference into immutable supplied
+input rather than copying a string. Tuples have a fixed non-nested shape.
+
+`set` assigns expressions simultaneously from the pre-transition state. Its
+keys must be declared registers and every expression must be statically
+assignable to that register. There are no maps, sets, stacks, or growing lists.
+
+Expressions are literals; finite string arrays; `{ "ref": name }`; builtin
+calls `{ "call": name, "args": [...] }`; and Boolean `{ "all": [...] }`,
+`{ "any": [...] }`, and `{ "not": expression }` nodes. Conditions and fold
+predicates must have Boolean type. Known input references include `word`,
+`option.value`, `event.executable`, `event.kind`, `event.gap.reason`,
+`fold.item`, declared registers, and cached `fold.<name>` results.
+
+Terminal templates are arrays of literal strings and `{ "ref": name }`.
+Audit objects have source-fixed JSON shape and literal/reference leaves. They
+cannot perform calls or scans.
+
+## Options and order
+
+An option is:
+
+```json
+{
+  "names": ["-n", "--namespace"],
+  "value": "required",
+  "forms": ["separate", "attachedShort", "equalsLong", "cluster"],
+  "availableIn": "*",
+  "set": { "namespace": { "ref": "option.value" } }
+}
+```
+
+`value` is `absent`, `required`, or `optional`. Absent options have no value
+forms. Value-taking options name one or more of `separate`, `attachedShort`,
+`equalsLong`, and `cluster`; short forms require an exact one-byte short name,
+and `equalsLong` requires a long name. Option names are globally unique.
+
+`availableIn: "*"` is machine-wide; a non-empty state-name list makes the
+option state-local. Compilation inserts applicable options in declaration order
+before fragment and state cases in every applicable state. It also creates an
+internal cluster state for every `cluster` form. A cluster microstep consumes
+one byte; it is not an authored action.
+
+## Fragments and folds
+
+Fragments are compile-time case lists:
+
+```json
+{
+  "uses": ["common"],
+  "cases": [{ "when": true, "action": { "decision": "ignore" } }]
+}
+```
+
+State `fragments` are expanded in listed order before local cases. Fragment
+`uses` are expanded before that fragment's cases. References must resolve and
+the graph must be acyclic; expansion has a fixed compiled-case limit. Fragments
+are not runtime calls.
+
+Folds declare exactly one finite engine collection: `argv`, `redirects`,
+`assignments`, `provenance`, or `environment`. Operations are `any`, `all`,
+`firstRef`, `lastRef`, and `countUpTo` (which has a positive literal `limit`).
+Their predicates are Boolean and cannot reference a fold result. A transition
+can list declared fold names, which are cached and run at most once per event;
+it cannot define a scan. Nested folds and dynamic collections are rejected.
+
+## Closed v1 builtins
+
+All builtins are total and only inspect supplied values. `n`, `m`, `s`, `r`,
+`a`, and `p` respectively denote operand, pattern, set, redirect, assignment,
+and provenance-route sizes. `stringish` accepts a known string or immutable
+input reference and preserves unknown handling for the evaluator.
+
+| Builtin | Signature | Bound | Use |
+| --- | --- | --- | --- |
+| `equals` | `(stringish, stringish) -> bool` | `O(n)` | exact values |
+| `inStringSet` | `(stringish, string-set) -> bool` | `O(n + s)` | finite tables |
+| `asciiLower` | `(stringish) -> string` | `O(n)` | ASCII normalize |
+| `asciiUpper` | `(stringish) -> string` | `O(n)` | ASCII normalize |
+| `equalsAsciiCaseInsensitive` | `(stringish, stringish) -> bool` | `O(n)` | case-insensitive exact match |
+| `wordInAsciiCaseInsensitiveSet` | `(stringish, string-set) -> bool` | `O(n + s)` | resource aliases |
+| `startsWith` | `(stringish, stringish) -> bool` | `O(n)` | endpoint/path prefix |
+| `endsWith` | `(stringish, stringish) -> bool` | `O(n)` | suffix check |
+| `includes` | `(stringish, stringish) -> bool` | `O(nm)` | bounded substring |
+| `basename` | `(stringish) -> string` | `O(n)` | secret reader paths |
+| `pathComponent` | `(stringish, count) -> string` | `O(n)` | lexical paths |
+| `splitComponent` | `(stringish, string, count) -> string` | `O(n)` | fixed-delimiter parsing |
+| `parseBoundedInt` | `(stringish, count) -> count` | `O(n)` | bounded CLI numbers |
+| `boundedIntAtMost` | `(count, count) -> bool` | `O(1)` | number comparison |
+| `safeGlob` | `(stringish, string) -> bool` | `O(nm)` | secret path patterns |
+| `linearRegex` | `(stringish, string) -> bool` | `O(n + m)` | restricted regex |
+| `parseUrl` | `(stringish) -> url` | `O(n)` | GitHub URL parsing |
+| `urlHostEquals` | `(url, string) -> bool` | `O(n)` | exact host check |
+| `parseRepository` | `(stringish) -> repository` | `O(n)` | owner/repository parsing |
+| `repositoryEquals` | `(repository, string, string) -> bool` | `O(n)` | PR allowlists |
+| `normalizeKubernetesResource` | `(stringish) -> string` | `O(n)` | singular/plural resource aliases |
+| `normalizeGitHubEndpoint` | `(stringish) -> string` | `O(n)` | GitHub API endpoint paths |
+| `environmentLookup` | `(string) -> environment-value` | `O(n)` | env routing |
+| `environmentIsPresent` | `(environment-value) -> bool` | `O(1)` | env presence |
+| `environmentIsKnown` | `(environment-value) -> bool` | `O(1)` | env proof |
+| `environmentIsUnknown` | `(environment-value) -> bool` | `O(1)` | unresolved env proof |
+| `environmentValueEquals` | `(environment-value, string) -> bool` | `O(n)` | exact env proof value |
+| `environmentIsExported` | `(string) -> bool` | `O(1)` | exported proof variable |
+| `missingEnvironmentMayBePresent` | `() -> bool` | `O(1)` | absent versus unknown environment |
+| `redirectHasInputPath` | `(stringish) -> bool` | `O(r + n)` | secret redirects |
+| `hasAssignment` | `(string) -> bool` | `O(a)` | prefix assignments |
+| `hasProvenanceRoute` | `(string) -> bool` | `O(p)` | shell-wrapper routes |
+| `isInPipeline` | `() -> bool` | `O(1)` | pipeline context |
+| `processEffectIs` | `(string) -> bool` | `O(1)` | process effects |
+
+`linearRegex` accepts only literal bytes, anchors, dot, character classes, and
+escaped literals. It rejects grouping, alternation, repetition, lookaround,
+and backreferences. `safeGlob` has only literal, `?`, and `*` forms. URL and
+repository parsing are strict lexical parsing, never lookup. No locale,
+filesystem, process, network, clock, randomness, module, or callback access is
+available.
+
+## Validation limits and progress proof
+
+v1 limits source JSON to 256 KiB; states to 128; registers to 64; folds to 32;
+options to 64; fragments to 64; cases per state to 128; and source/compiled
+transitions, expanded cases, and templates to 4,096. Expression nodes are
+limited to 32,768, literal bytes to 16,384, regex bytes to 8,192, and audit
+depth to 16. Validation is linear in this bounded source/compiled structure
+(with linear restricted-regex validation).
+
+Every authored nonterminal has `consume: "word"`, which consumes one forward
+argv boundary. Every compiler-created cluster transition consumes one forward
+byte. Thus every nonterminal transition strictly decreases the finite measure
+of remaining argv token boundaries plus bytes in an active cluster. EOF and
+unmatched input always terminate. Combined with acyclic compile-time fragments,
+fixed registers, single-run non-nested folds, static transition targets, and
+total builtins, a valid program terminates without runtime fuel.
