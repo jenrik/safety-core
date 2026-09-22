@@ -46,6 +46,12 @@ export class PolicyDocumentValidationError extends TypeError {
 
 interface ParseContext {
   readonly metrics: MutableMetrics;
+  readonly instrumentation: ValidationInstrumentation;
+}
+
+/** Test-only hooks for measuring validator work without exposing domain data. */
+export interface ValidationInstrumentation {
+  readonly onEnumDomainComparison?: () => void;
 }
 
 interface MutableMetrics {
@@ -69,8 +75,8 @@ export function parsePolicyDocument(json: string | unknown): PolicyDocument {
 }
 
 /** Strict handwritten schema, type, and finite-progress validation for v1. */
-export function validatePolicyDocument(value: unknown): PolicyDocument {
-  const context: ParseContext = { metrics: { nodes: 0, validationWork: 0, enumDomainChecks: 0, enumDomainComparisons: 0, selectors: 0, states: 0, transitions: 0, compiledCases: 0, literals: 0, templateParts: 0, regexBytes: 0 } };
+export function validatePolicyDocument(value: unknown, instrumentation: ValidationInstrumentation = {}): PolicyDocument {
+  const context: ParseContext = { metrics: { nodes: 0, validationWork: 0, enumDomainChecks: 0, enumDomainComparisons: 0, selectors: 0, states: 0, transitions: 0, compiledCases: 0, literals: 0, templateParts: 0, regexBytes: 0 }, instrumentation };
   const root = record(value, "$");
   exactKeys(root, ["language", "layer", "select", "registers", "folds", "options", "fragments", "start", "states"], ["registers", "folds", "options", "fragments"], "$");
   if (root.language !== POLICY_LANGUAGE_V1) fail("$.language", `language must be exactly ${POLICY_LANGUAGE_V1}`);
@@ -97,6 +103,7 @@ export function validatePolicyDocument(value: unknown): PolicyDocument {
     foldDeclarations: folds,
     enumDomains: canonicalEnumDomains(registers),
     metrics: context.metrics,
+    instrumentation: context.instrumentation,
   };
   const optionIndex = validateOptions(options, names, context);
   validateFolds(folds, names, context);
@@ -505,6 +512,7 @@ interface Names {
   readonly foldDeclarations: Readonly<Record<string, FoldDeclaration>>;
   readonly enumDomains: ReadonlyMap<string, EnumDomain>;
   readonly metrics: MutableMetrics;
+  readonly instrumentation: ValidationInstrumentation;
 }
 
 interface EnumDomain { readonly key: string; }
@@ -527,8 +535,14 @@ function sameEnumDomain(expression: Expression, target: string, names: Names): b
   names.metrics.enumDomainChecks++;
   if (expression === null || typeof expression !== "object" || Array.isArray(expression) || !hasOwn(expression, "ref")) return false;
   const source = (expression as { readonly ref: string }).ref;
+  return compareEnumDomains(names.enumDomains.get(source), names.enumDomains.get(target), names);
+}
+
+/** The only enum-domain equality path; keep the operation observable in scale tests. */
+function compareEnumDomains(source: EnumDomain | undefined, target: EnumDomain | undefined, names: Names): boolean {
   names.metrics.enumDomainComparisons++;
-  return names.enumDomains.get(source) === names.enumDomains.get(target);
+  names.instrumentation.onEnumDomainComparison?.();
+  return source === target;
 }
 
 function countBound(expression: Expression, names: Names): number | undefined {
