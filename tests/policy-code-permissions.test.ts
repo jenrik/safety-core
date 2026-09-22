@@ -11,7 +11,7 @@ import { createGhPrCreatePolicy } from "../policies/code/gh-pr-create.policy.ts"
 import helmReadOnly from "../policies/code/helm-read-only.policy.ts";
 import strictReadOnly from "../policies/code/strict-read-only.policy.ts";
 import { renderGhPrCreateCodePolicy } from "../scripts/render-gh-pr-create-code-policy.ts";
-import { analyzeBashWithPolicies, initBashParser, type LoadedBashPolicy, type ValidatedBashPolicy } from "../src/index.ts";
+import { STRICT_BASH_PROFILE_EXECUTABLES, analyzeBashWithPolicies, evaluateConfiguredBash, initBashParser, type BashProfileSnapshot, type LoadedBashPolicy, type ValidatedBashPolicy } from "../src/index.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-policy-code-permissions-"));
 const prCreate = createGhPrCreatePolicy({ allowedRepositories: ["acme/widgets"], allowedOrganizations: ["trusted-org"] });
@@ -48,6 +48,23 @@ function invocation(source: string, activePolicies: readonly ValidatedBashPolicy
   return event;
 }
 
+function snapshot(overrides: Partial<BashProfileSnapshot> = {}): BashProfileSnapshot {
+  return Object.freeze({
+    readOnlyBash: false,
+    ghApiReadOnly: false,
+    ghReadOnly: false,
+    helmReadOnly: false,
+    strictProfiles: Object.freeze(Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false]))) as BashProfileSnapshot["strictProfiles"],
+    ghPrCreate: Object.freeze({ enabled: false, allowedRepositories: Object.freeze([]), allowedOrganizations: Object.freeze([]) }),
+    limits: Object.freeze({ maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 7_500, maxWorkItems: 10_000 }),
+    ...overrides,
+  });
+}
+
+function legacy(source: string, profileSnapshot: BashProfileSnapshot): string {
+  return evaluateConfiguredBash({ source, profileSnapshot, initialEnvironment: { kind: "verified", values: {} } }).permission.kind;
+}
+
 describe("trusted permission code policies", () => {
   test("covers generic Git, Tea, and checksum reads while ignoring foreign executables", () => {
     for (const source of ["tea --help", "git diff --stat HEAD", "sha256sum README.md"]) expect(evaluate(source).decision, source).toBe("allow");
@@ -61,6 +78,28 @@ describe("trusted permission code policies", () => {
     }
     expect(evaluate("kubectl get secret app").decision).toBe("defer");
     expect(strictReadOnly.evaluate(evaluate("helm version").events[0]!)).toEqual({ kind: "ignore" });
+  });
+
+  test("differential: migrated family source policies preserve legacy behavior or its intentional prompt-gate conversion", () => {
+    const dockerProfile = STRICT_BASH_PROFILE_EXECUTABLES.find(([, executable]) => executable === "docker")?.[0];
+    if (!dockerProfile) throw new Error("Expected docker strict profile");
+    const cases = [
+      { source: "git diff HEAD", policy: genericReadOnly, executable: "git", profile: snapshot({ readOnlyBash: true }), code: "allow", legacy: "allow" },
+      { source: "gh issue list", policy: ghReadOnly, executable: "gh", profile: snapshot({ ghReadOnly: true }), code: "defer", legacy: "defer" },
+      { source: "helm version", policy: helmReadOnly, executable: "helm", profile: snapshot({ helmReadOnly: true }), code: "allow", legacy: "allow" },
+      { source: "docker image ls", policy: strictReadOnly, executable: "docker", profile: snapshot({ strictProfiles: Object.freeze({ ...snapshot().strictProfiles, [dockerProfile]: true }) }), code: "allow", legacy: "allow" },
+      { source: "GH_PAGER=cat gh api user", policy: ghApi, executable: "gh", profile: snapshot({ ghApiReadOnly: true }), code: "allow", legacy: "defer" },
+      { source: "GH_PROMPT_DISABLED=1 gh pr create --repo github.com/acme/widgets --fill", policy: prCreate, executable: "gh", profile: snapshot({ ghPrCreate: Object.freeze({ enabled: true, allowedRepositories: Object.freeze(["acme/widgets"]), allowedOrganizations: Object.freeze([]) }) }), code: "allow", legacy: "defer" },
+    ] as const;
+
+    for (const scenario of cases) {
+      const active = [loaded(`/trusted/${scenario.executable}.policy.mjs`, scenario.policy)];
+      const event = analyzeBashWithPolicies({ source: scenario.source, policies: active, initialEnvironment: { kind: "verified", values: {} } }).events
+        .find((candidate) => candidate.kind === "invocation" && candidate.executable?.kind === "known" && candidate.executable.value === scenario.executable);
+      if (!event) throw new Error(`Expected ${scenario.executable} invocation for ${scenario.source}`);
+      expect(scenario.policy.evaluate(event).kind, scenario.source).toBe(scenario.code);
+      expect(legacy(scenario.source, scenario.profile), scenario.source).toBe(scenario.legacy);
+    }
   });
 
   test("preserves path-qualified commands, environment routes, wrappers, aliases, and option permutations", () => {
@@ -106,6 +145,11 @@ describe("trusted permission code policies", () => {
     expect(ghApi.evaluate(invocation("GH_PAGER=cat; gh api user", apiPolicy)).kind).toBe("defer");
     expect(ghApi.evaluate(invocation("export GH_PAGER=cat; gh api user", apiPolicy)).kind).toBe("allow");
     expect(evaluate("GH_PAGER=cat gh api user", {}, apiPolicy).decision).toBe("allow");
+    for (const unsafePager of ["less", "more", "sh -c false", "./pager", "catx"]) {
+      const source = `GH_PAGER=${JSON.stringify(unsafePager)} gh api user`;
+      expect(ghApi.evaluate(invocation(source, apiPolicy)).kind, source).toBe("defer");
+      expect(legacy(source, snapshot({ ghApiReadOnly: true })), source).toBe("defer");
+    }
   });
 
   test("property: exported proof variables alone authorize their corresponding policy", () => {
