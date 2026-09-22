@@ -81,6 +81,21 @@ describe("executable identity resolution", () => {
       }, expected: { qualification: "incomplete", failure: { kind: "symlink-loop", path: "/a" } },
     },
     {
+      name: "treats absolute root and terminal directory slashes as directories",
+      spelling: "/", cwd: "/work", path: "", entries: { "/": directory },
+      expected: { qualification: "incomplete", selectedPath: "/", failure: { kind: "directory", path: "/" } },
+    },
+    {
+      name: "treats an absolute terminal slash as a directory requirement",
+      spelling: "/bin/", cwd: "/work", path: "", entries: { "/bin": directory },
+      expected: { qualification: "incomplete", selectedPath: "/bin/", failure: { kind: "directory", path: "/bin" } },
+    },
+    {
+      name: "treats a relative terminal slash as a directory requirement",
+      spelling: "bin/", cwd: "/work", path: "", entries: { "/work": directory, "/work/bin": directory },
+      expected: { qualification: "incomplete", selectedPath: "/work/bin/", failure: { kind: "directory", path: "/work/bin" } },
+    },
+    {
       name: "retains permission, I/O, and mutation failures",
       spelling: "/tool", cwd: "/work", path: "", entries: { "/tool": Object.freeze({ kind: "incomplete" as const, failure: "permission" as const }) },
       expected: { qualification: "incomplete", failure: { kind: "filesystem", path: "/tool", failure: "permission" } },
@@ -96,9 +111,28 @@ describe("executable identity resolution", () => {
       expected: { qualification: "incomplete", failure: { kind: "filesystem", path: "/tool", failure: "mutation" } },
     },
   ])("$name", ({ spelling, cwd, path, entries, expected }) => {
-    const resolver = fakeFilesystem(entries);
-    expect(resolveExecutableIdentity(spelling, { PATH: known(path) }, cwd, resolver)).toMatchObject(expected);
-    expect(resolver.transcript).toEqual([...resolver.transcript]);
+    const first = fakeFilesystem(entries);
+    const second = fakeFilesystem(entries);
+    const identity = resolveExecutableIdentity(spelling, { PATH: known(path) }, cwd, first);
+    expect(identity).toMatchObject(expected);
+    expect(resolveExecutableIdentity(spelling, { PATH: known(path) }, cwd, second)).toEqual(identity);
+    expect(second.transcript).toEqual(first.transcript);
+  });
+
+  test("preserves exact loop and depth failures from the first PATH candidate", () => {
+    const loop = resolveExecutableIdentity("tool", { PATH: known("/loop:/second") }, "/work", fakeFilesystem({
+      "/loop": directory, "/loop/tool": link("/loop/tool"), "/second": directory, "/second/tool": executable,
+    }));
+    expect(loop).toMatchObject({
+      qualification: "incomplete", selectedPath: "/loop/tool", failure: { kind: "symlink-loop", path: "/loop/tool" },
+    });
+
+    const links: Record<string, ExecutableFilesystemLookup> = { "/links": directory, "/links/tool": link("/links/0") };
+    for (let index = 0; index <= 40; index++) links[`/links/${index}`] = link(String(index + 1));
+    const depth = resolveExecutableIdentity("tool", { PATH: known("/links:/second") }, "/work", fakeFilesystem(links));
+    expect(depth).toMatchObject({
+      qualification: "incomplete", selectedPath: "/links/tool", failure: { kind: "symlink-depth", path: "/links/39" },
+    });
   });
 
   test("uses exact, case-sensitive selector matching without path-derived matches from incomplete identities", () => {

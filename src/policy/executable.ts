@@ -62,13 +62,17 @@ export function resolveExecutableIdentity(
     const selectedPath = joinPath(entry === "" ? cwd : absoluteFrom(cwd, entry), spelling);
     const candidate = resolveCandidate(selectedPath, filesystem);
     if (candidate.kind === "known") return known(spelling, basename, selectedPath, candidate.canonicalTarget, candidate.chain);
-    if (candidate.failure.kind === "filesystem" || candidate.failure.kind === "symlink-loop" || candidate.failure.kind === "symlink-depth") {
+    if (candidate.failure.kind === "filesystem") {
       // An earlier unresolved candidate may be the command the shell reaches.
       return incomplete(spelling, basename, candidate.chain, {
         kind: "path-candidate-incomplete",
         path: selectedPath,
-        failure: candidate.failure.kind === "filesystem" ? candidate.failure.failure : "io",
+        failure: candidate.failure.failure,
       }, selectedPath);
+    }
+    if (candidate.failure.kind === "symlink-loop" || candidate.failure.kind === "symlink-depth") {
+      // These are exact resolver outcomes, not generic filesystem uncertainty.
+      return incomplete(spelling, basename, candidate.chain, candidate.failure, selectedPath);
     }
     lastFailure = candidate.failure;
   }
@@ -126,6 +130,7 @@ type CandidateResult =
  */
 function resolveCandidate(selectedPath: string, filesystem: ExecutableFilesystem): CandidateResult {
   let components = splitAbsolute(selectedPath);
+  const requiresTerminalDirectory = selectedPath.endsWith("/");
   let resolved: string[] = [];
   const chain: string[] = [];
   const seenSymlinks = new Set<string>();
@@ -142,7 +147,7 @@ function resolveCandidate(selectedPath: string, filesystem: ExecutableFilesystem
     const lookup = lookupPath(filesystem, path);
     if (lookup.kind === "missing") return failure(chain, { kind: chain.length > 0 ? "broken-symlink" : "not-found", path });
     if (lookup.kind === "incomplete") return failure(chain, { kind: "filesystem", path, failure: lookup.failure });
-    const isLast = components.length === 0;
+    const isLast = !components.some((remaining) => remaining !== "" && remaining !== ".");
     if (lookup.entry.kind === "symlink") {
       if (++symlinkCount > MAX_EXECUTABLE_SYMLINKS) return failure(chain, { kind: "symlink-depth", path });
       if (seenSymlinks.has(path)) return failure(chain, { kind: "symlink-loop", path });
@@ -158,8 +163,17 @@ function resolveCandidate(selectedPath: string, filesystem: ExecutableFilesystem
       continue;
     }
     if (lookup.entry.kind === "directory") return failure(chain, { kind: "directory", path });
+    if (requiresTerminalDirectory) return failure(chain, { kind: "not-found" });
     if (!lookup.entry.executable) return failure(chain, { kind: "not-executable", path });
     return Object.freeze({ kind: "known", canonicalTarget: path, chain: Object.freeze([...chain, path]) });
+  }
+  if (requiresTerminalDirectory) {
+    const path = pathFromComponents(resolved);
+    const lookup = lookupPath(filesystem, path);
+    if (lookup.kind === "missing") return failure(chain, { kind: "not-found" });
+    if (lookup.kind === "incomplete") return failure(chain, { kind: "filesystem", path, failure: lookup.failure });
+    if (lookup.entry.kind === "directory") return failure(chain, { kind: "directory", path });
+    return failure(chain, { kind: "not-found" });
   }
   return failure(chain, { kind: "not-found" });
 }
