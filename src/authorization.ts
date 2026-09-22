@@ -17,6 +17,9 @@ import { ignorePolicy } from "./bash/dispatch.js";
 import { STRICT_BASH_PROFILE_EXECUTABLES, type BashProfileSnapshot, type StrictBashProfile } from "./config.js";
 import type { GhPrCreatePolicy } from "./bash/policies/gh-pr-create.js";
 import { parseBashProgram } from "./shell.js";
+import { evaluatePolicyEvents } from "./policy/evaluate.js";
+import { projectExecutionGapEvent } from "./policy/events.js";
+import type { BashPolicyAnalysis, BashPolicyEvent, PolicyEvaluation, ValidatedBashPolicy } from "./policy/types.js";
 
 export type BashInitialEnvironment =
   | { readonly kind: "unavailable" }
@@ -121,6 +124,16 @@ export interface BashConfiguredOptions extends Pick<BashAuthorizationOptions, "s
   readonly profileSnapshot: BashProfileSnapshot;
 }
 
+export interface BashPolicyEvaluation extends PolicyEvaluation {
+  /** Complete unredacted event trace for the explicitly supplied policies. */
+  readonly events: readonly BashPolicyEvent[];
+  readonly analysis: BashPolicyAnalysis;
+}
+
+export interface BashPolicyAnalysisOptions extends Pick<BashAuthorizationOptions, "source" | "limits" | "initialEnvironment"> {
+  readonly policies: readonly ValidatedBashPolicy[];
+}
+
 const baseHandlers = Object.freeze([...readerHandlers, ...httpHandlers, kubectlHandler]);
 
 /**
@@ -143,6 +156,46 @@ export function analyzeBashAuthorization(options: BashAuthorizationOptions): Bas
     evidence: Object.freeze([...completed.evidence]),
     policy: policyFrom(completed),
     policies: policiesFrom(completed),
+  });
+}
+
+/**
+ * Evaluate loader-validated generic policies in shadow mode. This deliberately
+ * shares the existing structural walker and runner, but never replaces legacy
+ * adapter profile selection or observer dispatch.
+ */
+export function analyzeBashWithPolicies(options: BashPolicyAnalysisOptions): BashPolicyEvaluation {
+  const limits = options.limits ?? DEFAULT_BASH_ANALYSIS_LIMITS;
+  const environment = initialEnvironment(options.initialEnvironment, toEnvironmentBudgets(limits));
+  const parsed = parseBashProgram(options.source);
+  const program = parsed.kind === "parse-failure" ? parsed.program : parsed;
+  const events: BashPolicyEvent[] = [];
+  if (parsed.kind === "parse-failure") {
+    events.push(projectExecutionGapEvent("source-parse-failure", {
+      environment,
+      span: parsed.span,
+      provenance: { route: ["direct"] },
+      inPipeline: false,
+      processEffect: "none",
+    }));
+  }
+  const registry = createCommandRegistry();
+  const initial = walkProgram(program, {
+    environment,
+    dispatchCommand: (request) => dispatchCommand(request, registry),
+    preflightCommand: (request) => preflightCommand(request, registry),
+    recordPolicyEvent: (event) => events.push(event),
+  }, parsed.kind === "parse-failure" ? failure(parsed.span) : undefined);
+  const completed = runSteps(initial, limits);
+  const analysis = Object.freeze({ complete: completed.outcome.kind === "safe" });
+  const evaluated = evaluatePolicyEvents(Object.freeze([...events]), options.policies, analysis);
+  return freeze({
+    // Core structural denies remain authoritative even when no generic policy
+    // denies the projected invocation that triggered them.
+    decision: completed.outcome.kind === "deny" ? "deny" : evaluated.decision,
+    traces: evaluated.traces,
+    events: Object.freeze([...events]),
+    analysis,
   });
 }
 

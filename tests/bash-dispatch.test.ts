@@ -912,6 +912,7 @@ function directWrapperDispatch(
     nestedScriptDepth: 0,
     provenance: { route: ["direct"] },
     inPipeline: false,
+    processEffect: "none",
     continueWithSource: (source, _environment, options) => {
       scheduled.push(source);
       targets.push("source");

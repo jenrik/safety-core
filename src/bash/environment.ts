@@ -48,6 +48,12 @@ export interface EnvironmentPatch {
   readonly writes: ReadonlySet<string>;
 }
 
+/** Complete materialization of modeled bindings and the semantics of absent names. */
+export interface ModeledBindings {
+  readonly values: Readonly<Record<string, BindingValue>>;
+  readonly missingBindings: Environment["missingBindings"];
+}
+
 interface FrameState {
   readonly parent?: Frame;
   readonly previous?: Frame;
@@ -139,6 +145,26 @@ export function hasBinding(environment: Environment, name: string): boolean {
     if (stateFor(current).positionalParametersLocal && isPositivePositionalParameter(name)) return true;
   }
   return false;
+}
+
+/**
+ * Materialize every binding the model currently knows, preserving values and
+ * uncertainty for policy evaluation without exposing mutable frame internals.
+ */
+export function modeledBindings(environment: Environment): ModeledBindings {
+  const names = new Set<string>();
+  const collect = (frame: Frame | undefined): void => {
+    if (!frame) return;
+    const state = stateFor(frame);
+    collect(state.parent);
+    const own = collectOwnBindings(frame);
+    for (const name of own.keys()) names.add(name);
+  };
+  collect(environment.overlay ?? environment.frame);
+  return Object.freeze({
+    values: Object.freeze(Object.fromEntries([...names].map((name) => [name, lookupBinding(environment, name).value]))),
+    missingBindings: environment.missingBindings,
+  });
 }
 
 export function assignBinding(environment: Environment, name: string, value: BindingValue): Environment {

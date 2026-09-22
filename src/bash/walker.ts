@@ -40,11 +40,14 @@ import {
   policyIndeterminate,
   safe,
   strongestOutcome,
+  type AnalysisBudget,
   type Outcome,
   type OutcomeSummary,
 } from "./outcome.js";
 import { analyzeSecretRedirectInvocation } from "./policies/secrets.js";
 import type { DispatchTarget, Step } from "./runner.js";
+import { projectExecutionGapEvent, projectInvocationEvent } from "../policy/events.js";
+import type { BashPolicyEvent } from "../policy/types.js";
 
 export interface BashWalkContext {
   readonly environment: Environment;
@@ -52,6 +55,8 @@ export interface BashWalkContext {
   readonly dispatchCommand: (request: BashDispatchRequest) => BashDispatchResult;
   /** Deny-only structural check that runs before retained substitutions. */
   readonly preflightCommand: (request: BashPreflightRequest) => BashPreflightResult;
+  /** Shadow-only generic policy trace sink; it cannot alter traversal. */
+  readonly recordPolicyEvent?: (event: BashPolicyEvent) => void;
 }
 
 /** Metadata-only execution route; never contains source, arguments, or values. */
@@ -80,6 +85,9 @@ export interface BashDispatchRequest {
   /** True when the command receives pipeline input whose contents are not modeled. */
   readonly inPipeline: boolean;
   readonly provenance: BashExecutionProvenance;
+  readonly processEffect: ProcessEffect;
+  /** Optional immutable event sink used by generic shadow policy evaluation. */
+  readonly recordPolicyEvent?: (event: BashPolicyEvent) => void;
   /** Returns a scheduled nested script without giving dispatch code ambient execution access. */
   readonly continueWithSource: (
     source: string,
@@ -181,6 +189,7 @@ interface Path {
   readonly returned: boolean;
   readonly sourceDerivedFromBinding: boolean;
   readonly provenance: BashExecutionProvenance;
+  readonly processEffect: ProcessEffect;
 }
 
 interface StatementWork {
@@ -209,12 +218,19 @@ type Work = StatementWork | InvocationWork;
  * injected, so this layer only models Bash statement and binding semantics.
  */
 export function walkProgram(program: BashProgram, context: BashWalkContext, trailingOutcome?: Outcome): Step {
-  const initial = path(initialShellState(context.environment), emptyOutcomeSummary(), new Set(), 0, 0, false, false, DIRECT_PROVENANCE);
+  const initial = path(initialShellState(context.environment), emptyOutcomeSummary(), new Set(), 0, 0, false, false, DIRECT_PROVENANCE, "none");
   const target: DispatchTarget = {
     span: programSpan(program),
     functionDepth: 0,
     nestedScriptDepth: 0,
     run: () => evaluateProgram(program, context, initial, trailingOutcome),
+    reportExecutionGap: (reason, environment, span) => context.recordPolicyEvent?.(projectExecutionGapEvent(reason, {
+      environment,
+      span,
+      provenance: DIRECT_PROVENANCE,
+      inPipeline: false,
+      processEffect: "none",
+    })),
   };
   return freeze({ kind: "continue", state: context.environment, target, span: programSpan(program) });
 }
@@ -230,6 +246,7 @@ function evaluateProgram(program: BashProgram, context: BashWalkContext, initial
   const schedule = (work: Work): void => {
     if (scheduled >= initial.state.environment.budgets.workItems) {
       limitFailure ??= analysisFailure("max-work-items", programSpan(program));
+      recordWorkGap(context, work, "max-work-items", programSpan(program));
       return;
     }
     scheduled++;
@@ -252,6 +269,8 @@ function evaluateProgram(program: BashProgram, context: BashWalkContext, initial
     const work = agenda.pop()!;
     if (steps >= initial.state.environment.budgets.steps) {
       limitFailure ??= analysisFailure("max-steps", statementSpan(work) ?? programSpan(program));
+      recordWorkGap(context, work, "max-steps", statementSpan(work) ?? programSpan(program));
+      for (const pending of agenda) recordWorkGap(context, pending, "max-steps", statementSpan(pending) ?? programSpan(program));
       break;
     }
     steps++;
@@ -296,6 +315,7 @@ function evaluateProgram(program: BashProgram, context: BashWalkContext, initial
       }
       if (retained.length > 0) {
         if (work.path.nestedScriptDepth + 1 > work.path.state.environment.budgets.nestedScriptDepth) {
+          recordPathGap(context, work.path, "max-nested-script-depth", statement.span, work.inPipeline ?? false);
           completeWithDeny(addOutcome(work.path, analysisFailure("max-nested-script-depth", statement.span)));
           continue;
         }
@@ -351,6 +371,7 @@ function evaluateProgram(program: BashProgram, context: BashWalkContext, initial
         break;
       case "subshell": {
         if (work.path.nestedScriptDepth + 1 > work.path.state.environment.budgets.nestedScriptDepth) {
+          recordPathGap(context, work.path, "max-nested-script-depth", statement.span, work.inPipeline ?? false);
           completeWithDeny(addOutcome(work.path, analysisFailure("max-nested-script-depth", statement.span)));
           break;
         }
@@ -453,11 +474,13 @@ function executeCommand(
           provenance: input.provenance,
         }));
         if (preflight.kind === "deny") {
+          recordInvocationEvent(preflightCommand, input, context, command.span, inPipeline);
           completeWithDeny(addOutcome(input, preflight));
           return;
         }
       }
       if (input.nestedScriptDepth + 1 > input.state.environment.budgets.nestedScriptDepth) {
+        recordPathGap(context, input, "max-nested-script-depth", command.span, inPipeline);
         completeWithDeny(addOutcome(input, analysisFailure("max-nested-script-depth", command.span)));
         return;
       }
@@ -482,6 +505,7 @@ function executeCommand(
   const normalized = normalizeCommand(command, input.state.environment, input.sourceDerivedFromBinding);
   const redirect = analyzeSecretRedirectInvocation(normalized);
   if (redirect.kind === "deny") {
+    recordInvocationEvent(normalized, input, context, command.span, inPipeline);
     completeWithDeny(addOutcome(input, policyDeny(command.span, redirect.evidence)));
     return;
   }
@@ -508,13 +532,14 @@ function executeCommand(
     return;
   }
   if (normalized.executable.kind === "unknown") {
+    recordInvocationEvent(normalized, input, context, command.span, inPipeline);
     complete(addOutcome(withEnvironment(input, endCommandOverlay(normalized.environment)), dynamicExecutableIndeterminate(command.span)));
     return;
   }
 
   const definitions = input.state.functionCandidates.get(normalized.executable.value);
   if (definitions && definitions.length > 0) {
-    scheduleFunctionCall(definitions, command, normalized, input, complete, schedule, input.state.missingFunctions.has(normalized.executable.value));
+    scheduleFunctionCall(definitions, command, normalized, input, context, complete, schedule, input.state.missingFunctions.has(normalized.executable.value));
     return;
   }
 
@@ -535,6 +560,7 @@ function executeNormalizedInvocation(
     return;
   }
   if (normalized.executable.kind === "unknown") {
+    recordInvocationEvent(normalized, input, context, span, inPipeline);
     completeWithDeny(addOutcome(withEnvironment(input, endCommandOverlay(normalized.environment)), dynamicExecutableIndeterminate(span)));
     return;
   }
@@ -592,6 +618,8 @@ function dispatchNormalized(
     nestedScriptDepth: input.nestedScriptDepth,
     inPipeline,
     provenance: input.provenance,
+    processEffect: input.processEffect,
+    recordPolicyEvent: context.recordPolicyEvent,
     continueWithSource: (source, environment, options = {}) => freeze({
       outcome: safe(),
       children: Object.freeze([freeze({
@@ -632,7 +660,7 @@ function dispatchNormalized(
       });
     },
     continueWithOpaque: (reason, environment, options = {}) => {
-      const childEnvironment = environment ?? input.state.environment;
+      const childEnvironment = environment ?? command.environment;
       return freeze({
         outcome: safe(),
         children: Object.freeze([freeze({
@@ -690,6 +718,13 @@ function scheduleChildExecutions(
       continue;
     }
     if (childExecution.nestedScriptDepth > childExecution.environment.budgets.nestedScriptDepth) {
+      context.recordPolicyEvent?.(projectExecutionGapEvent("max-nested-script-depth", {
+        environment: childExecution.environment,
+        span,
+        provenance: childExecution.provenance,
+        inPipeline: childExecution.inPipeline,
+        processEffect: childExecution.processEffect,
+      }));
       completed.push({ path: addOutcome(next, analysisFailure("max-nested-script-depth", span)), isolate: childExecution.isolate });
       remaining--;
       continue;
@@ -697,7 +732,7 @@ function scheduleChildExecutions(
     const childEnvironment = childExecution.isolate ? pushSubshellFrame(childExecution.environment) : childExecution.environment;
     const child = withSourceBindingProvenance(
       withExecutionProvenance(
-        resetWrites(withEnvironment(next, childEnvironment, false, childExecution.nestedScriptDepth)),
+        withProcessEffect(resetWrites(withEnvironment(next, childEnvironment, false, childExecution.nestedScriptDepth)), childExecution.processEffect),
         childExecution.provenance,
       ),
       childExecution.target.kind === "source" && childExecution.target.sourceDerivedFromBinding,
@@ -728,6 +763,13 @@ function scheduleChildExecutions(
       case "source": {
         const parsed = parseBashProgram(childExecution.target.source);
         if (parsed.kind === "parse-failure") {
+          context.recordPolicyEvent?.(projectExecutionGapEvent("source-parse-failure", {
+            environment: childExecution.environment,
+            span,
+            provenance: childExecution.provenance,
+            inPipeline: childExecution.inPipeline,
+            processEffect: childExecution.processEffect,
+          }));
           scheduleNested(
             parsed.program.statements,
             child,
@@ -793,6 +835,7 @@ function scheduleFunctionCall(
   command: BashCommand,
   normalized: NormalizedCommand,
   input: Path,
+  context: BashWalkContext,
   complete: (path: Path) => void,
   schedule: (work: Work) => void,
   mayResolveExternally: boolean,
@@ -817,6 +860,7 @@ function scheduleFunctionCall(
     });
     const called = withEnvironment(input, frame, false, input.nestedScriptDepth, input.outcome, input.writes, input.functionDepth + 1);
     if (called.functionDepth > called.state.environment.budgets.functionDepth) {
+      recordPathGap(context, called, "max-function-depth", command.span, false);
       complete(addOutcome(called, analysisFailure("max-function-depth", command.span)));
       continue;
     }
@@ -851,6 +895,7 @@ function schedulePipeline(
     return;
   }
   if (input.nestedScriptDepth + 1 > input.state.environment.budgets.nestedScriptDepth) {
+    recordPathGap(context, input, "max-nested-script-depth", span, false);
     complete(addOutcome(input, analysisFailure("max-nested-script-depth", span)));
     return;
   }
@@ -971,6 +1016,7 @@ function path(
   returned: boolean,
   sourceDerivedFromBinding: boolean,
   provenance: BashExecutionProvenance,
+  processEffect: ProcessEffect,
 ): Path {
   return freeze({
     state,
@@ -981,6 +1027,7 @@ function path(
     returned,
     sourceDerivedFromBinding,
     provenance,
+    processEffect,
   });
 }
 
@@ -1014,6 +1061,7 @@ function withState(
     returned,
     input.sourceDerivedFromBinding,
     input.provenance,
+    input.processEffect,
   );
 }
 
@@ -1022,7 +1070,7 @@ function withFunction(input: Path, definition: BashFunction): Path {
 }
 
 function resetWrites(input: Path): Path {
-  return path(input.state, input.outcome, new Set(), input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding, input.provenance);
+  return path(input.state, input.outcome, new Set(), input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding, input.provenance, input.processEffect);
 }
 
 function appendWrites(existing: ReadonlySet<string>, next: ReadonlySet<string> | readonly string[]): ReadonlySet<string> {
@@ -1030,7 +1078,7 @@ function appendWrites(existing: ReadonlySet<string>, next: ReadonlySet<string> |
 }
 
 function addOutcome(input: Path, outcome: Outcome): Path {
-  return path(input.state, appendOutcomeSummary(input.outcome, outcome), input.writes, input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding, input.provenance);
+  return path(input.state, appendOutcomeSummary(input.outcome, outcome), input.writes, input.functionDepth, input.nestedScriptDepth, input.returned, input.sourceDerivedFromBinding, input.provenance, input.processEffect);
 }
 
 function withSourceBindingProvenance(input: Path, sourceDerivedFromBinding: boolean): Path {
@@ -1043,6 +1091,7 @@ function withSourceBindingProvenance(input: Path, sourceDerivedFromBinding: bool
     input.returned,
     sourceDerivedFromBinding,
     input.provenance,
+    input.processEffect,
   );
 }
 
@@ -1056,7 +1105,64 @@ function withExecutionProvenance(input: Path, provenance: BashExecutionProvenanc
     input.returned,
     input.sourceDerivedFromBinding,
     provenance,
+    input.processEffect,
   );
+}
+
+function withProcessEffect(input: Path, processEffect: ProcessEffect): Path {
+  return path(
+    input.state,
+    input.outcome,
+    input.writes,
+    input.functionDepth,
+    input.nestedScriptDepth,
+    input.returned,
+    input.sourceDerivedFromBinding,
+    input.provenance,
+    processEffect,
+  );
+}
+
+function recordInvocationEvent(
+  command: NormalizedCommand,
+  input: Path,
+  context: BashWalkContext,
+  span: SourceSpan,
+  inPipeline: boolean,
+): void {
+  const event = projectInvocationEvent(command, {
+    environment: command.environment,
+    span,
+    provenance: input.provenance,
+    inPipeline,
+    processEffect: input.processEffect,
+  });
+  if (event) context.recordPolicyEvent?.(event);
+}
+
+function recordPathGap(
+  context: BashWalkContext,
+  path: Path,
+  reason: AnalysisBudget,
+  span: SourceSpan,
+  inPipeline: boolean,
+): void {
+  context.recordPolicyEvent?.(projectExecutionGapEvent(reason, {
+    environment: path.state.environment,
+    span,
+    provenance: path.provenance,
+    inPipeline,
+    processEffect: path.processEffect,
+  }));
+}
+
+function recordWorkGap(
+  context: BashWalkContext,
+  work: Work,
+  reason: AnalysisBudget,
+  span: SourceSpan,
+): void {
+  recordPathGap(context, work.path, reason, span, work.kind === "invocation" ? work.inPipeline : work.inPipeline ?? false);
 }
 
 function childProvenance(

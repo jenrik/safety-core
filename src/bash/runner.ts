@@ -32,6 +32,8 @@ export interface DispatchTarget {
   readonly functionDepth: number;
   readonly nestedScriptDepth: number;
   readonly run: (state: Environment) => Step;
+  /** Optional observer for work rejected before the target can run. */
+  readonly reportExecutionGap?: (reason: AnalysisBudget, state: Environment, span: SourceSpan) => void;
 }
 
 export type Step =
@@ -55,7 +57,10 @@ export interface RunStepsResult {
  */
 export function runSteps(initial: Step, limits: BashAnalysisLimits = DEFAULT_BASH_ANALYSIS_LIMITS): RunStepsResult {
   const invalidBudget = invalidLimitBudget(limits);
-  if (invalidBudget) return complete([analysisFailure(invalidBudget, initial.span)]);
+  if (invalidBudget) {
+    reportStepGap(initial, invalidBudget);
+    return complete([analysisFailure(invalidBudget, initial.span)]);
+  }
 
   const agenda: Step[] = [initial];
   const evidence: Outcome[] = [];
@@ -64,6 +69,7 @@ export function runSteps(initial: Step, limits: BashAnalysisLimits = DEFAULT_BAS
   while (agenda.length > 0) {
     const step = agenda.pop()!;
     if (steps >= limits.maxSteps) {
+      reportStepGap(step, "max-steps");
       evidence.push(analysisFailure("max-steps", step.span));
       return complete(evidence);
     }
@@ -76,10 +82,12 @@ export function runSteps(initial: Step, limits: BashAnalysisLimits = DEFAULT_BAS
       case "continue": {
         const budget = exhaustedDepthBudget(step.target, limits);
         if (budget) {
+          step.target.reportExecutionGap?.(budget, step.state, step.target.span);
           evidence.push(analysisFailure(budget, step.target.span));
           break;
         }
         if (agenda.length >= limits.maxWorkItems) {
+          step.target.reportExecutionGap?.("max-work-items", step.state, step.target.span);
           evidence.push(analysisFailure("max-work-items", step.span));
           break;
         }
@@ -92,6 +100,7 @@ export function runSteps(initial: Step, limits: BashAnalysisLimits = DEFAULT_BAS
       }
       case "fork": {
         if (agenda.length + step.targets.length > limits.maxWorkItems) {
+          for (const target of step.targets) target.reportExecutionGap?.("max-work-items", step.state, target.span);
           evidence.push(analysisFailure("max-work-items", step.span));
           break;
         }
@@ -143,6 +152,11 @@ function record(evidence: Outcome[], outcome: Outcome): boolean {
 
 function hasDeny(evidence: readonly Outcome[]): boolean {
   return evidence.some((outcome) => outcome.kind === "deny");
+}
+
+function reportStepGap(step: Step, reason: AnalysisBudget): void {
+  if (step.kind === "continue") step.target.reportExecutionGap?.(reason, step.state, step.target.span);
+  else if (step.kind === "fork") for (const target of step.targets) target.reportExecutionGap?.(reason, step.state, target.span);
 }
 
 function complete(evidence: readonly Outcome[]): RunStepsResult {

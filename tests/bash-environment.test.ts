@@ -11,6 +11,7 @@ import {
   known,
   lookupBinding,
   mergeCheckpoint,
+  modeledBindings,
   pushFunctionFrame,
   pushSubshellFrame,
   recordWrite,
@@ -35,6 +36,16 @@ describe("persistent Bash environment", () => {
     expect(lookupBinding(environment, "UNKNOWN").value).toEqual(unknown({ kind: "unsupported" }));
     expect(lookupBinding(environment, "MISSING").value).toEqual(unset());
     expect(lookupBinding(environment, "G").value).toEqual(unset());
+  });
+
+  test("materializes absent-binding availability with known bindings", () => {
+    const unavailable = modeledBindings(fromInitialEnvironment({ KNOWN: "value" }));
+    const verified = modeledBindings(fromInitialEnvironment({ KNOWN: "value" }, {}, "unset"));
+
+    expect(unavailable).toEqual({ values: { KNOWN: known("value") }, missingBindings: "unknown" });
+    expect(verified).toEqual({ values: { KNOWN: known("value") }, missingBindings: "unset" });
+    expect(Object.isFrozen(unavailable)).toBeTrue();
+    expect(Object.isFrozen(unavailable.values)).toBeTrue();
   });
 
   test("preserves export and readonly attributes independently of values", () => {

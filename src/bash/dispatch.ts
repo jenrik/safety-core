@@ -7,6 +7,7 @@ import { structuralHandlers, unknownStructuralHandler } from "./handlers/registr
 import { unknownCommandHandler } from "./handlers/unknown.js";
 import { analyzeSecretRedirectInvocation } from "./policies/secrets.js";
 import { basename } from "../shell.js";
+import { projectExecutionGapEvent, projectInvocationEvent } from "../policy/events.js";
 
 export interface InvocationCursor {
   readonly invocation: NormalizedCommand;
@@ -131,6 +132,14 @@ export function dispatchCommand(
   request: BashDispatchRequest,
   registry: CommandRegistry = defaultRegistry,
 ): BashDispatchResult {
+  const event = projectInvocationEvent(request.command, {
+    environment: request.command.environment,
+    span: request.span,
+    provenance: request.provenance,
+    inPipeline: request.inPipeline,
+    processEffect: request.processEffect,
+  });
+  if (event) request.recordPolicyEvent?.(event);
   const redirect = analyzeSecretRedirectInvocation(request.command);
   if (redirect.kind === "deny") return policyDeny(request.span, redirect.evidence);
   const executable = request.command.executable;
@@ -164,6 +173,7 @@ export function dispatchCommand(
         const opaque = request.continueWithOpaque("structural-parse-failure");
         if ("kind" in opaque) outcomes.push(opaque);
         else {
+          recordExecutionGaps(request, opaque.children ?? []);
           const outcome = strongestOutcome(observe(resolved.observers, cursor, policyContext, [structural, opaque.outcome]));
           if (outcome.kind === "deny") return outcome;
           return freeze({ outcome, children: opaque.children });
@@ -171,6 +181,7 @@ export function dispatchCommand(
       }
     }
     else {
+      recordExecutionGaps(request, structural.children ?? []);
       const outcome = strongestOutcome(observe(resolved.observers, cursor, policyContext, [structural.outcome]));
       if (outcome.kind === "deny") return outcome;
       return freeze({ outcome, children: structural.children });
@@ -184,6 +195,22 @@ export function dispatchCommand(
 /** Match only an exact final executable component, preserving path-qualified command behavior. */
 function handlerName(executable: string): string {
   return executable.includes("/") ? basename(executable) : executable;
+}
+
+function recordExecutionGaps(
+  request: BashDispatchRequest,
+  children: readonly { readonly target: { readonly kind: string; readonly reason?: string }; readonly environment: BashDispatchRequest["command"]["environment"]; readonly provenance: BashDispatchRequest["provenance"]; readonly inPipeline: boolean; readonly processEffect: BashDispatchRequest["processEffect"] }[],
+): void {
+  for (const child of children) {
+    if (child.target.kind !== "opaque" || !child.target.reason) continue;
+    request.recordPolicyEvent?.(projectExecutionGapEvent(child.target.reason, {
+      environment: child.environment,
+      span: request.span,
+      provenance: child.provenance,
+      inPipeline: child.inPipeline,
+      processEffect: child.processEffect,
+    }));
+  }
 }
 
 function freeze<T extends object>(value: T): T {

@@ -54,3 +54,8 @@ export type { GhPrCreatePolicy } from "./bash/policies/gh-pr-create.js";
 export * from "./audit.js";
 export * from "./judge.js";
 export * from "./config.js";
+export * from "./policy/types.js";
+export * from "./policy/evaluate.js";
+export * from "./policy/config.js";
+export * from "./policy/load.js";
+export * from "./policy/events.js";
