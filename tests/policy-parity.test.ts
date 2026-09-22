@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import githubHttp from "../policies/code/github-http.policy.ts";
+import genericReadOnly from "../policies/code/generic-read-only.policy.ts";
 import kubectl from "../policies/code/kubectl.policy.ts";
 import secretRead from "../policies/code/secret-read.policy.ts";
 import unsupportedShellSource from "../policies/code/unsupported-shell-source.policy.ts";
@@ -15,6 +16,7 @@ const policies = Object.freeze([
   loaded("/trusted/github-http.policy.mjs", githubHttp),
   loaded("/trusted/kubectl.policy.mjs", kubectl),
   loaded("/trusted/unsupported-shell-source.policy.mjs", unsupportedShellSource),
+  loaded("/trusted/generic-read-only.policy.mjs", genericReadOnly),
 ]);
 
 beforeAll(async () => {
@@ -104,6 +106,16 @@ describe("baseline guard code-policy parity", () => {
       const source = wrappers[seed % wrappers.length]!(blocked[seed % blocked.length]!);
       expect(analyzeBashWithPolicies({ source: `unknown-command; ${source}`, policies }).decision, `${seed}: ${source}`).toBe("deny");
     }
+  });
+
+  test("allows generic compound reads without foreign policy deferrals", () => {
+    const result = analyzeBashWithPolicies({
+      source: "git diff HEAD; sha256sum README.md",
+      policies,
+      initialEnvironment: { kind: "verified", values: {} },
+    });
+
+    expect(result.decision).toBe("allow");
   });
 });
 

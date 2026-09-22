@@ -1,4 +1,4 @@
-import { readOnlyAllow, readOnlyDefer, type ReadOnlyInvocationDecision } from "./read-only.js";
+import { readOnlyAllow, readOnlyDefer, type ReadOnlyInvocationDecision } from "./read-only-decision.js";
 
 const GIT_READ_ONLY_SUBCOMMANDS = new Set([
   "describe",

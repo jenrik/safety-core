@@ -113,7 +113,7 @@ const UNSAFE_BOOLEAN_OPTIONS = new Set([
   "-i", "--include", "--paginate", "--slurp", "--silent", "--verbose", "--allow-escape-sequences",
 ]);
 
-function parseGhApiArguments(args: readonly string[], apiIndex: number): ParsedGhApiArguments {
+export function parseGhApiArguments(args: readonly string[], apiIndex: number): ParsedGhApiArguments {
   const endpoints: string[] = [];
   const methods: string[] = [];
   let hasParametersOrBody = false;

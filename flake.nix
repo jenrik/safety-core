@@ -27,13 +27,17 @@
           code-policies-runtime = pkgs.runCommand "safety-core-code-policies-runtime-check" { } ''
             set -e
             ${pkgs.nodejs_22}/bin/node --input-type=module -e '
-              const [secretRead, githubHttp, kubectl, unsupportedShellSource] = await Promise.all(
+              const [secretRead, githubHttp, kubectl, unsupportedShellSource, genericReadOnly, ghReadOnly, helmReadOnly, strictReadOnly, ghApi, ghPrCreate] = await Promise.all(
                 process.argv.slice(1).map(async (path) => (await import(path)).default),
               );
-              for (const policy of [secretRead, githubHttp, kubectl, unsupportedShellSource]) {
-                if (!Object.isFrozen(policy) || policy.apiVersion !== 1 || policy.layer !== "guard"
-                  || typeof policy.evaluate !== "function") process.exit(1);
-              }
+               for (const policy of [secretRead, githubHttp, kubectl, unsupportedShellSource]) {
+                 if (!Object.isFrozen(policy) || policy.apiVersion !== 1 || policy.layer !== "guard"
+                   || typeof policy.evaluate !== "function") process.exit(1);
+               }
+               for (const policy of [genericReadOnly, ghReadOnly, helmReadOnly, strictReadOnly, ghApi, ghPrCreate]) {
+                 if (!Object.isFrozen(policy) || policy.apiVersion !== 1 || policy.layer !== "permission"
+                   || typeof policy.evaluate !== "function") process.exit(1);
+               }
               const invocation = (executable, argv) => Object.freeze({
                 kind: "invocation",
                 executable: Object.freeze({ kind: "known", value: executable }),
@@ -48,14 +52,26 @@
                 provenance: Object.freeze({ route: Object.freeze(["direct"]) }), inPipeline: false, processEffect: "spawn-and-wait",
               });
               if (secretRead.evaluate(invocation("cat", ["credentials.json"])).kind !== "deny"
-                || githubHttp.evaluate(invocation("curl", ["https://api.github.com/user"])).kind !== "deny"
-                || kubectl.evaluate(invocation("kubectl", ["view-secret", "app"])).kind !== "deny"
-                || unsupportedShellSource.evaluate(gap).kind !== "deny") process.exit(1);
+                 || githubHttp.evaluate(invocation("curl", ["https://api.github.com/user"])).kind !== "deny"
+                 || kubectl.evaluate(invocation("kubectl", ["view-secret", "app"])).kind !== "deny"
+                 || unsupportedShellSource.evaluate(gap).kind !== "deny"
+                 || genericReadOnly.evaluate(invocation("git", ["diff", "HEAD"])).kind !== "allow"
+                 || helmReadOnly.evaluate(invocation("helm", ["version"])).kind !== "allow"
+                 || strictReadOnly.evaluate(invocation("docker", ["image", "ls"])).kind !== "allow"
+                 || ghReadOnly.evaluate(invocation("gh", ["api", "user"])).kind !== "ignore"
+                 || ghApi.evaluate(Object.freeze({ ...invocation("gh", ["api", "user"]), environment: Object.freeze({ GH_PAGER: Object.freeze({ kind: "known", value: "" }) }) })).kind !== "allow"
+                 || ghPrCreate.evaluate(invocation("gh", ["pr", "create", "--repo", "github.com/acme/widgets", "--fill"])).kind !== "deny") process.exit(1);
             ' \
               ${sc.codePolicies.secretRead}/secret-read.policy.mjs \
               ${sc.codePolicies.githubHttp}/github-http.policy.mjs \
-              ${sc.codePolicies.kubectl}/kubectl.policy.mjs \
-              ${sc.codePolicies.unsupportedShellSource}/unsupported-shell-source.policy.mjs
+               ${sc.codePolicies.kubectl}/kubectl.policy.mjs \
+               ${sc.codePolicies.unsupportedShellSource}/unsupported-shell-source.policy.mjs \
+               ${sc.codePolicies.genericReadOnly}/generic-read-only.policy.mjs \
+               ${sc.codePolicies.ghReadOnly}/gh-read-only.policy.mjs \
+               ${sc.codePolicies.helmReadOnly}/helm-read-only.policy.mjs \
+               ${sc.codePolicies.strictReadOnly}/strict-read-only.policy.mjs \
+               ${sc.codePolicies.ghApi}/gh-api.policy.mjs \
+               ${sc.codePolicies.ghPrCreate}/gh-pr-create.policy.mjs
             touch $out
           '';
 

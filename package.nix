@@ -137,6 +137,12 @@ in
     githubHttp = mkCodePolicy "github-http" "policies/code/github-http.policy.ts";
     kubectl = mkCodePolicy "kubectl" "policies/code/kubectl.policy.ts";
     unsupportedShellSource = mkCodePolicy "unsupported-shell-source" "policies/code/unsupported-shell-source.policy.ts";
+    genericReadOnly = mkCodePolicy "generic-read-only" "policies/code/generic-read-only.policy.ts";
+    ghReadOnly = mkCodePolicy "gh-read-only" "policies/code/gh-read-only.policy.ts";
+    helmReadOnly = mkCodePolicy "helm-read-only" "policies/code/helm-read-only.policy.ts";
+    strictReadOnly = mkCodePolicy "strict-read-only" "policies/code/strict-read-only.policy.ts";
+    ghApi = mkCodePolicy "gh-api" "policies/code/gh-api.policy.ts";
+    ghPrCreate = mkCodePolicy "gh-pr-create" "policies/code/gh-pr-create.policy.ts";
   };
 
   # Standalone bundled hook scripts for claude-code. Produces a directory of

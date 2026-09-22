@@ -187,7 +187,12 @@ export function analyzeBashWithPolicies(options: BashPolicyAnalysisOptions): Bas
     recordPolicyEvent: (event) => events.push(event),
   }, parsed.kind === "parse-failure" ? failure(parsed.span) : undefined);
   const completed = runSteps(initial, limits);
-  const analysis = Object.freeze({ complete: completed.outcome.kind === "safe" });
+  // Generic policy aggregation supplies command coverage itself.  A legacy
+  // indeterminate result only means no built-in handler claimed an invocation;
+  // execution gaps and uncovered events remain non-authorizing below.
+  const analysis = Object.freeze({
+    complete: completed.outcome.kind !== "failure" && events.every((event) => event.missingBindings === "unset"),
+  });
   const evaluated = evaluatePolicyEvents(Object.freeze([...events]), options.policies, analysis);
   return freeze({
     // Core structural denies remain authoritative even when no generic policy
