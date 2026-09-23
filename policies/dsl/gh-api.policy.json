@@ -22,20 +22,20 @@
     },
     "endpoint": {
       "cases": [{ "when": true, "action": { "consume": "word", "next": "end", "set": { "endpointValue": { "ref": "word" } } } }],
-      "default": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }, "end": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+      "default": { "decision": "defer" }, "end": { "decision": "defer" }
     },
     "end": {
       "cases": [
         { "when": { "any": [{ "call": "startsWith", "args": [{ "ref": "endpointValue" }, "graphql"] }, { "call": "startsWith", "args": [{ "ref": "endpointValue" }, "/graphql"] }, { "call": "includes", "args": [{ "ref": "endpointValue" }, "/graphql"] }] }, "action": { "decision": "deny", "reason": ["gh api GraphQL endpoints are not permitted by the read-only API profile"], "audit": { "invocation": { "ref": "event" } } } },
         { "when": { "all": [{ "ref": "hasMethod" }, { "not": { "call": "wordInAsciiCaseInsensitiveSet", "args": [{ "ref": "method" }, ["GET", "HEAD"]] } }] }, "action": { "decision": "deny", "capture": { "upper": { "call": "asciiUpper", "args": [{ "ref": "method" }] } }, "reason": ["gh api --method ", { "ref": "capture.upper" }, " is not read-only"], "audit": { "invocation": { "ref": "event" } } } },
         { "when": { "all": [{ "not": { "ref": "hasMethod" } }, { "ref": "hasParameters" }] }, "action": { "decision": "deny", "reason": ["gh api with -f/-F/--input and no explicit --method defaults to POST, not read-only"], "audit": { "invocation": { "ref": "event" } } } },
-        { "when": { "not": { "all": [{ "call": "isDirectExecutable", "args": ["gh"] }, { "call": "assignmentsAreSubset", "args": [["GH_PAGER"]] }, { "not": { "call": "hasRedirect", "args": [] } }, { "not": { "call": "hasInheritedExecutableFunction", "args": ["gh"] } }, { "not": { "call": "environmentAnyUnsafe", "args": [["GH_CONFIG_DIR", "GH_HOST", "GH_REPO", "GH_DEBUG", "DEBUG", "CLICOLOR_FORCE", "GH_COLOR_LABELS", "GH_ACCESSIBLE_COLORS", "GH_FORCE_TTY", "GH_PATH", "GH_TELEMETRY", "GH_TELEMETRY_SAMPLE_RATE", "__SAFETY_CORE_INHERITED_GH_PAGER"]] } }, { "call": "environmentIsExported", "args": ["GH_PAGER"] }, { "any": [{ "call": "environmentValueEquals", "args": [{ "call": "environmentLookup", "args": ["GH_PAGER"] }, ""] }, { "call": "environmentValueEquals", "args": [{ "call": "environmentLookup", "args": ["GH_PAGER"] }, "cat"] }] }] } }, "action": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } } },
-        { "when": { "ref": "unsafe" }, "action": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } } },
+        { "when": { "not": { "all": [{ "call": "isDirectExecutable", "args": ["gh"] }, { "call": "assignmentsAreSubset", "args": [["GH_PAGER"]] }, { "not": { "call": "hasRedirect", "args": [] } }, { "not": { "call": "hasInheritedExecutableFunction", "args": ["gh"] } }, { "not": { "call": "environmentAnyUnsafe", "args": [["GH_CONFIG_DIR", "GH_HOST", "GH_REPO", "GH_DEBUG", "DEBUG", "CLICOLOR_FORCE", "GH_COLOR_LABELS", "GH_ACCESSIBLE_COLORS", "GH_FORCE_TTY", "GH_PATH", "GH_TELEMETRY", "GH_TELEMETRY_SAMPLE_RATE", "__SAFETY_CORE_INHERITED_GH_PAGER"]] } }, { "call": "environmentIsExported", "args": ["GH_PAGER"] }, { "any": [{ "call": "environmentValueEquals", "args": [{ "call": "environmentLookup", "args": ["GH_PAGER"] }, ""] }, { "call": "environmentValueEquals", "args": [{ "call": "environmentLookup", "args": ["GH_PAGER"] }, "cat"] }] }] } }, "action": { "decision": "defer" } },
+        { "when": { "ref": "unsafe" }, "action": { "decision": "defer" } },
         { "when": { "ref": "hasMethod" }, "action": { "decision": "allow", "capture": { "upper": { "call": "asciiUpper", "args": [{ "ref": "method" }] } }, "reason": ["gh api --method ", { "ref": "capture.upper" }, " auto-allowed (read-only)"], "audit": { "invocation": { "ref": "event" } } } },
         { "when": true, "action": { "decision": "allow", "reason": ["gh api auto-allowed (GET, no parameters)"], "audit": { "invocation": { "ref": "event" } } } }
       ],
-      "default": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } },
-      "end": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+      "default": { "decision": "defer" },
+      "end": { "decision": "defer" }
     }
   }
 }

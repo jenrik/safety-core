@@ -349,10 +349,10 @@ describe("permission code-policy parity", () => {
 
     expect(result.decision).toBe("allow");
     expect(traceDecisions(result)).toEqual([
-      { eventIndex: 0, source: "gh-read-only.policy.json", decision: "ignore" },
+      { eventIndex: 0, source: "gh-read-only.policy.json", decision: "defer" },
       { eventIndex: 0, source: "gh-api.policy.json", decision: "allow" },
       { eventIndex: 0, source: "gh-pr-create.policy.json", decision: "ignore" },
-      { eventIndex: 1, source: "gh-read-only.policy.json", decision: "ignore" },
+      { eventIndex: 1, source: "gh-read-only.policy.json", decision: "defer" },
       { eventIndex: 1, source: "gh-api.policy.json", decision: "ignore" },
       { eventIndex: 1, source: "gh-pr-create.policy.json", decision: "allow" },
     ]);
@@ -381,7 +381,19 @@ describe("permission code-policy parity", () => {
       "gh api graphql; export GH_PROMPT_DISABLED=1; gh pr create --repo github.com/acme/widgets --fill",
       "gh api user; gh pr create --repo github.com/acme/widgets --fill",
       "gh api user; export GH_PROMPT_DISABLED=1; eval 'gh pr create --repo github.com/acme/widgets --fill'",
+      "gh api user --verbose; export GH_PROMPT_DISABLED=1; gh pr create --repo github.com/acme/widgets --fill",
     ]) expectPolicySetParity(source, codePolicies, dslPolicySet, { GH_PAGER: "cat" });
+
+    const deferred = analyzeBashWithPolicies({
+      source: "gh api user --verbose; export GH_PROMPT_DISABLED=1; gh pr create --repo github.com/acme/widgets --fill",
+      policies: dslPolicySet,
+      initialEnvironment: { kind: "verified", values: { GH_PAGER: "cat" } },
+    });
+    expect(selectedPermissionTraceOutcomes(deferred)).toContainEqual({
+      eventIndex: 0,
+      family: "gh-api",
+      decision: { kind: "defer", reason: undefined, audit: [] },
+    });
   });
 
   test("renders a canonical PR allowlist source and rejects malformed identifiers", () => {
@@ -394,7 +406,7 @@ describe("permission code-policy parity", () => {
       allowedOrganizations: ["github.com/another-org", "trusted-org"],
     });
     expect(source).toBe(reordered);
-    expect(createHash("sha256").update(source).digest("hex")).toBe("3bf526cc010cdaa662f504ef2c6d7b489658e9ef0cb6bd734e7cc06aa80ed28a");
+    expect(createHash("sha256").update(source).digest("hex")).toBe("14103fd4ef241754be55fef54d8dd4f05484ad5c56ba6d625c6ac1c3dfcf4314");
     expect(() => parsePolicyDocument(source)).not.toThrow();
     for (const options of [
       { allowedRepositories: ["acme"], allowedOrganizations: [] },
@@ -436,6 +448,7 @@ describe("permission code-policy parity", () => {
       "gh api graphql; export GH_PROMPT_DISABLED=1; gh pr create --repo github.com/acme/widgets --fill",
       "gh api user; gh pr create --repo github.com/acme/widgets --fill",
       "gh api user; export GH_PROMPT_DISABLED=1; eval 'gh pr create --repo github.com/acme/widgets --fill'",
+      "gh api user --verbose; export GH_PROMPT_DISABLED=1; gh pr create --repo github.com/acme/widgets --fill",
     ];
     for (let seed = 0; seed < 128; seed++) {
       expectPolicySetParity(routes[seed % routes.length]!, codePolicies, dslPolicySet, { GH_PAGER: "cat" });
@@ -491,13 +504,13 @@ function selectedPermissionTraceOutcomes(result: ReturnType<typeof analyzeBashWi
   readonly eventIndex: number;
   readonly family: string;
   readonly decision: {
-    readonly kind: "allow" | "deny";
+    readonly kind: "allow" | "deny" | "defer";
     readonly reason?: unknown;
     readonly audit: readonly { readonly key: string; readonly eventIndex?: number; readonly value?: unknown }[];
   };
 }[] {
   return result.traces.flatMap((trace) => {
-    if (trace.layer !== "permission" || (trace.decision.kind !== "allow" && trace.decision.kind !== "deny")) return [];
+    if (trace.layer !== "permission" || trace.decision.kind === "ignore") return [];
     const family = trace.source.canonicalPath.split("/").at(-1)!.replace(/\.policy\.(?:mjs|json)$/, "");
     const eventIndex = result.events.indexOf(trace.event);
     return [Object.freeze({
@@ -505,8 +518,7 @@ function selectedPermissionTraceOutcomes(result: ReturnType<typeof analyzeBashWi
       family,
       decision: Object.freeze({
         kind: trace.decision.kind,
-        // PR interpreter-route wording is intentionally source-specific; its selected deny owner and audit still match.
-        ...(trace.decision.kind === "allow" || family !== "gh-pr-create" ? { reason: trace.decision.reason } : {}),
+        reason: trace.decision.reason,
         audit: Object.freeze(Object.entries(trace.decision.audit ?? {}).map(([key, value]) => Object.freeze(
           value === trace.event ? { key, eventIndex } : { key, value },
         ))),

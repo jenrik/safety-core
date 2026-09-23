@@ -480,10 +480,10 @@
         }
       ],
       "default": {
-        "decision": "ignore"
+        "decision": "defer"
       },
       "end": {
-        "decision": "ignore"
+        "decision": "defer"
       }
     },
     "start_at": {
@@ -4571,10 +4571,10 @@
         }
       ],
       "default": {
-        "decision": "ignore"
+        "decision": "defer"
       },
       "end": {
-        "decision": "ignore"
+        "decision": "defer"
       }
     },
     "start_pr_diff": {
@@ -4702,10 +4702,10 @@
         }
       ],
       "default": {
-        "decision": "ignore"
+        "decision": "defer"
       },
       "end": {
-        "decision": "ignore"
+        "decision": "defer"
       }
     },
     "start_pr_ready": {

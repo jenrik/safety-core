@@ -163,3 +163,38 @@ bun test tests/policy-parity.test.ts tests/read-only-cli.test.ts \
   tests/bash-configured.test.ts tests/opencode-read-only-cli.test.ts
 # 158 pass, 0 fail
 ```
+
+## Round 3 Deferred Trace Parity Follow-up
+
+- Mixed GH API/PR trace comparison now includes `defer` records in addition to
+  selected allow and deny outcomes. Each compared record includes its policy
+  family, event index, decision kind, reason, and normalized audit attachment.
+- `gh api user --verbose` is a real mixed-policy defer case: the API policy
+  defers without an audit while the later allowlisted PR remains owned by the
+  PR policy, leaving the complete request deferred.
+- The generated GH read-only trie now preserves the legacy fixture's deferred,
+  unaudited delegation trace for both `gh api` and `gh pr create`; an allowing
+  specialized policy still covers the invocation, so aggregate authorization is
+  unchanged.
+- The PR DSL now emits the fixture's exact reasons for explicit execution,
+  prompt, unsafe environment, inherited-function, and interpreter routes.
+  Interpreter-derived PR denial reason and invocation audit are compared
+  directly rather than omitted.
+
+### Round 3 Verification
+
+Passed:
+
+```text
+bun test tests/policy-parity.test.ts
+# 28 pass, 0 fail
+
+bun test
+# 701 pass, 0 fail
+
+bun test tests/policy-parity.test.ts tests/read-only-cli.test.ts \
+  tests/git-read-only-policy.test.ts tests/gh-read-only-policy.test.ts \
+  tests/gh-pr-create.test.ts tests/bash-gh-policies.test.ts \
+  tests/bash-configured.test.ts tests/opencode-read-only-cli.test.ts
+# 158 pass, 0 fail
+```

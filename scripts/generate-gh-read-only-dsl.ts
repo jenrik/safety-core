@@ -57,10 +57,11 @@ function emit(node: Node, state: string): void {
     end: node.owner ? { decision: "ignore" } : { decision: "defer", audit: { invocation: { ref: "event" } } },
   };
   if (node.owner) {
+    const delegated = { decision: "defer" };
     states[state] = {
       cases: [{ when: true, action: { consume: "word", next: state } }],
-      default: { decision: "ignore" },
-      end: { decision: "ignore" },
+      default: delegated,
+      end: delegated,
     };
   }
 }

@@ -17,17 +17,15 @@ export function renderGhPrCreateDslPolicy(options) {
       return call("repositoryMatchesOrganization", repository, host, owner);
     }),
   ] };
-  const routeSafe = { all: [
-    call("isDirectExecutable", "gh"), call("assignmentsAreSubset", ["GH_PROMPT_DISABLED"]),
-    { not: call("hasRedirect") }, { not: call("hasInheritedExecutableFunction", "gh") },
-    { not: { any: [
-      call("hasProvenanceRoute", "eval"),
-      call("hasProvenanceRoute", "shell-command"),
-      call("hasProvenanceRoute", "binding-derived-script"),
-    ] } },
-    { not: call("environmentAnyUnsafe", ["GH_CONFIG_DIR", "GH_HOST", "GH_DEBUG", "DEBUG", "CLICOLOR_FORCE", "GH_COLOR_LABELS", "GH_ACCESSIBLE_COLORS", "GH_FORCE_TTY", "GH_PATH", "GH_TELEMETRY", "GH_TELEMETRY_SAMPLE_RATE"]) },
-    call("environmentIsExported", "GH_PROMPT_DISABLED"),
+  const explicitRoute = { any: [
+    { not: call("isDirectExecutable", "gh") }, { not: call("assignmentsAreSubset", ["GH_PROMPT_DISABLED"]) }, call("hasRedirect"),
   ] };
+  const interpreterRoute = { any: [
+    call("hasProvenanceRoute", "eval"),
+    call("hasProvenanceRoute", "shell-command"),
+    call("hasProvenanceRoute", "binding-derived-script"),
+  ] };
+  const unsafeEnvironment = call("environmentAnyUnsafe", ["GH_CONFIG_DIR", "GH_HOST", "GH_DEBUG", "DEBUG", "CLICOLOR_FORCE", "GH_COLOR_LABELS", "GH_ACCESSIBLE_COLORS", "GH_FORCE_TTY", "GH_PATH", "GH_TELEMETRY", "GH_TELEMETRY_SAMPLE_RATE"]);
   return `${JSON.stringify({
     language: "safety-core/bash-policy-v1", layer: "permission",
     select: [{ executable: { projection: "basename", equals: "gh" } }],
@@ -57,7 +55,11 @@ export function renderGhPrCreateDslPolicy(options) {
       create: { cases: [
         { when: true, action: { consume: "word", next: "invalid" } },
         { when: { ref: "unsafe" }, action: deny("Pull-request creation is blocked: malformed or interactive gh pr create arguments require native permission") },
-        { when: { not: routeSafe }, action: deny("Pull-request creation is blocked through an explicit executable path, leading environment assignment, redirection, or unsafe GitHub environment") },
+        { when: explicitRoute, action: deny("Pull-request creation is blocked through an explicit executable path, leading environment assignment, or redirection; invoke native gh pr create directly instead") },
+        { when: { not: call("environmentIsExported", "GH_PROMPT_DISABLED") }, action: deny("Pull-request creation is blocked unless GH_PROMPT_DISABLED is explicitly exported, preventing prompts and configured editor execution") },
+        { when: unsafeEnvironment, action: deny("GitHub CLI execution is blocked because an inherited or shell-assigned environment variable can redirect authentication, configuration, output, or external execution") },
+        { when: call("hasInheritedExecutableFunction", "gh"), action: deny("Pull-request creation is blocked because an inherited Bash function can replace the gh executable") },
+        { when: interpreterRoute, action: deny("Pull-request creation is blocked through a shell interpreter; invoke native gh pr create as a standalone command instead") },
         { when: { not: { ref: "hasRepository" } }, action: deny("Pull-request creation is blocked: provide an explicit --repo HOST/OWNER/REPO target that is allowlisted by the ghPrCreate profile") },
         { when: { not: call("repositoryHasExplicitHost", repository) }, action: deny("Pull-request creation is blocked: use an explicit --repo HOST/OWNER/REPO target so the allowlist cannot be redirected by GH_HOST") },
         { when: { not: repoAllowed }, action: deny("Pull-request creation is blocked: the requested repository is not allowlisted by the ghPrCreate profile") },
