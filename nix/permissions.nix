@@ -48,10 +48,7 @@ in {
   };
 
   config = {
-    xdg.configFile."safety-core/bin/safety-core" = mkIf cfg.installCli {
-      source = "${safetyCore.safetyCoreCli}/bin/safety-core";
-      executable = true;
-    };
+    home.packages = optional cfg.installCli safetyCore.safetyCoreCli;
     xdg.configFile."safety-core/claude/bash_policy.mjs" = mkIf cfg.installClaudeBashHook {
       source = "${safetyCore.claudeCodeHooks}/bash_policy.mjs";
       executable = true;
@@ -65,12 +62,12 @@ in {
       } else { mode = cfg.projectPolicies.mode; };
       bashAnalysis = cfg.bashAnalysis;
     };
-    programs.claude-code.settings.hooks.PreToolUse = mkAfter [{
+    programs.claude-code.settings.hooks.PreToolUse = mkIf cfg.installClaudeBashHook (mkAfter [{
       matcher = "Bash";
       hooks = [{ type = "command"; command = "\${XDG_CONFIG_HOME:-$HOME/.config}/safety-core/claude/bash_policy.mjs"; }];
-    }];
-    programs.claude-code.settings.hooks.SessionStart = mkAfter [{
+    }]);
+    programs.claude-code.settings.hooks.SessionStart = mkIf cfg.installClaudeBashHook (mkAfter [{
       hooks = [{ type = "command"; command = "\${XDG_CONFIG_HOME:-$HOME/.config}/safety-core/claude/bash_policy.mjs"; }];
-    }];
+    }]);
   };
 }

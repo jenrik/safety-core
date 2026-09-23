@@ -20,7 +20,7 @@ import { emitAllow, emitDeny, parseHookEvent, readStdin, run } from "./_shared.j
 run(async () => {
   const event = parseHookEvent(readStdin());
   if (event?.hook_event_name === "SessionStart") {
-    await loadClaudeSessionRuntime(event.session_id, event.cwd ?? process.cwd());
+    await establishClaudeSessionRuntime(event.session_id, event.cwd ?? process.cwd());
     return;
   }
   if (!isBashPreToolUse(event)) return;
@@ -39,8 +39,8 @@ run(async () => {
   if (decision?.kind === "deny") emitDeny(decision.reason);
 });
 
-/** Persist configuration and source identity; each hook verifies that snapshot. */
-export async function loadClaudeSessionRuntime(sessionID: unknown, cwd: string, env: Readonly<Record<string, string | undefined>> = process.env): Promise<LoadedPolicyRuntime> {
+/** Persist configuration and source identity during the one SessionStart event. */
+export async function establishClaudeSessionRuntime(sessionID: unknown, cwd: string, env: Readonly<Record<string, string | undefined>> = process.env): Promise<LoadedPolicyRuntime> {
   const manifestPath = claudeManifestPath(sessionID, cwd, env);
   const poisonPath = claudePoisonPath(manifestPath);
   if (existsSync(poisonPath)) throw new Error(readFileSync(poisonPath, "utf8"));
@@ -61,6 +61,17 @@ export async function loadClaudeSessionRuntime(sessionID: unknown, cwd: string, 
       rmSync(lock, { force: true, recursive: true });
     }
   }
+  return reloadClaudeSessionRuntime(manifestPath, sessionID, cwd, env);
+}
+
+/** Load only the SessionStart snapshot; PreToolUse must never select live policy. */
+export async function loadClaudeSessionRuntime(sessionID: unknown, cwd: string, env: Readonly<Record<string, string | undefined>> = process.env): Promise<LoadedPolicyRuntime> {
+  const manifestPath = claudeManifestPath(sessionID, cwd, env);
+  if (!existsSync(manifestPath)) {
+    throw new Error(`${manifestPath}: immutable policy session manifest is missing; SessionStart must establish it before PreToolUse`);
+  }
+  const poisonPath = claudePoisonPath(manifestPath);
+  if (existsSync(poisonPath)) throw new Error(readFileSync(poisonPath, "utf8"));
   return reloadClaudeSessionRuntime(manifestPath, sessionID, cwd, env);
 }
 

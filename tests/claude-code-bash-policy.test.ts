@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { discoverWasmDir, initBashParser, type LoadedPolicyRuntime, type ValidatedBashPolicy } from "../src/index.ts";
 import { evaluateClaudeBashPolicy } from "../adapters/claude-code/_bash_policy.ts";
 import { classifyKubectlSecretAudit } from "../adapters/claude-code/kubectl_secret_audit_log.ts";
-import { loadClaudeSessionRuntime, poisonClaudeSession } from "../adapters/claude-code/bash_policy.ts";
+import { establishClaudeSessionRuntime, loadClaudeSessionRuntime, poisonClaudeSession } from "../adapters/claude-code/bash_policy.ts";
 
 const policies: readonly ValidatedBashPolicy[] = [
   { source: { canonicalPath: "/policy/guard" }, layer: "guard", select: [], evaluate: (event) =>
@@ -54,13 +54,13 @@ test("Claude session manifests keep config immutable and reject changed source b
   const config = { version: 1, policies: [policy], projectPolicies: { mode: "disabled" }, bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 } };
   writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify(config));
   const env = { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state };
-  const first = await loadClaudeSessionRuntime("session", root, env);
+  const first = await establishClaudeSessionRuntime("session", root, env);
   writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [join(root, "missing.policy.mjs")], projectPolicies: { mode: "disabled" }, bashAnalysis: first.limits }));
   await expect(loadClaudeSessionRuntime("session", root, env)).rejects.toThrow("configuration digest changed since session startup");
   writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify(config));
   await expect(loadClaudeSessionRuntime("session", root, env)).rejects.toThrow("Safety policy failed:");
 
-  await loadClaudeSessionRuntime("source-drift", root, env);
+  await establishClaudeSessionRuntime("source-drift", root, env);
   writeFileSync(policy, `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "defer" }) });\n`);
   await expect(loadClaudeSessionRuntime("source-drift", root, env)).rejects.toThrow("policy source digest changed since session startup");
   writeFileSync(policy, `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`);
@@ -72,7 +72,16 @@ test("Claude startup rejects missing configured policy sources", async () => {
   const home = join(root, "home");
   mkdirSync(join(home, "safety-core"), { recursive: true });
   writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [join(root, "missing.policy.mjs")], projectPolicies: { mode: "disabled" }, bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 } }));
-  await expect(loadClaudeSessionRuntime("failed", root, { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: join(root, "state") })).rejects.toThrow("cannot canonicalize policy source");
+  await expect(establishClaudeSessionRuntime("failed", root, { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: join(root, "state") })).rejects.toThrow("cannot canonicalize policy source");
+});
+
+test("Claude PreToolUse runtime loading requires an established SessionStart manifest", async () => {
+  const root = mkdtempSync(join(tmpdir(), "safety-core-claude-missing-session-"));
+  const home = join(root, "home");
+  mkdirSync(join(home, "safety-core"), { recursive: true });
+  writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [], projectPolicies: { mode: "disabled" }, bashAnalysis: runtime.limits }));
+  await expect(loadClaudeSessionRuntime("missing", root, { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: join(root, "state") }))
+    .rejects.toThrow("SessionStart must establish it before PreToolUse");
 });
 
 test("Claude persists runtime policy failures for the rest of the session", async () => {
@@ -85,7 +94,7 @@ test("Claude persists runtime policy failures for the rest of the session", asyn
   writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [policy], projectPolicies: { mode: "disabled" }, bashAnalysis: runtime.limits }));
   const env = { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state };
 
-  await loadClaudeSessionRuntime("poisoned", root, env);
+  await establishClaudeSessionRuntime("poisoned", root, env);
   poisonClaudeSession("poisoned", root, new Error("evaluation failure"), env);
   await expect(loadClaudeSessionRuntime("poisoned", root, env)).rejects.toThrow("Safety policy failed: evaluation failure");
 });
@@ -107,7 +116,7 @@ test("Claude project snapshots verify selected project configuration bytes befor
   }));
   const env = { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state };
 
-  const runtime = await loadClaudeSessionRuntime("project", project, env);
+  const runtime = await establishClaudeSessionRuntime("project", project, env);
   expect(runtime.projectRoot).toBe(project);
   writeFileSync(join(project, ".safety-core", "config.json"), JSON.stringify({ version: 1, policies: [] }));
   await expect(loadClaudeSessionRuntime("project", project, env)).rejects.toThrow("configuration digest changed since session startup");
@@ -124,9 +133,9 @@ test("Claude concurrent first hooks establish exactly one immutable manifest", a
   const configPath = join(home, "safety-core", "config.json");
   writeFileSync(configPath, JSON.stringify({ version: 1, policies: [firstPolicy], projectPolicies: { mode: "disabled" }, bashAnalysis: limits }));
   const env = { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state };
-  const first = loadClaudeSessionRuntime("race", root, env);
+  const first = establishClaudeSessionRuntime("race", root, env);
   await new Promise((resolve) => setTimeout(resolve, 20));
-  const runtimes = await Promise.all([first, ...Array.from({ length: 8 }, () => loadClaudeSessionRuntime("race", root, env))]);
+  const runtimes = await Promise.all([first, ...Array.from({ length: 8 }, () => establishClaudeSessionRuntime("race", root, env))]);
   for (const runtime of runtimes) expect(runtime.policySet.sources.map((source) => source.canonicalPath)).toEqual([firstPolicy]);
 });
 

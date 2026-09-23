@@ -55,6 +55,15 @@ test("Claude SessionStart creates the immutable policy manifest before Bash call
       projectPolicies: { mode: "disabled" },
       bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 },
     }));
+    const preToolUse = runHook("adapters/claude-code/bash_policy.ts", {
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "cat credentials.json" },
+      session_id: "session-start",
+      cwd: root,
+    }, { ...process.env, SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state });
+    expect(preToolUse.status).toBe(2);
+    expect(preToolUse.stderr).toContain("SessionStart must establish it before PreToolUse");
     const session = runHook("adapters/claude-code/bash_policy.ts", {
       hook_event_name: "SessionStart",
       session_id: "session-start",
@@ -72,6 +81,15 @@ test("Claude SessionStart creates the immutable policy manifest before Bash call
       configurations: [{ canonicalPath: join(home, "safety-core", "config.json"), sha256: expect.any(String) }],
       sources: [{ canonicalPath: policy, sha256: expect.any(String) }],
     });
+    const establishedPreToolUse = runHook("adapters/claude-code/bash_policy.ts", {
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "cat credentials.json" },
+      session_id: "session-start",
+      cwd: root,
+    }, { ...process.env, SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state });
+    expect(establishedPreToolUse.status).toBe(0);
+    expect(establishedPreToolUse.stdout).toBe("");
   } finally {
     rmSync(root, { force: true, recursive: true });
   }

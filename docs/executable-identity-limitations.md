@@ -18,6 +18,10 @@ This is not a kernel execution guarantee. The following boundaries remain:
 - Nix store paths make deployment identity clearer and normally immutable, but
   they do not prove the active shell PATH, a wrapper's behavior, mount namespace,
   or the identity of a non-store executable.
+- Home Manager profiles and XDG configuration links are activation-time
+  projections. A profile switch, configuration link replacement, or garbage
+  collection can re-target the installed hook/configuration path; they do not
+  pin the active process to one profile generation or prevent later replacement.
 - Wrapper scripts, shims, launchers, and package-manager dispatchers can load
   configuration, run hooks, choose another executable, or mutate state after
   the modeled command. Their basename or resolved target is not a proof of all

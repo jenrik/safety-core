@@ -117,7 +117,7 @@ let
   };
 
   piDir = mkExtensionDir "pi" ./adapters/pi.ts;
-  opencodeDir = mkExtensionDir "opencode" ./adapters/opencode.ts;
+  opencodePlugin = mkExtensionDir "opencode" ./adapters/opencode.ts;
 
   # Trusted code policies are compiled independently. The loader rejects
   # relative imports, so every artifact must be self-contained at this boundary.
@@ -160,7 +160,8 @@ in
 
   # Path to the opencode adapter .ts file inside a store directory that also
   # contains ./src/, node_modules/, and WASM assets.
-  opencodePluginFile = "${opencodeDir}/index.ts";
+  opencodePluginFile = "${opencodePlugin}/index.ts";
+  inherit opencodePlugin;
 
   # Not wired into harness configuration yet; Task 4 only produces trusted,
   # source-provenanced artifacts for loader and differential-policy testing.
