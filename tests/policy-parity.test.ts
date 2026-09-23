@@ -369,6 +369,21 @@ describe("permission code-policy parity", () => {
       .toEqual([{ eventIndex: 1, source: "gh-pr-create.policy.json", decision: "deny" }]);
   });
 
+  test("differential: mixed GH API and PR traces retain selected policy ownership", () => {
+    const codePolicies = [
+      loaded("/trusted/gh-read-only.policy.mjs", ghReadOnly),
+      loaded("/trusted/gh-api.policy.mjs", ghApi),
+      codePr,
+    ];
+    const dslPolicySet = [dsl("gh-read-only"), dsl("gh-api"), dslPr];
+    for (const source of [
+      "gh api user; export GH_PROMPT_DISABLED=1; gh pr create --repo github.com/acme/widgets --fill",
+      "gh api graphql; export GH_PROMPT_DISABLED=1; gh pr create --repo github.com/acme/widgets --fill",
+      "gh api user; gh pr create --repo github.com/acme/widgets --fill",
+      "gh api user; export GH_PROMPT_DISABLED=1; eval 'gh pr create --repo github.com/acme/widgets --fill'",
+    ]) expectPolicySetParity(source, codePolicies, dslPolicySet, { GH_PAGER: "cat" });
+  });
+
   test("renders a canonical PR allowlist source and rejects malformed identifiers", () => {
     const source = renderGhPrCreateDslPolicy({
       allowedRepositories: ["GitHub.com/Acme/Widgets", "github.com/acme/another"],
@@ -468,6 +483,36 @@ function expectPolicySetParity(
   const dslResult = analyzeBashWithPolicies({ ...options, policies: dslPolicySet });
   expect(dslResult.events, `${source}: mixed events`).toEqual(code.events);
   expect(dslResult.decision, `${source}: mixed decision`).toBe(code.decision);
+  expect(selectedPermissionTraceOutcomes(dslResult), `${source}: mixed selected DSL traces`)
+    .toEqual(selectedPermissionTraceOutcomes(code));
+}
+
+function selectedPermissionTraceOutcomes(result: ReturnType<typeof analyzeBashWithPolicies>): readonly {
+  readonly eventIndex: number;
+  readonly family: string;
+  readonly decision: {
+    readonly kind: "allow" | "deny";
+    readonly reason?: unknown;
+    readonly audit: readonly { readonly key: string; readonly eventIndex?: number; readonly value?: unknown }[];
+  };
+}[] {
+  return result.traces.flatMap((trace) => {
+    if (trace.layer !== "permission" || (trace.decision.kind !== "allow" && trace.decision.kind !== "deny")) return [];
+    const family = trace.source.canonicalPath.split("/").at(-1)!.replace(/\.policy\.(?:mjs|json)$/, "");
+    const eventIndex = result.events.indexOf(trace.event);
+    return [Object.freeze({
+      eventIndex,
+      family,
+      decision: Object.freeze({
+        kind: trace.decision.kind,
+        // PR interpreter-route wording is intentionally source-specific; its selected deny owner and audit still match.
+        ...(trace.decision.kind === "allow" || family !== "gh-pr-create" ? { reason: trace.decision.reason } : {}),
+        audit: Object.freeze(Object.entries(trace.decision.audit ?? {}).map(([key, value]) => Object.freeze(
+          value === trace.event ? { key, eventIndex } : { key, value },
+        ))),
+      }),
+    })];
+  });
 }
 
 function traceDecisions(result: ReturnType<typeof analyzeBashWithPolicies>): readonly {

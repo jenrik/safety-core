@@ -130,3 +130,36 @@ review found no remaining behavioral discrepancy after the listed fixes. The
 DSL continues to delegate `gh api` and `gh pr create` to their specialized
 policies; trace assertions make that ownership explicit and verify that a PR
 provenance denial dominates a preceding allowed API request.
+
+## Round 2 Trace Parity Follow-up
+
+- Mixed GH API/PR differential tests now compare the selected permission trace
+  for each event, rather than only walker events and the aggregate outcome.
+- Trace comparison normalizes code-fixture and DSL source paths to the same
+  policy family, compares selected allow/deny ownership, decision kind, and
+  audit attachment to the source event.
+- User-facing reasons are compared exactly for shared API and PR allow routes.
+  The PR interpreter-route deny keeps its intentionally source-specific
+  steering wording while the test verifies its selected family, deny kind, and
+  invocation audit.
+- Coverage includes an allowed API/PR sequence, GraphQL denial dominance, an
+  unconfigured PR defer, and interpreter-derived PR denial after an allowed API
+  invocation. No policy behavior changed.
+
+### Round 2 Verification
+
+Passed:
+
+```text
+bun test tests/policy-parity.test.ts
+# 28 pass, 0 fail
+
+bun test
+# 701 pass, 0 fail
+
+bun test tests/policy-parity.test.ts tests/read-only-cli.test.ts \
+  tests/git-read-only-policy.test.ts tests/gh-read-only-policy.test.ts \
+  tests/gh-pr-create.test.ts tests/bash-gh-policies.test.ts \
+  tests/bash-configured.test.ts tests/opencode-read-only-cli.test.ts
+# 158 pass, 0 fail
+```
