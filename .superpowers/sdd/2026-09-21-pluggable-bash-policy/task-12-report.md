@@ -78,3 +78,55 @@ nix flake check
 - The source state-limit increase is bounded and documented; no dynamic
   execution, callbacks, filesystem access, or unbounded collections were added
   to the DSL runtime.
+
+## Round 1 Parity Follow-up
+
+- The generated PR policy now rejects `eval`, shell-command, and
+  binding-derived-script provenance routes, matching the legacy fixture. An
+  allowlisted `eval 'gh pr create ...'` is therefore denied rather than
+  auto-authorized.
+- GH API now treats `__SAFETY_CORE_INHERITED_GH_PAGER` as an unsafe defer route,
+  including when `GH_PAGER=cat` is exported. The shared API environment list
+  and DSL source use the same synthetic fact.
+- GH API consumes `--repo`/`-R` global forms as unsafe, preserving the code
+  parser's conservative defer when a global route precedes or accompanies API
+  arguments.
+- Differential coverage now includes repeated PR flags, API field/body forms,
+  inherited pager behavior, PR interpreter provenance, strict option positions
+  and execution routes, deterministic GH/PR option permutations, and mixed
+  GH API/PR ownership sequences.
+- Trace-level assertions record the full DSL policy decision list for each GH
+  invocation, proving that API and PR creation are owned by their specialized
+  policies and that denials dominate mixed command sequences.
+
+### Round 1 Verification
+
+Passed:
+
+```text
+bun test tests/policy-parity.test.ts
+# 27 pass, 0 fail
+
+bun test
+# 700 pass, 0 fail
+
+bun test tests/policy-parity.test.ts tests/read-only-cli.test.ts \
+  tests/git-read-only-policy.test.ts tests/gh-read-only-policy.test.ts \
+  tests/gh-pr-create.test.ts tests/bash-gh-policies.test.ts \
+  tests/bash-configured.test.ts tests/opencode-read-only-cli.test.ts
+# 157 pass, 0 fail
+
+nix flake check
+# all checks passed
+```
+
+### Adversarial Review
+
+The round-one review exercised the natural equivalent routes an agent can reach
+without bypass intent: `eval`, `sh -c`, binding-derived shell scripts, repeated
+non-repeatable PR flags, short/long and attached option forms, API global
+options, and inherited-pager facts combined with an exported safe pager. The
+review found no remaining behavioral discrepancy after the listed fixes. The
+DSL continues to delegate `gh api` and `gh pr create` to their specialized
+policies; trace assertions make that ownership explicit and verify that a PR
+provenance denial dominates a preceding allowed API request.

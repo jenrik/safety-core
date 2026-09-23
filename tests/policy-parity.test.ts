@@ -277,6 +277,24 @@ describe("permission code-policy parity", () => {
     }
   });
 
+  test("property: strict audited paths preserve parity across option positions and execution routes", () => {
+    const commands = Object.entries(STRICT_READ_ONLY_COMMANDS).flatMap(([executable, paths]) =>
+      [...paths].map((path) => `${executable} ${path.replaceAll(":", " ")}`));
+    for (let seed = 0; seed < 192; seed++) {
+      const command = commands[seed % commands.length]!;
+      const [executable, ...arguments_] = command.split(" ");
+      const variants = [
+        command,
+        `${executable} --unknown ${arguments_.join(" ")}`,
+        `${command} --unknown`,
+        `${executable} ${arguments_.join(" ")} credentials.json`,
+        `GIT_EXTERNAL_DIFF=helper ${command}`,
+        `./${command}`,
+      ];
+      expectPermissionParity(variants[seed % variants.length]!, strictReadOnly, dsl(`strict-${executable}`));
+    }
+  });
+
   test("differential: GH inventory and aliases remain owned without authorizing unknown routes", () => {
     for (const rule of GH_READ_ONLY_RULES) {
       for (const form of [rule.path, ...rule.aliases]) {
@@ -296,6 +314,10 @@ describe("permission code-policy parity", () => {
       "gh api /repos/acme/widgets/issues/42", "gh api user --verbose", "gh --repo acme/widgets api user",
       "GH_PAGER=cat gh api user", "./gh api user", "gh api user --method DELETE",
     ]) expectPermissionParity(source, ghApi, dsl("gh-api"), { GH_PAGER: "cat" });
+    expectPermissionParity("gh api user", ghApi, dsl("gh-api"), {
+      GH_PAGER: "cat",
+      __SAFETY_CORE_INHERITED_GH_PAGER: "less",
+    });
   });
 
   test("differential: generated PR allowlist validates repository targets and noninteractive grammar", () => {
@@ -310,8 +332,41 @@ describe("permission code-policy parity", () => {
       "export GH_PROMPT_DISABLED=1; gh pr create --repo github.com/acme/widgets --repo github.com/acme/widgets --fill",
       "export GH_PROMPT_DISABLED=1; gh pr create --repo github.com/acme/widgets --fill --fill",
       "export GH_PROMPT_DISABLED=1; gh pr create --repo github.com/acme/widgets --base main --base main --fill",
+      "export GH_PROMPT_DISABLED=1; eval 'gh pr create --repo github.com/acme/widgets --fill'",
+      "export GH_PROMPT_DISABLED=1; sh -c 'gh pr create --repo github.com/acme/widgets --fill'",
+      "export GH_PROMPT_DISABLED=1; SCRIPT='gh pr create --repo github.com/acme/widgets --fill'; sh -c \"$SCRIPT\"",
       "export GH_PROMPT_DISABLED=1; gh api user",
     ]) expectPermissionParity(source, codePr, dslPr);
+  });
+
+  test("trace-level: GH policies retain delegated API and PR ownership per invocation", () => {
+    const policies = [dsl("gh-read-only"), dsl("gh-api"), dslPr];
+    const result = analyzeBashWithPolicies({
+      source: "gh api user; export GH_PROMPT_DISABLED=1; gh pr create --repo github.com/acme/widgets --fill",
+      policies,
+      initialEnvironment: { kind: "verified", values: { GH_PAGER: "cat" } },
+    });
+
+    expect(result.decision).toBe("allow");
+    expect(traceDecisions(result)).toEqual([
+      { eventIndex: 0, source: "gh-read-only.policy.json", decision: "ignore" },
+      { eventIndex: 0, source: "gh-api.policy.json", decision: "allow" },
+      { eventIndex: 0, source: "gh-pr-create.policy.json", decision: "ignore" },
+      { eventIndex: 1, source: "gh-read-only.policy.json", decision: "ignore" },
+      { eventIndex: 1, source: "gh-api.policy.json", decision: "ignore" },
+      { eventIndex: 1, source: "gh-pr-create.policy.json", decision: "allow" },
+    ]);
+  });
+
+  test("trace-level: PR interpreter provenance is denied by the dedicated policy", () => {
+    const result = analyzeBashWithPolicies({
+      source: "export GH_PROMPT_DISABLED=1; eval 'gh pr create --repo github.com/acme/widgets --fill'",
+      policies: [dsl("gh-read-only"), dsl("gh-api"), dslPr],
+    });
+
+    expect(result.decision).toBe("deny");
+    expect(traceDecisions(result).filter((trace) => trace.decision === "deny"))
+      .toEqual([{ eventIndex: 1, source: "gh-pr-create.policy.json", decision: "deny" }]);
   });
 
   test("renders a canonical PR allowlist source and rejects malformed identifiers", () => {
@@ -324,7 +379,7 @@ describe("permission code-policy parity", () => {
       allowedOrganizations: ["github.com/another-org", "trusted-org"],
     });
     expect(source).toBe(reordered);
-    expect(createHash("sha256").update(source).digest("hex")).toBe("77c390958ab0273c4eef8fff97299634da22b433840cc4727472b6984a0a8d3f");
+    expect(createHash("sha256").update(source).digest("hex")).toBe("3bf526cc010cdaa662f504ef2c6d7b489658e9ef0cb6bd734e7cc06aa80ed28a");
     expect(() => parsePolicyDocument(source)).not.toThrow();
     for (const options of [
       { allowedRepositories: ["acme"], allowedOrganizations: [] },
@@ -335,14 +390,40 @@ describe("permission code-policy parity", () => {
   });
 
   test("property: aliases, option permutations, qualified paths, and unsafe routes remain differential", () => {
-    const apiOptions = ["-X GET", "--method=HEAD", "-f name=value", "--verbose", "--header X:Y"];
-    const prOptions = ["--fill", "--title title --body body", "--editor", "--body-file body.md"];
-    for (let seed = 0; seed < 128; seed++) {
+    const apiOptions = [
+      "-X GET", "--method=HEAD", "-f name=value", "--verbose", "--header X:Y",
+      "-f name=value -X GET", "-X GET -f name=value",
+    ];
+    const prOptions = [
+      "--repo github.com/acme/widgets --fill", "--fill --repo github.com/acme/widgets",
+      "-Rgithub.com/acme/widgets -f", "-f -R github.com/acme/widgets",
+      "--repo=github.com/acme/widgets --title=title --body=body", "--editor --repo github.com/acme/widgets",
+      "--repo github.com/acme/widgets --body-file body.md",
+    ];
+    for (let seed = 0; seed < 192; seed++) {
       const api = apiOptions[seed % apiOptions.length]!;
       const pr = prOptions[(seed * 7) % prOptions.length]!;
       const prefix = seed % 3 === 0 ? "./" : "";
       expectPermissionParity(`${prefix}gh api user ${api}`, ghApi, dsl("gh-api"), { GH_PAGER: "cat" });
-      expectPermissionParity(`export GH_PROMPT_DISABLED=1; ${prefix}gh pr create --repo github.com/acme/widgets ${pr}`, codePr, dslPr);
+      expectPermissionParity(`export GH_PROMPT_DISABLED=1; ${prefix}gh pr create ${pr}`, codePr, dslPr);
+    }
+  });
+
+  test("property: combined GH policies preserve denial dominance and specialized ownership", () => {
+    const codePolicies = [
+      loaded("/trusted/gh-read-only.policy.mjs", ghReadOnly),
+      loaded("/trusted/gh-api.policy.mjs", ghApi),
+      codePr,
+    ];
+    const dslPolicySet = [dsl("gh-read-only"), dsl("gh-api"), dslPr];
+    const routes = [
+      "gh api user; export GH_PROMPT_DISABLED=1; gh pr create --repo github.com/acme/widgets --fill",
+      "gh api graphql; export GH_PROMPT_DISABLED=1; gh pr create --repo github.com/acme/widgets --fill",
+      "gh api user; gh pr create --repo github.com/acme/widgets --fill",
+      "gh api user; export GH_PROMPT_DISABLED=1; eval 'gh pr create --repo github.com/acme/widgets --fill'",
+    ];
+    for (let seed = 0; seed < 128; seed++) {
+      expectPolicySetParity(routes[seed % routes.length]!, codePolicies, dslPolicySet, { GH_PAGER: "cat" });
     }
   });
 });
@@ -374,6 +455,31 @@ function expectPermissionParity(
   const dslResult = analyzeBashWithPolicies({ ...options, policies: [dslPolicy] });
   expect(dslResult.events, `${source}: events`).toEqual(code.events);
   expect(dslResult.decision, `${source}: decision`).toBe(code.decision);
+}
+
+function expectPolicySetParity(
+  source: string,
+  codePolicies: readonly ValidatedBashPolicy[],
+  dslPolicySet: readonly ValidatedBashPolicy[],
+  values: Readonly<Record<string, string>>,
+): void {
+  const options = { source, initialEnvironment: { kind: "verified" as const, values } };
+  const code = analyzeBashWithPolicies({ ...options, policies: codePolicies });
+  const dslResult = analyzeBashWithPolicies({ ...options, policies: dslPolicySet });
+  expect(dslResult.events, `${source}: mixed events`).toEqual(code.events);
+  expect(dslResult.decision, `${source}: mixed decision`).toBe(code.decision);
+}
+
+function traceDecisions(result: ReturnType<typeof analyzeBashWithPolicies>): readonly {
+  readonly eventIndex: number;
+  readonly source: string;
+  readonly decision: string;
+}[] {
+  return result.traces.map((trace) => Object.freeze({
+    eventIndex: result.events.indexOf(trace.event),
+    source: trace.source.canonicalPath.split("/").at(-1)!,
+    decision: trace.decision.kind,
+  }));
 }
 
 function selectedTraces(

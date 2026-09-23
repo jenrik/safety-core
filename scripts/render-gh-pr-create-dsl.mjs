@@ -20,6 +20,11 @@ export function renderGhPrCreateDslPolicy(options) {
   const routeSafe = { all: [
     call("isDirectExecutable", "gh"), call("assignmentsAreSubset", ["GH_PROMPT_DISABLED"]),
     { not: call("hasRedirect") }, { not: call("hasInheritedExecutableFunction", "gh") },
+    { not: { any: [
+      call("hasProvenanceRoute", "eval"),
+      call("hasProvenanceRoute", "shell-command"),
+      call("hasProvenanceRoute", "binding-derived-script"),
+    ] } },
     { not: call("environmentAnyUnsafe", ["GH_CONFIG_DIR", "GH_HOST", "GH_DEBUG", "DEBUG", "CLICOLOR_FORCE", "GH_COLOR_LABELS", "GH_ACCESSIBLE_COLORS", "GH_FORCE_TTY", "GH_PATH", "GH_TELEMETRY", "GH_TELEMETRY_SAMPLE_RATE"]) },
     call("environmentIsExported", "GH_PROMPT_DISABLED"),
   ] };

@@ -90,6 +90,7 @@ export const GH_GLOBAL_DEFER_ENVIRONMENT_NAMES: readonly string[] = Object.freez
 export const GH_API_DEFER_ENVIRONMENT_NAMES: readonly string[] = Object.freeze([
   ...GH_GLOBAL_DEFER_ENVIRONMENT_NAMES,
   "GH_REPO",
+  GH_INHERITED_PAGER_FACT,
 ]);
 
 /**
