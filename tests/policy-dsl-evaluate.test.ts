@@ -132,6 +132,43 @@ describe("DCRM evaluation", () => {
     expect(policy(document).evaluate(event([{ kind: "unknown", reason: { kind: "expansion" } }]))).toMatchObject({ kind: "deny" });
   });
 
+  test("environment value equality preserves unknown and proven-unset behavior under negation", () => {
+    const condition = { call: "environmentValueEquals", args: [{ call: "environmentLookup", args: ["REQUIRED"] }, "expected"] };
+    const positive = policy(environmentConditionPolicy(condition));
+    const negated = policy(environmentConditionPolicy({ not: condition }));
+    const cases = [
+      ["known equal", { REQUIRED: { kind: "known" as const, value: "expected" } }, "unset", "allow", "defer"],
+      ["known unequal", { REQUIRED: { kind: "known" as const, value: "other" } }, "unset", "defer", "allow"],
+      ["unknown", { REQUIRED: { kind: "unknown" as const, reason: { kind: "expansion" } } }, "unset", "defer", "defer"],
+      ["proven unset", {}, "unset", "defer", "allow"],
+    ] as const;
+
+    for (const [name, environment, missingBindings, positiveDecision, negatedDecision] of cases) {
+      const input = { ...event([]), environment, missingBindings };
+      expect(positive.evaluate(input).kind, `${name} positive`).toBe(positiveDecision);
+      expect(negated.evaluate(input).kind, `${name} negated`).toBe(negatedDecision);
+    }
+  });
+
+  test("property: environment value equality complements only known bindings", () => {
+    const condition = { call: "environmentValueEquals", args: [{ call: "environmentLookup", args: ["REQUIRED"] }, "expected"] };
+    const positive = policy(environmentConditionPolicy(condition));
+    const negated = policy(environmentConditionPolicy({ not: condition }));
+    const random = lcg(0x4d595df4);
+
+    for (let index = 0; index < 128; index++) {
+      const value = `value-${random()}`;
+      for (const [binding, positiveDecision, negatedDecision] of [
+        [{ kind: "known" as const, value: "expected" }, "allow", "defer"],
+        [{ kind: "known" as const, value }, "defer", "allow"],
+      ] as const) {
+        const input = { ...event([]), environment: { REQUIRED: binding } };
+        expect(positive.evaluate(input).kind, `seed ${index} positive ${binding.value}`).toBe(positiveDecision);
+        expect(negated.evaluate(input).kind, `seed ${index} negated ${binding.value}`).toBe(negatedDecision);
+      }
+    }
+  });
+
   test("defensively treats an invalid manually supplied regex program as an unmatched guard", () => {
     const document = base();
     document.options = {};
@@ -231,3 +268,28 @@ describe("DCRM evaluation", () => {
     expect(result.steps[0]?.source).toBe("$.fragments.leaf.cases[0]");
   });
 });
+
+function environmentConditionPolicy(condition: Record<string, unknown>): Record<string, unknown> {
+  return {
+    language: "safety-core/bash-policy-v1",
+    layer: "permission",
+    select: [{ kind: "invocation" }],
+    registers: {},
+    start: "start",
+    states: {
+      start: {
+        cases: [{ when: condition, action: { decision: "allow", reason: ["environment condition"] } }],
+        default: { decision: "defer" },
+        end: { decision: "defer" },
+      },
+    },
+  };
+}
+
+function lcg(seed: number): () => number {
+  let state = seed;
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state;
+  };
+}

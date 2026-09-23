@@ -66,7 +66,7 @@ export const BUILTINS_V1: Readonly<Record<string, BuiltinDefinition>> = Object.f
   environmentIsPresent: builtin(["environment-value"], "bool", "O(1)", "Environment presence predicate."),
   environmentIsKnown: builtin(["environment-value"], "bool", "O(1)", "Known environment value predicate."),
   environmentIsUnknown: builtin(["environment-value"], "bool", "O(1)", "Unknown environment value predicate."),
-  environmentValueEquals: builtin(["environment-value", "string"], "bool", "O(n)", "Exact known environment value comparison."),
+  environmentValueEquals: builtin(["environment-value", "string"], "bool", "O(n)", "Exact environment value comparison; unknown remains unknown."),
   environmentIsExported: builtin(["string"], "bool", "O(1)", "Known exported-environment proof predicate."),
   missingEnvironmentMayBePresent: builtin([], "bool", "O(1)", "Whether event-absent environment bindings are unknown rather than proven unset."),
   redirectHasInputPath: builtin(["stringish"], "bool", "O(r + n)", "Input redirect path predicate."),

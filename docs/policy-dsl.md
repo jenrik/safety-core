@@ -195,7 +195,7 @@ input reference and preserves unknown handling for the evaluator.
 | `environmentIsPresent` | `(environment-value) -> bool` | `O(1)` | env presence |
 | `environmentIsKnown` | `(environment-value) -> bool` | `O(1)` | env proof |
 | `environmentIsUnknown` | `(environment-value) -> bool` | `O(1)` | unresolved env proof |
-| `environmentValueEquals` | `(environment-value, string) -> bool` | `O(n)` | exact env proof value |
+| `environmentValueEquals` | `(environment-value, string) -> bool` | `O(n)` | exact env proof value; unknown remains unknown |
 | `environmentIsExported` | `(string) -> bool` | `O(1)` | exported proof variable |
 | `missingEnvironmentMayBePresent` | `() -> bool` | `O(1)` | absent versus unknown environment |
 | `redirectHasInputPath` | `(stringish) -> bool` | `O(r + n)` | secret redirects |

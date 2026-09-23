@@ -394,7 +394,9 @@ function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeCo
     case "environmentIsPresent": return !isUnknown(args[0]) && isBinding(args[0]) && args[0].kind !== "unset";
     case "environmentIsKnown": return !isUnknown(args[0]) && isBinding(args[0]) && args[0].kind === "known";
     case "environmentIsUnknown": return isUnknown(args[0]) || (isBinding(args[0]) && args[0].kind === "unknown");
-    case "environmentValueEquals": return isBinding(args[0]) && args[0].kind === "known" && args[0].value === strings[1];
+    case "environmentValueEquals": return isUnknown(args[0]) || isUnknown(strings[1]) || !isBinding(args[0]) || args[0].kind === "unknown"
+      ? UNKNOWN
+      : args[0].kind === "known" && args[0].value === strings[1];
     case "environmentIsExported": return typeof strings[0] === "string" && context.event.kind === "invocation" && context.event.exportedEnvironment?.[strings[0]] === true;
     case "missingEnvironmentMayBePresent": return context.event.missingBindings === "unknown";
     case "redirectHasInputPath": return isUnknown(strings[0]) ? UNKNOWN : context.event.kind === "invocation" && context.event.redirects.some((redirect) => redirect.target !== null && stringValue(inputReference(redirect.target)) === strings[0]);
