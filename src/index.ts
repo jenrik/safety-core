@@ -50,7 +50,7 @@ export { analyzeKubectlInvocation } from "./bash/policies/kubectl.js";
 export { analyzeGhApiInvocation } from "./bash/policies/gh-api.js";
 export { analyzeGhPrCreateInvocation } from "./bash/policies/gh-pr-create.js";
 export { analyzeGitReadOnlyInvocation } from "./bash/policies/git.js";
-export { policyInitialEnvironment, POLICY_ENVIRONMENT_ROUTES } from "./bash/policy-environment.js";
+export { completePolicyInitialEnvironment, policyInitialEnvironment, POLICY_ENVIRONMENT_ROUTES } from "./bash/policy-environment.js";
 export type { GhPrCreatePolicy } from "./bash/policies/gh-pr-create.js";
 export * from "./audit.js";
 export * from "./judge.js";

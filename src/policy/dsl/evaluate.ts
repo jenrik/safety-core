@@ -479,7 +479,7 @@ function isRepository(value: unknown): value is { readonly host: string; readonl
 function normalizeKubernetes(value: string): string { const lower = asciiCase(value, false); return lower.endsWith("ies") ? `${lower.slice(0, -3)}y` : lower.endsWith("s") ? lower.slice(0, -1) : lower; }
 function normalizeEndpoint(value: string): string { return `/${value.split("/").filter(Boolean).join("/")}`; }
 function requiresKnownOperands(name: string): boolean {
-  return !["environmentIsPresent", "environmentIsKnown", "environmentIsUnknown", "missingEnvironmentMayBePresent", "isInPipeline", "hasAnyAssignment", "hasRedirect"].includes(name);
+  return !["environmentIsPresent", "environmentIsKnown", "environmentIsUnknown", "environmentValueEquals", "missingEnvironmentMayBePresent", "isInPipeline", "hasAnyAssignment", "hasRedirect"].includes(name);
 }
 function nonStringOperandBuiltin(name: string): boolean { return name === "inStringSet" || name === "wordInAsciiCaseInsensitiveSet" || name === "pathComponent" || name === "pathAfterComponents" || name === "splitComponent" || name === "parseBoundedInt" || name === "boundedIntAtMost" || name === "anySafeGlob" || name === "urlHost" || name === "urlPath" || name === "urlHostEquals" || name === "repositoryEquals" || name === "repositoryHasExplicitHost" || name === "repositoryMatches" || name === "repositoryMatchesOrganization" || name === "environmentAnyUnsafe" || name === "assignmentsAreSubset" || name === "longOptionPrefixesAny" || name === "inputBlockedDomain"; }
 function inheritedExecutableFunction(event: BashPolicyEvent, executable: string | typeof UNKNOWN): RuntimeValue {

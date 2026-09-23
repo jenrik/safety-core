@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 
 import { ghCommandGrammarMatches, ghNativeAliasesForRule, parseGhCommandLine } from "../src/bash/handlers/gh-command-line.ts";
-import { BASH_FUNCTIONS_CAPTURED_FACT, POLICY_ENVIRONMENT_ROUTES, policyInitialEnvironment } from "../src/bash/policy-environment.ts";
+import { BASH_FUNCTIONS_CAPTURED_FACT, completePolicyInitialEnvironment, POLICY_ENVIRONMENT_ROUTES, policyInitialEnvironment } from "../src/bash/policy-environment.ts";
 import {
   GH_HELP_TOPIC_RULES,
   GH_READ_ONLY_RULES,
@@ -158,6 +158,14 @@ describe("policy environment manifest", () => {
     expect(empty.kind === "filtered" ? empty.unset : []).toContain("GH_PAGER");
     expect(POLICY_ENVIRONMENT_ROUTES.every((route) => route.rationale.length > 0)).toBe(true);
     expect(POLICY_ENVIRONMENT_ROUTES.find((route) => route.name === "GH_TELEMETRY_SAMPLE_RATE")).toMatchObject({ disposition: "defer", capture: true });
+  });
+
+  test("property: complete adapter snapshots preserve exact inherited values and prove other names absent", () => {
+    for (let index = 0; index < 256; index++) {
+      const canary = `inherited-value-${index}-!$%`;
+      const snapshot = completePolicyInitialEnvironment({ CANARY_INHERITED: canary, EMPTY: "" });
+      expect(snapshot, `seed ${index}`).toEqual({ kind: "verified", values: { CANARY_INHERITED: canary, EMPTY: "" } });
+    }
   });
 });
 

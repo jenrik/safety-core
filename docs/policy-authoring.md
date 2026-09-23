@@ -39,6 +39,17 @@ prints the selected identities. Claude verifies the same snapshot for each
 isolated hook; OpenCode and Pi retain the startup object, so restart those
 harnesses after editing sources.
 
+### Claude code-policy dependency boundary
+
+Claude's isolated-hook manifest fixes configured code-policy entry-file bytes,
+but it cannot fully freeze the bytes of allowed code-policy dependencies loaded
+by a later hook. A dependency changed between hooks can therefore affect that
+later evaluation even when the configured entry file still matches the manifest.
+Operators should use self-contained bundled policy sources. This is the same
+class of filesystem TOCTOU limitation described in the [session identity
+documentation](./read-only-command-profiles.md#policy-source-and-session-identity)
+and [executable identity limitations](./executable-identity-limitations.md).
+
 ## DCRM documents
 
 The full grammar and builtin table are in [policy-dsl.md](./policy-dsl.md).

@@ -1,7 +1,7 @@
 import {
   evaluateLoadedPolicies,
   nodeExecutableFilesystem,
-  policyInitialEnvironment,
+  completePolicyInitialEnvironment,
   type BashPolicyEvaluation,
   type LoadedPolicyRuntime,
   type ExecutableFilesystem,
@@ -27,7 +27,7 @@ export function evaluateClaudeBashPolicy(event: HookEvent, dependencies: ClaudeB
   if (!isBashPreToolUse(event)) return undefined;
   const source = event.tool_input!.command as string;
   const evaluation = (dependencies.evaluatePolicies ?? ((runtime, command, context) =>
-    evaluateLoadedPolicies(runtime, command, policyInitialEnvironment(process.env), context)))(dependencies.runtime, source, {
+    evaluateLoadedPolicies(runtime, command, completePolicyInitialEnvironment(process.env), context)))(dependencies.runtime, source, {
     cwd: event.cwd ?? process.cwd(),
     executableFilesystem: dependencies.executableFilesystem ?? nodeExecutableFilesystem,
   });

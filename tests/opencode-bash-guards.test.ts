@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOpenCodePlugin, blockReason } from "../adapters/opencode.ts";
-import type { BashPolicyEvaluation, LoadedPolicyRuntime, ValidatedBashPolicy } from "../src/index.ts";
+import { loadPolicyRuntime, type BashPolicyEvaluation, type LoadedPolicyRuntime, type ValidatedBashPolicy } from "../src/index.ts";
 
 const limits = { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 };
 const runtime = { config: { bashAnalysis: limits }, policySet: { policies: [], sources: [] }, limits } as unknown as LoadedPolicyRuntime;
@@ -73,6 +73,32 @@ test("OpenCode source-load failure aborts startup", async () => {
   }
 });
 
+test("property: OpenCode supplies every exact inherited canary to a real DSL permission policy", async () => {
+  const root = mkdtempSync(join(tmpdir(), "safety-core-opencode-environment-"));
+  const home = join(root, "home");
+  const policy = join(root, "environment.policy.json");
+  mkdirSync(join(home, "safety-core"), { recursive: true });
+  writeFileSync(policy, JSON.stringify(environmentPermissionPolicy()));
+  writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [policy], projectPolicies: { mode: "disabled" }, bashAnalysis: limits }));
+  const loaded = await loadPolicyRuntime(root, { SAFETY_CORE_CONFIG_HOME: home });
+  const previous = process.env.CANARY_INHERITED;
+  try {
+    const plugin = await createOpenCodePlugin({ runtime: loaded }, undefined, root);
+    for (let index = 0; index < 64; index++) {
+      process.env.CANARY_INHERITED = `exact-inherited-${index}-!$%`;
+      const output = { status: "ask" };
+      await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "printf canary" }, output);
+      expect(output.status, `seed ${index}`).toBe("allow");
+    }
+    delete process.env.CANARY_INHERITED;
+    const output = { status: "ask" };
+    await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "printf canary" }, output);
+    expect(output.status).toBe("ask");
+  } finally {
+    if (previous === undefined) delete process.env.CANARY_INHERITED; else process.env.CANARY_INHERITED = previous;
+  }
+});
+
 test("OpenCode startup loads an all-mode project DSL policy from its plugin directory", async () => {
   const previous = process.env.SAFETY_CORE_CONFIG_HOME;
   const root = mkdtempSync(join(tmpdir(), "safety-core-opencode-project-"));
@@ -109,3 +135,22 @@ test("property: generic outcomes map deterministically across 1,024 permission r
     expect(output.status, `seed ${seed}`).toBe(source === "defer" ? "ask" : source);
   }
 });
+
+function environmentPermissionPolicy(): Record<string, unknown> {
+  return {
+    language: "safety-core/bash-policy-v1",
+    layer: "permission",
+    select: [{ kind: "invocation" }],
+    registers: {}, folds: {}, options: {}, fragments: {}, start: "start",
+    states: {
+      start: {
+        cases: [{
+          when: { call: "environmentIsKnown", args: [{ call: "environmentLookup", args: ["CANARY_INHERITED"] }] },
+          action: { decision: "allow", reason: ["inherited environment canary"] },
+        }],
+        default: { decision: "defer" },
+        end: { decision: "defer" },
+      },
+    },
+  };
+}

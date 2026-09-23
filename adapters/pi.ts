@@ -12,7 +12,7 @@ import {
   isSecretPath,
   loadPolicyRuntime,
   nodeExecutableFilesystem,
-  policyInitialEnvironment,
+  completePolicyInitialEnvironment,
   setJudgeVerdict,
   getJudgeVerdict,
   invokeJudge,
@@ -40,13 +40,15 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
     return runtimeReady;
   };
   const executableFilesystem = dependencies.executableFilesystem ?? nodeExecutableFilesystem;
-  const evaluate = dependencies.evaluatePolicies ?? ((runtime, source, context) => evaluateLoadedPolicies(runtime, source, policyInitialEnvironment(process.env), context));
+  const evaluate = dependencies.evaluatePolicies ?? ((runtime, source, context) => evaluateLoadedPolicies(runtime, source, completePolicyInitialEnvironment(process.env), context));
 
   pi.on("session_start", async (_event, ctx) => {
     try {
+      await parserReady;
       await ensureRuntime(ctx.cwd);
     } catch (error) {
       poisoned = policyFailureReason(error);
+      throw new Error(poisoned);
     }
   });
 

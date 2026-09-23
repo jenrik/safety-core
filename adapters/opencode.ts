@@ -9,7 +9,7 @@ import {
   isSecretPath,
   loadPolicyRuntime,
   nodeExecutableFilesystem,
-  policyInitialEnvironment,
+  completePolicyInitialEnvironment,
   setJudgeProvider,
   invokeJudge,
   shouldInvokeJudge,
@@ -38,7 +38,7 @@ export async function createOpenCodePlugin(
   await initBashParser(discoverWasmDir(import.meta.url));
   const runtime = dependencies.runtime ?? await (dependencies.loadRuntime ?? loadPolicyRuntime)(directory ?? process.cwd());
   const executableFilesystem = dependencies.executableFilesystem ?? nodeExecutableFilesystem;
-  const evaluate = dependencies.evaluatePolicies ?? ((loaded, source, context) => evaluateLoadedPolicies(loaded, source, policyInitialEnvironment(process.env), context));
+  const evaluate = dependencies.evaluatePolicies ?? ((loaded, source, context) => evaluateLoadedPolicies(loaded, source, completePolicyInitialEnvironment(process.env), context));
   const results = new Map<string, BashPolicyEvaluation>();
   let poisoned: string | undefined;
   setJudgeProvider(buildJudgeProvider());

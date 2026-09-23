@@ -122,6 +122,15 @@ export function policyInitialEnvironment(environment: Readonly<Record<string, st
   return Object.freeze({ kind: "filtered", values: Object.freeze(values), unset: Object.freeze(unset) });
 }
 
+/**
+ * Complete harness environment for configuration-loaded policy evaluation.
+ * The verified form retains every inherited value and proves omitted names unset.
+ */
+export function completePolicyInitialEnvironment(environment: Readonly<Record<string, string | undefined>>): BashInitialEnvironment {
+  const values = Object.fromEntries(Object.entries(environment).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  return Object.freeze({ kind: "verified", values: Object.freeze(values) });
+}
+
 /** Synthetic, value-free fact proving an executable name is shadowed by an imported Bash function. */
 export function inheritedBashFunctionFact(executable: string): string {
   return `__SAFETY_CORE_BASH_FUNCTION_${executable}`;

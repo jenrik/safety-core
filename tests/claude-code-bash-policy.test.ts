@@ -2,7 +2,7 @@ import { beforeAll, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { discoverWasmDir, initBashParser, type LoadedPolicyRuntime, type ValidatedBashPolicy } from "../src/index.ts";
+import { discoverWasmDir, initBashParser, loadPolicyRuntime, type LoadedPolicyRuntime, type ValidatedBashPolicy } from "../src/index.ts";
 import { evaluateClaudeBashPolicy } from "../adapters/claude-code/_bash_policy.ts";
 import { classifyKubectlSecretAudit } from "../adapters/claude-code/kubectl_secret_audit_log.ts";
 import { establishClaudeSessionRuntime, loadClaudeSessionRuntime, poisonClaudeSession } from "../adapters/claude-code/bash_policy.ts";
@@ -42,6 +42,23 @@ test("Claude supplies hook cwd and an explicit executable resolver", () => {
     },
   });
   expect(context).toMatchObject({ cwd: "/workspace", executableFilesystem: expect.any(Object) });
+});
+
+test("Claude supplies exact inherited environment values to a real DSL permission policy", async () => {
+  const root = mkdtempSync(join(tmpdir(), "safety-core-claude-environment-"));
+  const home = join(root, "home");
+  const policy = join(root, "environment.policy.json");
+  mkdirSync(join(home, "safety-core"), { recursive: true });
+  writeFileSync(policy, JSON.stringify(environmentPermissionPolicy()));
+  writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [policy], projectPolicies: { mode: "disabled" }, bashAnalysis: runtime.limits }));
+  const loaded = await loadPolicyRuntime(root, { SAFETY_CORE_CONFIG_HOME: home });
+  const previous = process.env.CANARY_INHERITED;
+  try {
+    process.env.CANARY_INHERITED = "exact-claude-inherited-value";
+    expect(evaluateClaudeBashPolicy(event("printf canary"), { runtime: loaded })).toEqual({ kind: "allow", reason: "Bash policy fully covers this command" });
+  } finally {
+    if (previous === undefined) delete process.env.CANARY_INHERITED; else process.env.CANARY_INHERITED = previous;
+  }
 });
 
 test("Claude session manifests keep config immutable and reject changed source bytes", async () => {
@@ -143,3 +160,22 @@ test("Claude audit classifies Kubectl Secret activity without policy reload", ()
   expect(classifyKubectlSecretAudit("kubectl get Secret application")).toEqual({ kubectl_subcommand: "get", resource: "secret", command_length: "kubectl get Secret application".length });
   expect(classifyKubectlSecretAudit("kubectl get pods; kubectl get secret application")).toEqual({ kubectl_subcommand: "get", resource: "secret", command_length: "kubectl get pods; kubectl get secret application".length });
 });
+
+function environmentPermissionPolicy(): Record<string, unknown> {
+  return {
+    language: "safety-core/bash-policy-v1",
+    layer: "permission",
+    select: [{ kind: "invocation" }],
+    registers: {}, folds: {}, options: {}, fragments: {}, start: "start",
+    states: {
+      start: {
+        cases: [{
+          when: { call: "environmentIsKnown", args: [{ call: "environmentLookup", args: ["CANARY_INHERITED"] }] },
+          action: { decision: "allow", reason: ["inherited environment canary"] },
+        }],
+        default: { decision: "defer" },
+        end: { decision: "defer" },
+      },
+    },
+  };
+}

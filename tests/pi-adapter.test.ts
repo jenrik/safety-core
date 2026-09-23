@@ -41,14 +41,39 @@ test("Pi supplies tool cwd and an explicit executable resolver", async () => {
   expect(context).toMatchObject({ cwd: "/workspace", executableFilesystem: expect.any(Object) });
 });
 
-test("Pi poisons a session on runtime policy failure", async () => {
+test("Pi supplies inherited environment values to a real DSL permission policy", async () => {
+  const { createPiExtension } = await import("../adapters/pi.ts");
+  const root = mkdtempSync(join(tmpdir(), "safety-core-pi-environment-"));
+  const home = join(root, "home");
+  const policy = join(root, "environment.policy.json");
+  mkdirSync(join(home, "safety-core"), { recursive: true });
+  writeFileSync(policy, JSON.stringify(environmentPermissionPolicy()));
+  writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [policy], projectPolicies: { mode: "disabled" }, bashAnalysis: limits }));
+  const loaded = await loadPolicyRuntime(root, { SAFETY_CORE_CONFIG_HOME: home });
+  const previous = process.env.CANARY_INHERITED;
+  try {
+    process.env.CANARY_INHERITED = "exact-pi-inherited-value";
+    const handlers = new Map<string, Function>();
+    createPiExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerTool() {} } as never, { runtime: Promise.resolve(loaded) });
+    await handlers.get("session_start")!({}, { cwd: root });
+    await expect(handlers.get("tool_call")!({ toolName: "bash", toolCallId: "environment", input: { command: "printf canary" } }, { cwd: root, ui: { notify() {} } })).resolves.toBeUndefined();
+  } finally {
+    if (previous === undefined) delete process.env.CANARY_INHERITED; else process.env.CANARY_INHERITED = previous;
+  }
+});
+
+test("Pi propagates policy startup failure and no active session can evaluate afterward", async () => {
   const { createPiExtension } = await import("../adapters/pi.ts");
   const handlers = new Map<string, Function>();
+  let evaluations = 0;
   createPiExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerTool() {} } as never, {
     runtime: Promise.reject(new Error("startup failure")),
+    evaluatePolicies: () => { evaluations++; return defer; },
   });
+  await expect(handlers.get("session_start")!({}, { cwd: "/project" })).rejects.toThrow("Safety policy failed: startup failure");
   const result = await handlers.get("tool_call")!({ toolName: "bash", toolCallId: "failed", input: { command: "id" } }, { ui: { notify() {} } });
   expect(result).toMatchObject({ block: true, reason: "Safety policy failed: startup failure" });
+  expect(evaluations).toBe(0);
 });
 
 test("Pi persists poison after an evaluation exception without re-evaluating", async () => {
@@ -93,3 +118,22 @@ test("Pi loads its immutable runtime from the session project cwd", async () => 
   expect(loadedCwd).toBe(project);
   expect(loadedRuntime!.policySet.sources.map((source) => source.canonicalPath)).toContain(projectPolicy);
 });
+
+function environmentPermissionPolicy(): Record<string, unknown> {
+  return {
+    language: "safety-core/bash-policy-v1",
+    layer: "permission",
+    select: [{ kind: "invocation" }],
+    registers: {}, folds: {}, options: {}, fragments: {}, start: "start",
+    states: {
+      start: {
+        cases: [{
+          when: { call: "environmentIsKnown", args: [{ call: "environmentLookup", args: ["CANARY_INHERITED"] }] },
+          action: { decision: "allow", reason: ["inherited environment canary"] },
+        }],
+        default: { decision: "defer" },
+        end: { decision: "defer" },
+      },
+    },
+  };
+}

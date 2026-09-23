@@ -86,4 +86,44 @@ describe("safety-core CLI", () => {
     expect(trace.events[0].environment.CANARY_INHERITED).toEqual({ kind: "known", value: "inherited-value" });
     expect(trace.decisions).toHaveLength(1);
   });
+
+  test("a real DSL permission policy receives exact inherited environment values in unchanged explain traces", () => {
+    const home = fixture();
+    const policy = join(home, "environment.policy.json");
+    writeFileSync(policy, JSON.stringify(environmentPermissionPolicy()));
+    writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({
+      version: 1,
+      policies: [policy],
+      projectPolicies: { mode: "disabled" },
+      bashAnalysis: { maxFunctionDepth: 7, maxNestedScriptDepth: 6, maxSteps: 50, maxWorkItems: 50 },
+    }));
+
+    const result = cli(home, ["explain", "--json", "--", "printf CANARY_ARG"], { CANARY_INHERITED: "exact-inherited-value" });
+    expect(result.status).toBe(0);
+    const trace = JSON.parse(result.stdout);
+    expect(trace).toMatchObject({ version: 1, decision: "allow", analysis: { complete: true } });
+    expect(trace.events[0].argv).toEqual([{ kind: "known", value: "CANARY_ARG" }]);
+    expect(trace.events[0].environment.CANARY_INHERITED).toEqual({ kind: "known", value: "exact-inherited-value" });
+    expect(trace.events[0].missingBindings).toBe("unset");
+    expect(trace.decisions[0].decision).toMatchObject({ kind: "allow", reason: [{ kind: "literal", value: "inherited environment canary" }] });
+  });
 });
+
+function environmentPermissionPolicy(): Record<string, unknown> {
+  return {
+    language: "safety-core/bash-policy-v1",
+    layer: "permission",
+    select: [{ kind: "invocation" }],
+    registers: {}, folds: {}, options: {}, fragments: {}, start: "start",
+    states: {
+      start: {
+        cases: [{
+          when: { call: "environmentValueEquals", args: [{ call: "environmentLookup", args: ["CANARY_INHERITED"] }, "exact-inherited-value"] },
+          action: { decision: "allow", reason: ["inherited environment canary"] },
+        }],
+        default: { decision: "defer" },
+        end: { decision: "defer" },
+      },
+    },
+  };
+}
