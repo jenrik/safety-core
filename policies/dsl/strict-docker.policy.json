@@ -1,0 +1,4349 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "permission",
+  "select": [
+    {
+      "executable": {
+        "projection": "basename",
+        "equals": "docker"
+      }
+    }
+  ],
+  "registers": {},
+  "folds": {
+    "hasSecretOperand": {
+      "collection": "argv",
+      "operation": "any",
+      "when": {
+        "all": [
+          {
+            "not": {
+              "call": "startsWith",
+              "args": [
+                {
+                  "ref": "fold.item"
+                },
+                "-"
+              ]
+            }
+          },
+          {
+            "not": {
+              "call": "anySafeGlob",
+              "args": [
+                {
+                  "call": "asciiLower",
+                  "args": [
+                    {
+                      "call": "basename",
+                      "args": [
+                        {
+                          "ref": "fold.item"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                [
+                  "*.env.example",
+                  "*.env.sample",
+                  "*.env.template",
+                  "*.env.dist"
+                ]
+              ]
+            }
+          },
+          {
+            "call": "anySafeGlob",
+            "args": [
+              {
+                "call": "asciiLower",
+                "args": [
+                  {
+                    "call": "basename",
+                    "args": [
+                      {
+                        "ref": "fold.item"
+                      }
+                    ]
+                  }
+                ]
+              },
+              [
+                "*.env",
+                "*.env.*",
+                ".envrc",
+                "*.pem",
+                "*.key",
+                "id_rsa*",
+                "id_ed25519*",
+                "id_dsa*",
+                "id_ecdsa*",
+                "*.p12",
+                "*.pfx",
+                "*.pkcs12",
+                ".netrc",
+                "credentials.json",
+                "credentials.yaml",
+                "credentials.yml",
+                "*-credentials.json",
+                "*-credentials.yaml",
+                "*-credentials.yml",
+                "*.credentials.json",
+                "*.credentials.yaml",
+                "*.credentials.yml",
+                "service-account*.json",
+                "service_account*.json",
+                "secrets.json",
+                "secrets.yaml",
+                "secrets.yml",
+                "*-secrets.json",
+                "*-secrets.yaml",
+                "*-secrets.yml",
+                "*.secrets.json",
+                "*.secrets.yaml",
+                "*.secrets.yml",
+                "*.secret.json",
+                "*.secret.yaml",
+                "*.secret.yml",
+                "kubeconfig"
+              ]
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "options": {},
+  "fragments": {},
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "--help"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "exact"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "--version"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "exact"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "config"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_config"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "context"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_context"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "image"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_image"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "images"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_images"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "info"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_info"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "network"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_network"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "node"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_node"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "plugin"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_plugin"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "search"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_search"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "secret"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_secret"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "service"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_service"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "stack"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_stack"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "system"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_system"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "version"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_version"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "volume"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_volume"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_config": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "list"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_config_list"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "ls"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_config_ls"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_config_list": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_config_ls": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_context": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "list"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_context_list"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "ls"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_context_ls"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_context_list": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_context_ls": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_image": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "list"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_image_list"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "ls"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_image_ls"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_image_list": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_image_ls": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_images": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_info": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_network": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "list"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_network_list"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "ls"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_network_ls"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_network_list": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_network_ls": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_node": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "list"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_node_list"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "ls"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_node_ls"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_node_list": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_node_ls": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_plugin": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "list"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_plugin_list"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "ls"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_plugin_ls"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_plugin_list": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_plugin_ls": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_search": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_secret": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "list"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_secret_list"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "ls"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_secret_ls"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_secret_list": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_secret_ls": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_service": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "list"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_service_list"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "ls"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_service_ls"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_service_list": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_service_ls": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_stack": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "list"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_stack_list"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "ls"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_stack_ls"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_stack_list": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_stack_ls": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_system": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "df"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_system_df"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_system_df": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_version": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_volume": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "list"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_volume_list"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "ls"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_volume_ls"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_volume_list": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_volume_ls": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "exact": {
+      "cases": [
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "accepted": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "docker"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "docker"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        [
+                          "DOCKER_CONFIG"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "docker auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    }
+  }
+}

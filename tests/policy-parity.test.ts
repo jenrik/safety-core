@@ -1,18 +1,27 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import githubHttp from "../policies/code/github-http.policy.ts";
-import genericReadOnly from "../policies/code/generic-read-only.policy.ts";
-import kubectl from "../policies/code/kubectl.policy.ts";
-import secretRead from "../policies/code/secret-read.policy.ts";
-import unsupportedShellSource from "../policies/code/unsupported-shell-source.policy.ts";
+import githubHttp from "./fixtures/code-policies/github-http.policy.ts";
+import genericReadOnly from "./fixtures/code-policies/generic-read-only.policy.ts";
+import ghApi from "./fixtures/code-policies/gh-api.policy.ts";
+import { createGhPrCreatePolicy } from "./fixtures/code-policies/gh-pr-create.policy.ts";
+import ghReadOnly from "./fixtures/code-policies/gh-read-only.policy.ts";
+import helmReadOnly from "./fixtures/code-policies/helm-read-only.policy.ts";
+import kubectl from "./fixtures/code-policies/kubectl.policy.ts";
+import secretRead from "./fixtures/code-policies/secret-read.policy.ts";
+import strictReadOnly from "./fixtures/code-policies/strict-read-only.policy.ts";
+import unsupportedShellSource from "./fixtures/code-policies/unsupported-shell-source.policy.ts";
 import { analyzeBashWithPolicies, initBashParser, type LoadedBashPolicy, type ValidatedBashPolicy } from "../src/index.ts";
 import { compilePolicyDocument } from "../src/policy/dsl/compile.ts";
 import { createDslPolicy } from "../src/policy/dsl/evaluate.ts";
 import { parsePolicyDocument } from "../src/policy/dsl/validate.ts";
 import { analyzeSecretReadInvocation } from "../src/bash/policies/secrets.ts";
+import { GH_READ_ONLY_RULES } from "../src/bash/policies/gh-read-only.ts";
+import { STRICT_READ_ONLY_COMMANDS } from "../src/bash/policies/read-only-data.ts";
+import { renderGhPrCreateDslPolicy } from "../scripts/render-gh-pr-create-dsl.mjs";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-policy-parity-"));
 const policies = Object.freeze([
@@ -32,6 +41,12 @@ const guardPairs = Object.freeze([
 
 const dslPolicies = Object.freeze(guardPairs.map(([, , policy]) => policy as ValidatedBashPolicy));
 const codeGuardPolicies = Object.freeze(guardPairs.map(([name, policy]) => loaded(`/trusted/${name}.policy.mjs`, policy)));
+const prConfiguration = Object.freeze({ allowedRepositories: ["github.com/acme/widgets"], allowedOrganizations: ["trusted-org"] });
+const codePr = loaded("/trusted/gh-pr-create.policy.mjs", createGhPrCreatePolicy(prConfiguration));
+const dslPr = createDslPolicy(
+  compilePolicyDocument(parsePolicyDocument(renderGhPrCreateDslPolicy(prConfiguration))),
+  "/trusted/gh-pr-create.policy.json",
+) as ValidatedBashPolicy;
 
 beforeAll(async () => {
   mkdirSync(join(wasmDir, "node_modules"), { recursive: true });
@@ -238,6 +253,100 @@ describe("baseline guard code-policy parity", () => {
   });
 });
 
+describe("permission code-policy parity", () => {
+  test("differential: generic and Helm grammar, environment routes, and qualified paths", () => {
+    for (const source of [
+      "git diff HEAD", "git diff --ext-diff", "git branch --list", "git branch --list topic",
+      "sha256sum README.md", "tea --help", "tea help", "helm search repo nginx", "helm show chart nginx",
+      "helm show chart nginx --debug", "./git diff HEAD", "GIT_EXTERNAL_DIFF=helper git diff HEAD",
+    ]) {
+      expectPermissionParity(source, genericReadOnly, dsl("generic-read-only"));
+      expectPermissionParity(source, helmReadOnly, dsl("helm-read-only"));
+    }
+  });
+
+  test("differential: every strict executable path, option form, and unsafe operand", () => {
+    for (const [executable, paths] of Object.entries(STRICT_READ_ONLY_COMMANDS)) {
+      const policy = dsl(`strict-${executable}`);
+      for (const path of paths) {
+        const command = `${executable} ${path.replaceAll(":", " ")}`;
+        expectPermissionParity(command, strictReadOnly, policy);
+        expectPermissionParity(`${command} --unknown`, strictReadOnly, policy);
+        expectPermissionParity(`${command} credentials.json`, strictReadOnly, policy);
+      }
+    }
+  });
+
+  test("differential: GH inventory and aliases remain owned without authorizing unknown routes", () => {
+    for (const rule of GH_READ_ONLY_RULES) {
+      for (const form of [rule.path, ...rule.aliases]) {
+        expectPermissionParity(`gh ${form.join(" ")}`, ghReadOnly, dsl("gh-read-only"));
+        expectPermissionParity(`gh ${form.join(" ")} --unknown`, ghReadOnly, dsl("gh-read-only"));
+      }
+    }
+    for (const source of ["gh extension list", "gh alias list", "gh unknown", "./gh issue list", "GH_HOST=example.test gh issue list"]) {
+      expectPermissionParity(source, ghReadOnly, dsl("gh-read-only"));
+    }
+  }, 30_000);
+
+  test("differential: GH API methods, endpoint classes, parser forms, and environment routes", () => {
+    for (const source of [
+      "gh api user", "gh api user --method=HEAD", "gh api user -XPOST", "gh api user -X POST",
+      "gh api user -f name=value", "gh api user -f invalid -X GET", "gh api user -F name=value -X GET", "gh api user -F name=@body", "gh api user --input body", "gh api graphql -X GET",
+      "gh api /repos/acme/widgets/issues/42", "gh api user --verbose", "gh --repo acme/widgets api user",
+      "GH_PAGER=cat gh api user", "./gh api user", "gh api user --method DELETE",
+    ]) expectPermissionParity(source, ghApi, dsl("gh-api"), { GH_PAGER: "cat" });
+  });
+
+  test("differential: generated PR allowlist validates repository targets and noninteractive grammar", () => {
+    for (const source of [
+      "export GH_PROMPT_DISABLED=1; gh pr create --repo github.com/acme/widgets --fill",
+      "export GH_PROMPT_DISABLED=1; gh pr new --repo github.com/trusted-org/other --title title --body body",
+      "export GH_PROMPT_DISABLED=1; gh pr create --repo acme/widgets --fill",
+      "export GH_PROMPT_DISABLED=1; gh pr create --repo github.com/attacker/widgets --fill",
+      "export GH_PROMPT_DISABLED=1; gh pr create --repo github.com/acme/widgets --editor",
+      "gh pr create --repo github.com/acme/widgets --fill",
+      "export GH_PROMPT_DISABLED=1; gh pr create --repo github.com/acme/widgets --fill extra",
+      "export GH_PROMPT_DISABLED=1; gh pr create --repo github.com/acme/widgets --repo github.com/acme/widgets --fill",
+      "export GH_PROMPT_DISABLED=1; gh pr create --repo github.com/acme/widgets --fill --fill",
+      "export GH_PROMPT_DISABLED=1; gh pr create --repo github.com/acme/widgets --base main --base main --fill",
+      "export GH_PROMPT_DISABLED=1; gh api user",
+    ]) expectPermissionParity(source, codePr, dslPr);
+  });
+
+  test("renders a canonical PR allowlist source and rejects malformed identifiers", () => {
+    const source = renderGhPrCreateDslPolicy({
+      allowedRepositories: ["GitHub.com/Acme/Widgets", "github.com/acme/another"],
+      allowedOrganizations: ["trusted-org", "github.com/another-org"],
+    });
+    const reordered = renderGhPrCreateDslPolicy({
+      allowedRepositories: ["github.com/acme/another", "GitHub.com/Acme/Widgets"],
+      allowedOrganizations: ["github.com/another-org", "trusted-org"],
+    });
+    expect(source).toBe(reordered);
+    expect(createHash("sha256").update(source).digest("hex")).toBe("77c390958ab0273c4eef8fff97299634da22b433840cc4727472b6984a0a8d3f");
+    expect(() => parsePolicyDocument(source)).not.toThrow();
+    for (const options of [
+      { allowedRepositories: ["acme"], allowedOrganizations: [] },
+      { allowedRepositories: ["github.com/acme/widgets/extra"], allowedOrganizations: [] },
+      { allowedRepositories: ["github.com/acme/widgets", "github.com/acme/widgets"], allowedOrganizations: [] },
+      { allowedRepositories: ["github.com/acme/widgets"], allowedOrganizations: ["invalid org"] },
+    ]) expect(() => renderGhPrCreateDslPolicy(options)).toThrow(TypeError);
+  });
+
+  test("property: aliases, option permutations, qualified paths, and unsafe routes remain differential", () => {
+    const apiOptions = ["-X GET", "--method=HEAD", "-f name=value", "--verbose", "--header X:Y"];
+    const prOptions = ["--fill", "--title title --body body", "--editor", "--body-file body.md"];
+    for (let seed = 0; seed < 128; seed++) {
+      const api = apiOptions[seed % apiOptions.length]!;
+      const pr = prOptions[(seed * 7) % prOptions.length]!;
+      const prefix = seed % 3 === 0 ? "./" : "";
+      expectPermissionParity(`${prefix}gh api user ${api}`, ghApi, dsl("gh-api"), { GH_PAGER: "cat" });
+      expectPermissionParity(`export GH_PROMPT_DISABLED=1; ${prefix}gh pr create --repo github.com/acme/widgets ${pr}`, codePr, dslPr);
+    }
+  });
+});
+
 function dsl(name: string): ValidatedBashPolicy {
   const path = new URL(`../policies/dsl/${name}.policy.json`, import.meta.url);
   return createDslPolicy(compilePolicyDocument(parsePolicyDocument(readFileSync(path, "utf8"))), path.pathname) as ValidatedBashPolicy;
@@ -249,6 +358,22 @@ function expectPolicyParity(source: string, label = source): void {
   expect(code.events, `${label}: walker events`).toEqual(dsl.events);
   expect(selectedTraces(code.traces, code.events, ".mjs"), `${label}: selected code traces`)
     .toEqual(selectedTraces(dsl.traces, dsl.events, ".json"));
+}
+
+function expectPermissionParity(
+  source: string,
+  codeDefinition: Omit<LoadedBashPolicy, "source"> & { readonly apiVersion: 1 },
+  dslPolicy: ValidatedBashPolicy,
+  values: Readonly<Record<string, string>> = {},
+): void {
+  const codePolicy = "source" in codeDefinition
+    ? codeDefinition as ValidatedBashPolicy
+    : loaded("/trusted/permission.policy.mjs", codeDefinition);
+  const options = { source, initialEnvironment: { kind: "verified" as const, values } };
+  const code = analyzeBashWithPolicies({ ...options, policies: [codePolicy] });
+  const dslResult = analyzeBashWithPolicies({ ...options, policies: [dslPolicy] });
+  expect(dslResult.events, `${source}: events`).toEqual(code.events);
+  expect(dslResult.decision, `${source}: decision`).toBe(code.decision);
 }
 
 function selectedTraces(

@@ -186,6 +186,9 @@ input reference and preserves unknown handling for the evaluator.
 | `urlHostEquals` | `(url, string) -> bool` | `O(n)` | exact host check |
 | `parseRepository` | `(stringish) -> repository` | `O(n)` | owner/repository parsing |
 | `repositoryEquals` | `(repository, string, string) -> bool` | `O(n)` | PR allowlists |
+| `repositoryHasExplicitHost` | `(repository) -> bool` | `O(1)` | explicit repository host proof |
+| `repositoryMatches` | `(repository, string, string, string) -> bool` | `O(n)` | finite repository allowlists |
+| `repositoryMatchesOrganization` | `(repository, string, string) -> bool` | `O(n)` | finite organization allowlists |
 | `normalizeKubernetesResource` | `(stringish) -> string` | `O(n)` | singular/plural resource aliases |
 | `normalizeGitHubEndpoint` | `(stringish) -> string` | `O(n)` | GitHub API endpoint paths |
 | `environmentLookup` | `(string) -> environment-value` | `O(n)` | env routing |
@@ -197,6 +200,14 @@ input reference and preserves unknown handling for the evaluator.
 | `missingEnvironmentMayBePresent` | `() -> bool` | `O(1)` | absent versus unknown environment |
 | `redirectHasInputPath` | `(stringish) -> bool` | `O(r + n)` | secret redirects |
 | `hasAssignment` | `(string) -> bool` | `O(a)` | prefix assignments |
+| `hasAnyAssignment` | `() -> bool` | `O(1)` | any prefix assignment |
+| `assignmentsAreSubset` | `(string-set) -> bool` | `O(as)` | finite assignment allowlist |
+| `hasRedirect` | `() -> bool` | `O(1)` | redirection boundary |
+| `atEndOfArguments` | `() -> bool` | `O(1)` | EOF-only terminal guard |
+| `isDirectExecutable` | `(string) -> bool` | `O(n)` | exact unqualified executable |
+| `hasInheritedExecutableFunction` | `(string) -> bool` | `O(n)` | imported function shadowing |
+| `environmentAnyUnsafe` | `(string-set) -> bool` | `O(ns)` | finite unsafe environment routes |
+| `longOptionPrefixesAny` | `(stringish, string-set) -> bool` | `O(ns)` | audited long-option prefix table |
 | `hasProvenanceRoute` | `(string) -> bool` | `O(p)` | shell-wrapper routes |
 | `isInPipeline` | `() -> bool` | `O(1)` | pipeline context |
 | `processEffectIs` | `(string) -> bool` | `O(1)` | process effects |
@@ -215,7 +226,7 @@ available.
 
 ## Validation limits and progress proof
 
-v1 limits source JSON to 256 KiB; states to 128; registers to 64; folds to 32;
+v1 limits source JSON to 256 KiB; states to 512; registers to 64; folds to 32;
 options to 64; selectors to 256; option names to 16; fragments to 64; cases
 per state to 128; and source/compiled transitions, expanded cases, and
 templates to 4,096. Expression nodes are limited to 32,768, literal bytes to
@@ -241,3 +252,6 @@ of remaining argv token boundaries plus bytes in an active cluster. EOF and
 unmatched input always terminate. Combined with acyclic compile-time fragments,
 fixed registers, single-run non-nested folds, static transition targets, and
 total builtins, a valid program terminates without runtime fuel.
+`atEndOfArguments()` is an explicit EOF predicate for terminal actions. Use it when an accepted grammar must reject unrecognized option words before allowing the completed command.
+
+The v1 validator permits at most 512 states. This accommodates the checked-in, pinned GitHub CLI command trie while preserving a fixed resource bound.

@@ -1,7 +1,7 @@
-import { parseGhApiArguments } from "../../src/bash/policies/gh-api-parser.js";
-import { findSubcommand } from "../../src/bash/handlers/gh-utils.js";
-import { analyzeGhApiInvocation } from "../../src/bash/policies/gh-api.js";
-import { GH_API_DEFER_ENVIRONMENT_NAMES } from "../../src/bash/policy-environment.js";
+import { parseGhApiArguments } from "../../../src/bash/policies/gh-api-parser.js";
+import { findSubcommand } from "../../../src/bash/handlers/gh-utils.js";
+import { analyzeGhApiInvocation } from "../../../src/bash/policies/gh-api.js";
+import { GH_API_DEFER_ENVIRONMENT_NAMES } from "../../../src/bash/policy-environment.js";
 import { allow, defer, deny, executableIs, hasExplicitExecutionRoute, hasInheritedExecutableFunction, hasKnownExportedEnvironment, hasUnsafeEnvironment, ignore, knownArguments, type CodePermissionDefinition } from "./permission-utils.js";
 
 const gh = new Set(["gh"]);

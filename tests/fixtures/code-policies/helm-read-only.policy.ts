@@ -1,5 +1,5 @@
-import { readOnlyAllow } from "../../src/bash/policies/read-only-decision.js";
-import { HELM_CREDENTIAL_SAFE_COMMANDS } from "../../src/bash/policies/read-only-data.js";
+import { readOnlyAllow } from "../../../src/bash/policies/read-only-decision.js";
+import { HELM_CREDENTIAL_SAFE_COMMANDS } from "../../../src/bash/policies/read-only-data.js";
 import { allow, defer, executableIs, hasExplicitExecutionRoute, hasInheritedExecutableFunction, ignore, isSecretPath, knownArguments, type CodePermissionDefinition } from "./permission-utils.js";
 
 const helm = new Set(["helm"]);

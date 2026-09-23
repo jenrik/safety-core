@@ -1,0 +1,2336 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "permission",
+  "select": [
+    {
+      "executable": {
+        "projection": "basename",
+        "equals": "npm"
+      }
+    }
+  ],
+  "registers": {},
+  "folds": {
+    "hasSecretOperand": {
+      "collection": "argv",
+      "operation": "any",
+      "when": {
+        "all": [
+          {
+            "not": {
+              "call": "startsWith",
+              "args": [
+                {
+                  "ref": "fold.item"
+                },
+                "-"
+              ]
+            }
+          },
+          {
+            "not": {
+              "call": "anySafeGlob",
+              "args": [
+                {
+                  "call": "asciiLower",
+                  "args": [
+                    {
+                      "call": "basename",
+                      "args": [
+                        {
+                          "ref": "fold.item"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                [
+                  "*.env.example",
+                  "*.env.sample",
+                  "*.env.template",
+                  "*.env.dist"
+                ]
+              ]
+            }
+          },
+          {
+            "call": "anySafeGlob",
+            "args": [
+              {
+                "call": "asciiLower",
+                "args": [
+                  {
+                    "call": "basename",
+                    "args": [
+                      {
+                        "ref": "fold.item"
+                      }
+                    ]
+                  }
+                ]
+              },
+              [
+                "*.env",
+                "*.env.*",
+                ".envrc",
+                "*.pem",
+                "*.key",
+                "id_rsa*",
+                "id_ed25519*",
+                "id_dsa*",
+                "id_ecdsa*",
+                "*.p12",
+                "*.pfx",
+                "*.pkcs12",
+                ".netrc",
+                "credentials.json",
+                "credentials.yaml",
+                "credentials.yml",
+                "*-credentials.json",
+                "*-credentials.yaml",
+                "*-credentials.yml",
+                "*.credentials.json",
+                "*.credentials.yaml",
+                "*.credentials.yml",
+                "service-account*.json",
+                "service_account*.json",
+                "secrets.json",
+                "secrets.yaml",
+                "secrets.yml",
+                "*-secrets.json",
+                "*-secrets.yaml",
+                "*-secrets.yml",
+                "*.secrets.json",
+                "*.secrets.yaml",
+                "*.secrets.yml",
+                "*.secret.json",
+                "*.secret.yaml",
+                "*.secret.yml",
+                "kubeconfig"
+              ]
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "options": {
+    "flag0": {
+      "names": [
+        "--json"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": "*",
+      "set": {}
+    }
+  },
+  "fragments": {},
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "--help"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "exact"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "--version"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "exact"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "explain"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_explain"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "find"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_find"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "help-search"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_help_search"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "la"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_la"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "list"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_list"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "ll"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_ll"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "ls"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_ls"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "outdated"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_outdated"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "prefix"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_prefix"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "root"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_root"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "s"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_s"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "se"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_se"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "search"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_search"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "why"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "root_why"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_explain": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "npm"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "npm"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        []
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "npm auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_find": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "npm"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "npm"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        []
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "npm auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_help_search": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "npm"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "npm"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        []
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "npm auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_la": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "npm"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "npm"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        []
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "npm auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_list": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "npm"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "npm"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        []
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "npm auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_ll": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "npm"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "npm"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        []
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "npm auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_ls": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "npm"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "npm"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        []
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "npm auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_outdated": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "npm"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "npm"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        []
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "npm auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_prefix": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "npm"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "npm"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        []
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "npm auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_root": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "npm"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "npm"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        []
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "npm auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_s": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "npm"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "npm"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        []
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "npm auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_se": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "npm"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "npm"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        []
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "npm auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_search": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "npm"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "npm"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        []
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "npm auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "root_why": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "npm"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "npm"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        []
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "npm auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "exact": {
+      "cases": [
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "npm"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "npm"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        []
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "npm auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "accepted": {
+      "cases": [
+        {
+          "when": {
+            "any": [
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-"
+                ]
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "accepted"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "call": "isDirectExecutable",
+                    "args": [
+                      "npm"
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasAnyAssignment",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasRedirect",
+                      "args": []
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasInheritedExecutableFunction",
+                      "args": [
+                        "npm"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "environmentAnyUnsafe",
+                      "args": [
+                        []
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.hasSecretOperand"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "npm auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    }
+  }
+}

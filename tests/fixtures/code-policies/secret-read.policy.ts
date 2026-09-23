@@ -1,5 +1,5 @@
-import { analyzeSecretReadInvocation, analyzeSecretRedirectInvocation } from "../../src/bash/policies/secrets.js";
-import type { BashPolicyEvent, GuardPolicyDecision, LoadedBashPolicy } from "../../src/policy/types.js";
+import { analyzeSecretReadInvocation, analyzeSecretRedirectInvocation } from "../../../src/bash/policies/secrets.js";
+import type { BashPolicyEvent, GuardPolicyDecision, LoadedBashPolicy } from "../../../src/policy/types.js";
 
 type CodeGuardDefinition = Omit<LoadedBashPolicy, "source" | "layer" | "evaluate"> & {
   readonly apiVersion: 1;

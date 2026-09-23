@@ -1,5 +1,5 @@
-import { analyzeKubectlInvocation } from "../../src/bash/policies/kubectl.js";
-import type { BashPolicyEvent, GuardPolicyDecision, LoadedBashPolicy } from "../../src/policy/types.js";
+import { analyzeKubectlInvocation } from "../../../src/bash/policies/kubectl.js";
+import type { BashPolicyEvent, GuardPolicyDecision, LoadedBashPolicy } from "../../../src/policy/types.js";
 
 type CodeGuardDefinition = Omit<LoadedBashPolicy, "source" | "layer" | "evaluate"> & {
   readonly apiVersion: 1;

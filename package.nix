@@ -119,20 +119,14 @@ let
       fi
     '';
   };
-  mkGhPrCreatePolicy = { allowedRepositories, allowedOrganizations }: stdenv.mkDerivation {
-    pname = "safety-core-gh-pr-create-policy";
+  mkGhPrCreateDslPolicy = { allowedRepositories, allowedOrganizations }: stdenv.mkDerivation {
+    pname = "safety-core-gh-pr-create-dsl-policy";
     version = "0";
     src = ./.;
-    nativeBuildInputs = [ esbuild ];
+    nativeBuildInputs = [ nodejs_22 ];
     installPhase = ''
-      mkdir -p $out generated
-      printf '%s\n' 'import { createGhPrCreatePolicy } from "${./policies/code/gh-pr-create.policy.ts}";' > generated/entry.ts
-      printf '%s\n' 'export default createGhPrCreatePolicy(${builtins.toJSON { inherit allowedRepositories allowedOrganizations; }});' >> generated/entry.ts
-      esbuild --bundle --platform=node --format=esm --target=node20 --outfile="$out/gh-pr-create.policy.mjs" generated/entry.ts
-      if grep -Eq '^[[:space:]]*(import|export[[:space:]].*from)[[:space:]]' "$out/gh-pr-create.policy.mjs"; then
-        echo "bundled policy retained a runtime import" >&2
-        exit 1
-      fi
+      mkdir -p $out
+      ${nodejs_22}/bin/node ${./scripts/render-gh-pr-create-dsl.mjs} '${builtins.toJSON { inherit allowedRepositories allowedOrganizations; }}' > "$out/gh-pr-create.policy.json"
     '';
   };
 in
@@ -153,22 +147,38 @@ in
     githubHttp = ./policies/dsl/github-http.policy.json;
     kubectl = ./policies/dsl/kubectl.policy.json;
     unsupportedShellSource = ./policies/dsl/unsupported-shell-source.policy.json;
+    genericReadOnly = ./policies/dsl/generic-read-only.policy.json;
+    ghReadOnly = ./policies/dsl/gh-read-only.policy.json;
+    helmReadOnly = ./policies/dsl/helm-read-only.policy.json;
+    ghApi = ./policies/dsl/gh-api.policy.json;
+    strictReadOnly = [
+      ./policies/dsl/strict-argocd.policy.json
+      ./policies/dsl/strict-cosign.policy.json
+      ./policies/dsl/strict-crane.policy.json
+      ./policies/dsl/strict-docker.policy.json
+      ./policies/dsl/strict-jf.policy.json
+      ./policies/dsl/strict-jfrog.policy.json
+      ./policies/dsl/strict-kubectl.policy.json
+      ./policies/dsl/strict-nix.policy.json
+      ./policies/dsl/strict-nix-env.policy.json
+      ./policies/dsl/strict-nix-store.policy.json
+      ./policies/dsl/strict-npm.policy.json
+      ./policies/dsl/strict-oc.policy.json
+      ./policies/dsl/strict-pip.policy.json
+      ./policies/dsl/strict-podman.policy.json
+      ./policies/dsl/strict-podman-compose.policy.json
+      ./policies/dsl/strict-skopeo.policy.json
+      ./policies/dsl/strict-tofu.policy.json
+      ./policies/dsl/strict-uv.policy.json
+      ./policies/dsl/strict-yarn.policy.json
+    ];
   };
 
   codePolicies = {
-    secretRead = mkCodePolicy "secret-read" "policies/code/secret-read.policy.ts";
-    githubHttp = mkCodePolicy "github-http" "policies/code/github-http.policy.ts";
-    kubectl = mkCodePolicy "kubectl" "policies/code/kubectl.policy.ts";
-    unsupportedShellSource = mkCodePolicy "unsupported-shell-source" "policies/code/unsupported-shell-source.policy.ts";
-    genericReadOnly = mkCodePolicy "generic-read-only" "policies/code/generic-read-only.policy.ts";
-    ghReadOnly = mkCodePolicy "gh-read-only" "policies/code/gh-read-only.policy.ts";
-    helmReadOnly = mkCodePolicy "helm-read-only" "policies/code/helm-read-only.policy.ts";
-    strictReadOnly = mkCodePolicy "strict-read-only" "policies/code/strict-read-only.policy.ts";
-    ghApi = mkCodePolicy "gh-api" "policies/code/gh-api.policy.ts";
-    ghPrCreate = mkCodePolicy "gh-pr-create" "policies/code/gh-pr-create.policy.ts";
+    apiFixture = mkCodePolicy "api-fixture" "policies/code/api-fixture.policy.ts";
   };
 
-  inherit mkGhPrCreatePolicy;
+  inherit mkGhPrCreateDslPolicy;
 
   safetyCoreCli = stdenv.mkDerivation {
     pname = "safety-core";

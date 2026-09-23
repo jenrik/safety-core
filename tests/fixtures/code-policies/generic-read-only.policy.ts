@@ -1,5 +1,5 @@
-import { analyzeGitReadOnlyInvocation } from "../../src/bash/policies/git.js";
-import { readOnlyAllow } from "../../src/bash/policies/read-only-decision.js";
+import { analyzeGitReadOnlyInvocation } from "../../../src/bash/policies/git.js";
+import { readOnlyAllow } from "../../../src/bash/policies/read-only-decision.js";
 import { allow, defer, executableIs, hasExplicitExecutionRoute, hasInheritedExecutableFunction, hasUnsafeEnvironment, ignore, knownArguments, type CodePermissionDefinition } from "./permission-utils.js";
 
 const executables = new Set(["git", "sha256sum", "tea"]);

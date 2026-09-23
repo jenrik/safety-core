@@ -1,5 +1,5 @@
-import type { BashPolicyEvent, PermissionBashPolicy, PolicyDecision } from "../../src/policy/types.js";
-import { SECRET_EXCEPTIONS, SECRET_PATTERNS } from "../../src/patterns.js";
+import type { BashPolicyEvent, PermissionBashPolicy, PolicyDecision } from "../../../src/policy/types.js";
+import { SECRET_EXCEPTIONS, SECRET_PATTERNS } from "../../../src/patterns.js";
 
 export type CodePermissionDefinition = Omit<PermissionBashPolicy, "source" | "evaluate"> & {
   readonly apiVersion: 1;

@@ -1,4 +1,4 @@
-import type { BashPolicyEvent, GuardPolicyDecision, LoadedBashPolicy } from "../../src/policy/types.js";
+import type { BashPolicyEvent, GuardPolicyDecision, LoadedBashPolicy } from "../../../src/policy/types.js";
 
 type CodeGuardDefinition = Omit<LoadedBashPolicy, "source" | "layer" | "evaluate"> & {
   readonly apiVersion: 1;

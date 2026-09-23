@@ -69,7 +69,7 @@ export function evaluatePolicyEvents(
 
       if (decision.kind === "deny") denied = true;
       if (event.kind === "invocation" && policy.layer === "permission" && decision.kind === "allow"
-        && (event.missingBindings === "unset" || policy.select.some((selector) => selector.environmentIndependent === true))) {
+        && (event.missingBindings !== "unknown" || policy.select.some((selector) => selector.environmentIndependent === true))) {
         coveredInvocations.add(eventIndex);
       }
     }

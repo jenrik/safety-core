@@ -1,7 +1,7 @@
-import { ghPrCreateRepositoryValues, hasUnknownNestedGhCommand, isGhPrCreateCommand, isKnownGhTopLevel } from "../../src/bash/handlers/gh-command-line.js";
-import { findSubcommand } from "../../src/bash/handlers/gh-utils.js";
-import { analyzeGhPrCreateInvocation, type GhPrCreatePolicy } from "../../src/bash/policies/gh-pr-create.js";
-import { GH_GLOBAL_DEFER_ENVIRONMENT_NAMES } from "../../src/bash/policy-environment.js";
+import { ghPrCreateRepositoryValues, hasUnknownNestedGhCommand, isGhPrCreateCommand, isKnownGhTopLevel } from "../../../src/bash/handlers/gh-command-line.js";
+import { findSubcommand } from "../../../src/bash/handlers/gh-utils.js";
+import { analyzeGhPrCreateInvocation, type GhPrCreatePolicy } from "../../../src/bash/policies/gh-pr-create.js";
+import { GH_GLOBAL_DEFER_ENVIRONMENT_NAMES } from "../../../src/bash/policy-environment.js";
 import { allow, deny, executableIs, hasInheritedExecutableFunction, hasKnownExportedEnvironment, hasUnsafeEnvironment, ignore, knownArguments, type CodePermissionDefinition } from "./permission-utils.js";
 
 const gh = new Set(["gh"]);
@@ -40,7 +40,7 @@ export function createGhPrCreatePolicy(configuration: Pick<GhPrCreatePolicy, "al
 
 export default createGhPrCreatePolicy({ allowedRepositories: [], allowedOrganizations: [] });
 
-function unknownGhRoute(event: Extract<import("../../src/policy/types.js").BashPolicyEvent, { readonly kind: "invocation" }>) {
+function unknownGhRoute(event: Extract<import("../../../src/policy/types.js").BashPolicyEvent, { readonly kind: "invocation" }>) {
   const prIndex = event.argv.findIndex((argument) => argument.kind === "known" && argument.value === "pr");
   const prChild = prIndex >= 0 ? event.argv[prIndex + 1] : undefined;
   if (prIndex >= 0 && (!prChild || prChild.kind !== "known" || ["create", "new"].includes(prChild.value))) return deny("Pull-request creation is blocked when its command path or arguments cannot be resolved statically", event);

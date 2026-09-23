@@ -25,7 +25,7 @@
             ${pkgs.nodejs_22}/bin/node --input-type=module -e '
               const policy = (await import(process.argv[1])).default;
               if (!Object.isFrozen(policy) || policy.apiVersion !== 1 || typeof policy.evaluate !== "function") process.exit(1);
-            ' ${sc.codePolicies.secretRead}/secret-read.policy.mjs
+            ' ${sc.codePolicies.apiFixture}/api-fixture.policy.mjs
             touch $out
           '';
           cli-loads = pkgs.runCommand "safety-core-cli-loads-check" { } ''

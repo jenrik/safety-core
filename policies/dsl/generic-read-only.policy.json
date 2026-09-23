@@ -1,0 +1,1378 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "permission",
+  "select": [
+    {
+      "executable": {
+        "projection": "basename",
+        "equals": "git"
+      }
+    },
+    {
+      "executable": {
+        "projection": "basename",
+        "equals": "sha256sum"
+      }
+    },
+    {
+      "executable": {
+        "projection": "basename",
+        "equals": "tea"
+      }
+    }
+  ],
+  "registers": {},
+  "folds": {
+    "hasSecretOperand": {
+      "collection": "argv",
+      "operation": "any",
+      "when": {
+        "all": [
+          {
+            "not": {
+              "call": "startsWith",
+              "args": [
+                {
+                  "ref": "fold.item"
+                },
+                "-"
+              ]
+            }
+          },
+          {
+            "not": {
+              "call": "anySafeGlob",
+              "args": [
+                {
+                  "call": "asciiLower",
+                  "args": [
+                    {
+                      "call": "basename",
+                      "args": [
+                        {
+                          "ref": "fold.item"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                [
+                  "*.env.example",
+                  "*.env.sample",
+                  "*.env.template",
+                  "*.env.dist"
+                ]
+              ]
+            }
+          },
+          {
+            "call": "anySafeGlob",
+            "args": [
+              {
+                "call": "asciiLower",
+                "args": [
+                  {
+                    "call": "basename",
+                    "args": [
+                      {
+                        "ref": "fold.item"
+                      }
+                    ]
+                  }
+                ]
+              },
+              [
+                "*.env",
+                "*.env.*",
+                ".envrc",
+                "*.pem",
+                "*.key",
+                "id_rsa*",
+                "id_ed25519*",
+                "id_dsa*",
+                "id_ecdsa*",
+                "*.p12",
+                "*.pfx",
+                "*.pkcs12",
+                ".netrc",
+                "credentials.json",
+                "credentials.yaml",
+                "credentials.yml",
+                "*-credentials.json",
+                "*-credentials.yaml",
+                "*-credentials.yml",
+                "*.credentials.json",
+                "*.credentials.yaml",
+                "*.credentials.yml",
+                "service-account*.json",
+                "service_account*.json",
+                "secrets.json",
+                "secrets.yaml",
+                "secrets.yml",
+                "*-secrets.json",
+                "*-secrets.yaml",
+                "*-secrets.yml",
+                "*.secrets.json",
+                "*.secrets.yaml",
+                "*.secrets.yml",
+                "*.secret.json",
+                "*.secret.yaml",
+                "*.secret.yml",
+                "kubeconfig"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "unsafeGitOption": {
+      "collection": "argv",
+      "operation": "any",
+      "when": {
+        "call": "longOptionPrefixesAny",
+        "args": [
+          {
+            "ref": "fold.item"
+          },
+          [
+            "--ext-diff",
+            "--no-index",
+            "--open-files-in-pager",
+            "--output",
+            "--textconv"
+          ]
+        ]
+      }
+    }
+  },
+  "options": {},
+  "fragments": {},
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [
+        {
+          "when": {
+            "call": "isDirectExecutable",
+            "args": [
+              "sha256sum"
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "sha256sum auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand",
+              "unsafeGitOption"
+            ]
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "tea"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "--help"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "teaEnd"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "--help"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitExactEnd"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "--version"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitExactEnd"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "version"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitExactEnd"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "describe"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitOpen"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "diff"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitOpen"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "diff-files"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitOpen"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "diff-index"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitOpen"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "diff-tree"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitOpen"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "for-each-ref"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitOpen"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "log"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitOpen"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "ls-files"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitOpen"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "ls-tree"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitOpen"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "merge-base"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitOpen"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "name-rev"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitOpen"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "rev-list"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitOpen"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "rev-parse"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitOpen"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "show"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitOpen"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "show-ref"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitOpen"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "verify-commit"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitOpen"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "verify-tag"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitOpen"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "branch"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "branch"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "tag"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "tag"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "worktree"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "worktree"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "submodule"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "submodule"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "git"
+                ]
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "reflog"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "reflog"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "all": [
+                      {
+                        "call": "isDirectExecutable",
+                        "args": [
+                          "sha256sum"
+                        ]
+                      },
+                      {
+                        "not": {
+                          "call": "hasAnyAssignment",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasRedirect",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasInheritedExecutableFunction",
+                          "args": [
+                            "sha256sum"
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "environmentAnyUnsafe",
+                          "args": [
+                            []
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "ref": "fold.hasSecretOperand"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.unsafeGitOption"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "sha256sum auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand",
+              "unsafeGitOption"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      }
+    },
+    "teaEnd": {
+      "cases": [],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand",
+          "unsafeGitOption"
+        ]
+      },
+      "end": {
+        "decision": "allow",
+        "reason": [
+          "tea auto-allowed by the read-only profile"
+        ],
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand",
+          "unsafeGitOption"
+        ]
+      }
+    },
+    "gitOpen": {
+      "cases": [
+        {
+          "when": true,
+          "action": {
+            "consume": "word",
+            "next": "gitOpen"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "all": [
+                      {
+                        "call": "isDirectExecutable",
+                        "args": [
+                          "git"
+                        ]
+                      },
+                      {
+                        "not": {
+                          "call": "hasAnyAssignment",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasRedirect",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasInheritedExecutableFunction",
+                          "args": [
+                            "git"
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "environmentAnyUnsafe",
+                          "args": [
+                            [
+                              "GIT_CONFIG_COUNT",
+                              "GIT_CONFIG_GLOBAL",
+                              "GIT_CONFIG_PARAMETERS",
+                              "GIT_CONFIG_SYSTEM",
+                              "GIT_EXTERNAL_DIFF",
+                              "GIT_PAGER",
+                              "PAGER"
+                            ]
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "ref": "fold.hasSecretOperand"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.unsafeGitOption"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "git auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "hasSecretOperand",
+              "unsafeGitOption"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand",
+          "unsafeGitOption"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand",
+          "unsafeGitOption"
+        ]
+      }
+    },
+    "gitExactEnd": {
+      "cases": [],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand",
+          "unsafeGitOption"
+        ]
+      },
+      "end": {
+        "decision": "allow",
+        "reason": [
+          "git auto-allowed by the read-only profile"
+        ],
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand",
+          "unsafeGitOption"
+        ]
+      }
+    },
+    "branch": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "--list"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitExactEnd"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "-l"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitExactEnd"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "--show-current"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitExactEnd"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand",
+          "unsafeGitOption"
+        ]
+      },
+      "end": {
+        "decision": "allow",
+        "reason": [
+          "git auto-allowed by the read-only profile"
+        ],
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand",
+          "unsafeGitOption"
+        ]
+      }
+    },
+    "tag": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "--list"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitExactEnd"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "-l"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitExactEnd"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand",
+          "unsafeGitOption"
+        ]
+      },
+      "end": {
+        "decision": "allow",
+        "reason": [
+          "git auto-allowed by the read-only profile"
+        ],
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand",
+          "unsafeGitOption"
+        ]
+      }
+    },
+    "worktree": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "list"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitExactEnd"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand",
+          "unsafeGitOption"
+        ]
+      },
+      "end": {
+        "decision": "allow",
+        "reason": [
+          "git auto-allowed by the read-only profile"
+        ],
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand",
+          "unsafeGitOption"
+        ]
+      }
+    },
+    "submodule": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "status"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitExactEnd"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand",
+          "unsafeGitOption"
+        ]
+      },
+      "end": {
+        "decision": "allow",
+        "reason": [
+          "git auto-allowed by the read-only profile"
+        ],
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand",
+          "unsafeGitOption"
+        ]
+      }
+    },
+    "reflog": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "show"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "gitExactEnd"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand",
+          "unsafeGitOption"
+        ]
+      },
+      "end": {
+        "decision": "allow",
+        "reason": [
+          "git auto-allowed by the read-only profile"
+        ],
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand",
+          "unsafeGitOption"
+        ]
+      }
+    }
+  }
+}

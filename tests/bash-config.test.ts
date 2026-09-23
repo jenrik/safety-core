@@ -26,5 +26,5 @@ test("Nix renders the same complete authoritative config shape", () => {
     in builtins.fromJSON (builtins.unsafeDiscardStringContext evaluated.config.xdg.configFile."safety-core/config.json".text)
   `], { encoding: "utf8" }));
   expect(rendered).toMatchObject({ version: 1, projectPolicies: { mode: "disabled" }, bashAnalysis: { maxSteps: 5 } });
-  expect(rendered.policies).toHaveLength(9);
+  expect(rendered.policies).toHaveLength(27);
 });

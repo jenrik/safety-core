@@ -1,0 +1,40 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "permission",
+  "select": [{ "executable": { "projection": "basename", "equals": "gh" } }],
+  "registers": { "method": { "type": "inputRef", "initial": null }, "endpointValue": { "type": "inputRef", "initial": null }, "hasMethod": { "type": "bool", "initial": false }, "hasParameters": { "type": "bool", "initial": false }, "unsafe": { "type": "bool", "initial": false } },
+  "folds": {},
+  "options": {
+    "methodOption": { "names": ["--method", "-X"], "value": "required", "forms": ["separate", "attachedShort", "equalsLong", "cluster"], "availableIn": "*", "set": { "method": { "ref": "option.value" }, "hasMethod": true } },
+    "rawField": { "names": ["--raw-field", "-f"], "value": "required", "forms": ["separate", "attachedShort", "equalsLong", "cluster"], "availableIn": "*", "set": { "hasParameters": true, "unsafe": { "any": [{ "ref": "unsafe" }, { "not": { "all": [{ "call": "includes", "args": [{ "ref": "option.value" }, "="] }, { "not": { "call": "startsWith", "args": [{ "ref": "option.value" }, "="] } }] } }] } } },
+    "field": { "names": ["--field", "-F"], "value": "required", "forms": ["separate", "attachedShort", "equalsLong", "cluster"], "availableIn": "*", "set": { "hasParameters": true, "unsafe": { "any": [{ "ref": "unsafe" }, { "not": { "all": [{ "call": "includes", "args": [{ "ref": "option.value" }, "="] }, { "not": { "call": "startsWith", "args": [{ "ref": "option.value" }, "="] } }, { "not": { "call": "startsWith", "args": [{ "call": "splitComponent", "args": [{ "ref": "option.value" }, "=", 1] }, "@"] } }] } }] } } },
+    "input": { "names": ["--input"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": "*", "set": { "hasParameters": true, "unsafe": true } },
+    "unsafeValue": { "names": ["--hostname", "-H", "--header", "--cache", "-p", "--preview", "-q", "--jq", "-t", "--template"], "value": "required", "forms": ["separate", "attachedShort", "equalsLong", "cluster"], "availableIn": "*", "set": { "unsafe": true } },
+    "unsafeBoolean": { "names": ["-i", "--include", "--paginate", "--slurp", "--silent", "--verbose", "--allow-escape-sequences"], "value": "absent", "forms": [], "availableIn": "*", "set": { "unsafe": true } }
+  },
+  "fragments": {},
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [{ "when": { "call": "equals", "args": [{ "ref": "word" }, "api"] }, "action": { "consume": "word", "next": "endpoint" } }, { "when": true, "action": { "decision": "ignore" } }],
+      "default": { "decision": "ignore" }, "end": { "decision": "ignore" }
+    },
+    "endpoint": {
+      "cases": [{ "when": true, "action": { "consume": "word", "next": "end", "set": { "endpointValue": { "ref": "word" } } } }],
+      "default": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }, "end": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+    },
+    "end": {
+      "cases": [
+        { "when": { "any": [{ "call": "startsWith", "args": [{ "ref": "endpointValue" }, "graphql"] }, { "call": "startsWith", "args": [{ "ref": "endpointValue" }, "/graphql"] }, { "call": "includes", "args": [{ "ref": "endpointValue" }, "/graphql"] }] }, "action": { "decision": "deny", "reason": ["gh api GraphQL endpoints are not permitted by the read-only API profile"], "audit": { "invocation": { "ref": "event" } } } },
+        { "when": { "all": [{ "ref": "hasMethod" }, { "not": { "call": "wordInAsciiCaseInsensitiveSet", "args": [{ "ref": "method" }, ["GET", "HEAD"]] } }] }, "action": { "decision": "deny", "capture": { "upper": { "call": "asciiUpper", "args": [{ "ref": "method" }] } }, "reason": ["gh api --method ", { "ref": "capture.upper" }, " is not read-only"], "audit": { "invocation": { "ref": "event" } } } },
+        { "when": { "all": [{ "not": { "ref": "hasMethod" } }, { "ref": "hasParameters" }] }, "action": { "decision": "deny", "reason": ["gh api with -f/-F/--input and no explicit --method defaults to POST, not read-only"], "audit": { "invocation": { "ref": "event" } } } },
+        { "when": { "not": { "all": [{ "call": "isDirectExecutable", "args": ["gh"] }, { "call": "assignmentsAreSubset", "args": [["GH_PAGER"]] }, { "not": { "call": "hasRedirect", "args": [] } }, { "not": { "call": "hasInheritedExecutableFunction", "args": ["gh"] } }, { "not": { "call": "environmentAnyUnsafe", "args": [["GH_CONFIG_DIR", "GH_HOST", "GH_REPO", "GH_DEBUG", "DEBUG", "CLICOLOR_FORCE", "GH_COLOR_LABELS", "GH_ACCESSIBLE_COLORS", "GH_FORCE_TTY", "GH_PATH", "GH_TELEMETRY", "GH_TELEMETRY_SAMPLE_RATE"]] } }, { "call": "environmentIsExported", "args": ["GH_PAGER"] }, { "any": [{ "call": "environmentValueEquals", "args": [{ "call": "environmentLookup", "args": ["GH_PAGER"] }, ""] }, { "call": "environmentValueEquals", "args": [{ "call": "environmentLookup", "args": ["GH_PAGER"] }, "cat"] }] }] } }, "action": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } } },
+        { "when": { "ref": "unsafe" }, "action": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } } },
+        { "when": { "ref": "hasMethod" }, "action": { "decision": "allow", "capture": { "upper": { "call": "asciiUpper", "args": [{ "ref": "method" }] } }, "reason": ["gh api --method ", { "ref": "capture.upper" }, " auto-allowed (read-only)"], "audit": { "invocation": { "ref": "event" } } } },
+        { "when": true, "action": { "decision": "allow", "reason": ["gh api auto-allowed (GET, no parameters)"], "audit": { "invocation": { "ref": "event" } } } }
+      ],
+      "default": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } },
+      "end": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+    }
+  }
+}

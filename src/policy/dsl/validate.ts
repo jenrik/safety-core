@@ -21,7 +21,9 @@ export { POLICY_LANGUAGE_V1 } from "./ast.js";
 
 export const POLICY_DOCUMENT_LIMITS = Object.freeze({
   bytes: 256 * 1024,
-  states: 128,
+  // The pinned GitHub CLI inventory has 309 shared-prefix trie states. Keep
+  // this finite ceiling high enough for an auditable complete command table.
+  states: 512,
   registers: 64,
   folds: 32,
   options: 64,

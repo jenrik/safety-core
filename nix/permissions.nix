@@ -8,13 +8,12 @@ let
     safetyCore.dslPolicies.githubHttp
     safetyCore.dslPolicies.kubectl
     safetyCore.dslPolicies.unsupportedShellSource
-    safetyCore.codePolicies.genericReadOnly
-    safetyCore.codePolicies.ghReadOnly
-    safetyCore.codePolicies.helmReadOnly
-    safetyCore.codePolicies.strictReadOnly
-    safetyCore.codePolicies.ghApi
-  ];
-  prSource = safetyCore.mkGhPrCreatePolicy {
+    safetyCore.dslPolicies.genericReadOnly
+    safetyCore.dslPolicies.ghReadOnly
+    safetyCore.dslPolicies.helmReadOnly
+    safetyCore.dslPolicies.ghApi
+  ] ++ safetyCore.dslPolicies.strictReadOnly;
+  prSource = safetyCore.mkGhPrCreateDslPolicy {
     allowedRepositories = cfg.prCreate.allowedRepositories;
     allowedOrganizations = cfg.prCreate.allowedOrganizations;
   };
@@ -30,7 +29,7 @@ in {
     };
     completePolicySources = mkEnableOption "the complete built-in trusted policy source set";
     prCreate = {
-      enable = mkEnableOption "generate and add a repository-scoped transitional gh pr create policy source";
+      enable = mkEnableOption "generate and add a repository-scoped gh pr create DSL policy source";
       allowedRepositories = mkOption { type = types.listOf types.str; default = [ ]; };
       allowedOrganizations = mkOption { type = types.listOf types.str; default = [ ]; };
     };

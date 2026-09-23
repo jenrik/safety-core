@@ -8,7 +8,7 @@ export function renderGhPrCreateCodePolicy(options: GhPrCreateCodePolicyOptions)
   const allowedRepositories = validateList(options.allowedRepositories, "allowedRepositories", 2, 3);
   const allowedOrganizations = validateList(options.allowedOrganizations, "allowedOrganizations", 1, 2);
   return [
-    'import { createGhPrCreatePolicy } from "./policies/code/gh-pr-create.policy.js";',
+    'import { createGhPrCreatePolicy } from "./code-policies/gh-pr-create.policy.js";',
     "",
     `const allowedRepositories = Object.freeze(${JSON.stringify(allowedRepositories)});`,
     `const allowedOrganizations = Object.freeze(${JSON.stringify(allowedOrganizations)});`,

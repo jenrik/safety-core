@@ -1,6 +1,6 @@
-import { kubectlResourceOperandsRequireReview } from "../../src/bash/policies/kubectl.js";
-import { readOnlyAllow } from "../../src/bash/policies/read-only-decision.js";
-import { STRICT_ALLOWED_FLAGS, STRICT_READ_ONLY_COMMANDS } from "../../src/bash/policies/read-only-data.js";
+import { kubectlResourceOperandsRequireReview } from "../../../src/bash/policies/kubectl.js";
+import { readOnlyAllow } from "../../../src/bash/policies/read-only-decision.js";
+import { STRICT_ALLOWED_FLAGS, STRICT_READ_ONLY_COMMANDS } from "../../../src/bash/policies/read-only-data.js";
 import { allow, defer, executableIs, hasExplicitExecutionRoute, hasInheritedExecutableFunction, hasUnsafeEnvironment, ignore, isSecretPath, knownArguments, type CodePermissionDefinition } from "./permission-utils.js";
 
 const executables = new Set(Object.keys(STRICT_READ_ONLY_COMMANDS));

@@ -383,6 +383,11 @@ function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeCo
     case "urlHostEquals": return isUnknown(args[0]) || isUnknown(strings[1]) ? UNKNOWN : isUrl(args[0]) && args[0].host === asciiCase(strings[1] as string, false);
     case "parseRepository": return isUnknown(strings[0]) ? UNKNOWN : parseRepository(strings[0] as string);
     case "repositoryEquals": return isRepository(args[0]) && args[0].owner === strings[1] && args[0].repository === strings[2];
+    case "repositoryHasExplicitHost": return isRepository(args[0]) && args[0].explicitHost;
+    case "repositoryMatches": return isRepository(args[0]) && args[0].host === asciiCase(strings[1] as string, false)
+      && args[0].owner === asciiCase(strings[2] as string, false) && args[0].repository === asciiCase(strings[3] as string, false);
+    case "repositoryMatchesOrganization": return isRepository(args[0]) && args[0].host === asciiCase(strings[1] as string, false)
+      && args[0].owner === asciiCase(strings[2] as string, false);
     case "normalizeKubernetesResource": return isUnknown(strings[0]) ? UNKNOWN : normalizeKubernetes(strings[0] as string);
     case "normalizeGitHubEndpoint": return isUnknown(strings[0]) ? UNKNOWN : normalizeEndpoint(strings[0] as string);
     case "environmentLookup": return environmentLookup(context.event, strings[0]);
@@ -394,6 +399,17 @@ function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeCo
     case "missingEnvironmentMayBePresent": return context.event.missingBindings === "unknown";
     case "redirectHasInputPath": return isUnknown(strings[0]) ? UNKNOWN : context.event.kind === "invocation" && context.event.redirects.some((redirect) => redirect.target !== null && stringValue(inputReference(redirect.target)) === strings[0]);
     case "hasAssignment": return typeof strings[0] === "string" && context.event.kind === "invocation" && Object.hasOwn(context.event.assignments, strings[0]);
+    case "hasAnyAssignment": return context.event.kind === "invocation" && Object.keys(context.event.assignments).length > 0;
+    case "assignmentsAreSubset": return context.event.kind === "invocation" && Array.isArray(args[0])
+      && Object.keys(context.event.assignments).every((name) => args[0].includes(name));
+    case "hasRedirect": return context.event.kind === "invocation" && context.event.redirects.length > 0;
+    case "atEndOfArguments": return context.word === undefined;
+    case "isDirectExecutable": return context.event.kind === "invocation" && context.event.executable?.kind === "known"
+      && context.event.executable.value === strings[0];
+    case "hasInheritedExecutableFunction": return inheritedExecutableFunction(context.event, strings[0]);
+    case "environmentAnyUnsafe": return Array.isArray(args[0]) && args[0].some((name) => environmentIsUnsafe(context.event, name));
+    case "longOptionPrefixesAny": return !isUnknown(strings[0]) && typeof strings[0] === "string" && strings[0].startsWith("--")
+      && Array.isArray(args[1]) && args[1].some((option) => option.startsWith((strings[0] as string).split("=", 1)[0]!));
     case "hasProvenanceRoute": return typeof strings[0] === "string" && context.event.provenance.route.includes(strings[0]);
     case "isInPipeline": return context.event.inPipeline;
     case "processEffectIs": return strings[0] === context.event.processEffect;
@@ -449,14 +465,35 @@ function containsDomainToken(value: string, domain: string): boolean {
 }
 function parseUrl(value: string): RuntimeValue { try { const parsed = new URL(value); return Object.freeze({ host: asciiCase(parsed.hostname, false), path: parsed.pathname || "/" }); } catch { return null; } }
 function isUrl(value: unknown): value is { readonly host: string; readonly path: string } { return typeof value === "object" && value !== null && "host" in value && "path" in value; }
-function parseRepository(value: string): RuntimeValue { const match = /^(?:https:\/\/[^/]+\/|git@[^:]+:)?([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/.exec(value); return match ? Object.freeze({ owner: match[1]!, repository: match[2]! }) : null; }
-function isRepository(value: unknown): value is { readonly owner: string; readonly repository: string } { return typeof value === "object" && value !== null && "owner" in value && "repository" in value; }
+function parseRepository(value: string): RuntimeValue {
+  const normalized = asciiCase(value.trim(), false).replace(/\/$/, "");
+  const url = /^(?:https:\/\/|git@)([^/:]+)(?:\/|:)([a-z0-9][a-z0-9._-]*)\/([a-z0-9][a-z0-9._-]*?)(?:\.git)?$/.exec(normalized);
+  if (url) return Object.freeze({ host: url[1]!, owner: url[2]!, repository: url[3]!, explicitHost: true });
+  const parts = normalized.split("/");
+  if (parts.length === 2 && parts.every(identifier)) return Object.freeze({ host: "github.com", owner: parts[0]!, repository: parts[1]!, explicitHost: false });
+  if (parts.length === 3 && parts.every(identifier)) return Object.freeze({ host: parts[0]!, owner: parts[1]!, repository: parts[2]!, explicitHost: true });
+  return null;
+}
+function identifier(value: string): boolean { return /^[a-z0-9][a-z0-9._-]*$/.test(value); }
+function isRepository(value: unknown): value is { readonly host: string; readonly owner: string; readonly repository: string; readonly explicitHost: boolean } { return typeof value === "object" && value !== null && "host" in value && "owner" in value && "repository" in value && "explicitHost" in value; }
 function normalizeKubernetes(value: string): string { const lower = asciiCase(value, false); return lower.endsWith("ies") ? `${lower.slice(0, -3)}y` : lower.endsWith("s") ? lower.slice(0, -1) : lower; }
 function normalizeEndpoint(value: string): string { return `/${value.split("/").filter(Boolean).join("/")}`; }
 function requiresKnownOperands(name: string): boolean {
-  return !["environmentIsPresent", "environmentIsKnown", "environmentIsUnknown", "missingEnvironmentMayBePresent", "isInPipeline"].includes(name);
+  return !["environmentIsPresent", "environmentIsKnown", "environmentIsUnknown", "missingEnvironmentMayBePresent", "isInPipeline", "hasAnyAssignment", "hasRedirect"].includes(name);
 }
-function nonStringOperandBuiltin(name: string): boolean { return name === "inStringSet" || name === "wordInAsciiCaseInsensitiveSet" || name === "pathComponent" || name === "pathAfterComponents" || name === "splitComponent" || name === "parseBoundedInt" || name === "boundedIntAtMost" || name === "anySafeGlob" || name === "urlHost" || name === "urlPath" || name === "urlHostEquals" || name === "repositoryEquals" || name === "inputBlockedDomain"; }
+function nonStringOperandBuiltin(name: string): boolean { return name === "inStringSet" || name === "wordInAsciiCaseInsensitiveSet" || name === "pathComponent" || name === "pathAfterComponents" || name === "splitComponent" || name === "parseBoundedInt" || name === "boundedIntAtMost" || name === "anySafeGlob" || name === "urlHost" || name === "urlPath" || name === "urlHostEquals" || name === "repositoryEquals" || name === "repositoryHasExplicitHost" || name === "repositoryMatches" || name === "repositoryMatchesOrganization" || name === "environmentAnyUnsafe" || name === "assignmentsAreSubset" || name === "longOptionPrefixesAny" || name === "inputBlockedDomain"; }
+function inheritedExecutableFunction(event: BashPolicyEvent, executable: string | typeof UNKNOWN): RuntimeValue {
+  if (isUnknown(executable) || event.kind !== "invocation") return UNKNOWN;
+  const inherited = environmentLookup(event, `__SAFETY_CORE_BASH_FUNCTION_${executable}`);
+  if (isBinding(inherited) && inherited.kind !== "unset") return true;
+  const captured = environmentLookup(event, "__SAFETY_CORE_BASH_FUNCTIONS_CAPTURED");
+  return isBinding(captured) ? captured.kind === "unknown" : UNKNOWN;
+}
+function environmentIsUnsafe(event: BashPolicyEvent, name: unknown): boolean {
+  if (typeof name !== "string") return true;
+  const value = environmentLookup(event, name);
+  return value === UNKNOWN || !isBinding(value) || value.kind === "unknown" || value.kind === "known" && value.value.length > 0;
+}
 function inputRedirectTarget(event: Extract<BashPolicyEvent, { readonly kind: "invocation" }>): RuntimeValue {
   const target = event.redirects.find((redirect) => redirect.kind === "input")?.target;
   return target === null || target === undefined ? UNKNOWN : inputReference(target);

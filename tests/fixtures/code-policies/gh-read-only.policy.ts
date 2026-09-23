@@ -1,6 +1,6 @@
-import { ghCommandGrammarMatches, parseGhCommandLine } from "../../src/bash/handlers/gh-command-line.js";
-import { readOnlyAllow } from "../../src/bash/policies/read-only-decision.js";
-import { GH_DEFER_ENVIRONMENT_NAMES } from "../../src/bash/policy-environment.js";
+import { ghCommandGrammarMatches, parseGhCommandLine } from "../../../src/bash/handlers/gh-command-line.js";
+import { readOnlyAllow } from "../../../src/bash/policies/read-only-decision.js";
+import { GH_DEFER_ENVIRONMENT_NAMES } from "../../../src/bash/policy-environment.js";
 import { allow, defer, executableIs, hasExplicitExecutionRoute, hasInheritedExecutableFunction, hasUnsafeEnvironment, ignore, isSecretPath, knownArguments, type CodePermissionDefinition } from "./permission-utils.js";
 
 const gh = new Set(["gh"]);

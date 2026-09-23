@@ -145,7 +145,7 @@ describe("DCRM JSON policy validation", () => {
       document.fragments = { invalid: { cases: [{ when: true, action: { consume: "word", next: "absent" } }] } };
       document.states.command.fragments = ["invalid"];
     });
-    invalid((document) => { document.states = Object.fromEntries(Array.from({ length: 129 }, (_, index) => [`s${index}`, { cases: [], default: { decision: "ignore" }, end: { decision: "ignore" } }])); document.start = "s0"; });
+    invalid((document) => { document.states = Object.fromEntries(Array.from({ length: 513 }, (_, index) => [`s${index}`, { cases: [], default: { decision: "ignore" }, end: { decision: "ignore" } }])); document.start = "s0"; });
     invalid((document) => { document.select = Array.from({ length: 257 }, () => ({ kind: "invocation" })); });
     invalid((document) => { document.options.namespace.names = Array.from({ length: 17 }, (_, index) => `--option-${index}`); });
     invalid((document) => { document.states.command.cases[0].when = { all: Array.from({ length: 32_769 }, () => true) }; });
