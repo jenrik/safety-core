@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -38,6 +38,42 @@ test("Claude secrets handler retains session context and direct Read exit-2 bloc
     expect(bash.stdout).toBe("");
   } finally {
     rmSync(home, { force: true, recursive: true });
+  }
+});
+
+test("Claude SessionStart creates the immutable policy manifest before Bash callbacks", () => {
+  const root = mkdtempSync(join(tmpdir(), "safety-core-claude-session-start-"));
+  const home = join(root, "home");
+  const state = join(root, "state");
+  const policy = join(root, "policy.policy.mjs");
+  try {
+    mkdirSync(join(home, "safety-core"), { recursive: true });
+    writeFileSync(policy, `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`);
+    writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({
+      version: 1,
+      policies: [policy],
+      projectPolicies: { mode: "disabled" },
+      bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 },
+    }));
+    const session = runHook("adapters/claude-code/bash_policy.ts", {
+      hook_event_name: "SessionStart",
+      session_id: "session-start",
+      cwd: root,
+    }, { ...process.env, SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state });
+    expect(session.status).toBe(0);
+    const manifests = join(state, "safety-core", "claude-policy-sessions");
+    expect(existsSync(manifests)).toBeTrue();
+    const names = readdirSync(manifests);
+    expect(names).toHaveLength(1);
+    expect(JSON.parse(readFileSync(join(manifests, names[0]!), "utf8"))).toMatchObject({
+      version: 1,
+      sessionID: "session-start",
+      cwd: root,
+      configurations: [{ canonicalPath: join(home, "safety-core", "config.json"), sha256: expect.any(String) }],
+      sources: [{ canonicalPath: policy, sha256: expect.any(String) }],
+    });
+  } finally {
+    rmSync(root, { force: true, recursive: true });
   }
 });
 

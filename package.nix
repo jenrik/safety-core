@@ -67,6 +67,28 @@ let
 
   src = ./src;
   data = ./data;
+  policySources = stdenv.mkDerivation {
+    pname = "safety-core-policy-sources";
+    version = "0";
+    src = ./policies/dsl;
+    dontUnpack = true;
+    installPhase = ''
+      mkdir -p $out
+      cp -r $src/. $out/
+    '';
+  };
+  core = stdenv.mkDerivation {
+    pname = "safety-core-core";
+    version = "0";
+    dontUnpack = true;
+    installPhase = ''
+      mkdir -p $out
+      cp -r ${src} $out/src
+      cp -r ${data} $out/data
+      cp -r ${wasmAssets}/node_modules $out/node_modules
+      cp ${wasmAssets}/tree-sitter-bash.wasm $out/tree-sitter-bash.wasm
+    '';
+  };
 
   # Package a harness adapter as a directory extension (index.ts at root +
   # src/ + data/ + node_modules/ + WASM).  Rewrites `../src/` → `./src/` and
@@ -143,34 +165,34 @@ in
   # Not wired into harness configuration yet; Task 4 only produces trusted,
   # source-provenanced artifacts for loader and differential-policy testing.
   dslPolicies = {
-    secretRead = ./policies/dsl/secret-read.policy.json;
-    githubHttp = ./policies/dsl/github-http.policy.json;
-    kubectl = ./policies/dsl/kubectl.policy.json;
-    unsupportedShellSource = ./policies/dsl/unsupported-shell-source.policy.json;
-    genericReadOnly = ./policies/dsl/generic-read-only.policy.json;
-    ghReadOnly = ./policies/dsl/gh-read-only.policy.json;
-    helmReadOnly = ./policies/dsl/helm-read-only.policy.json;
-    ghApi = ./policies/dsl/gh-api.policy.json;
+    secretRead = "${policySources}/secret-read.policy.json";
+    githubHttp = "${policySources}/github-http.policy.json";
+    kubectl = "${policySources}/kubectl.policy.json";
+    unsupportedShellSource = "${policySources}/unsupported-shell-source.policy.json";
+    genericReadOnly = "${policySources}/generic-read-only.policy.json";
+    ghReadOnly = "${policySources}/gh-read-only.policy.json";
+    helmReadOnly = "${policySources}/helm-read-only.policy.json";
+    ghApi = "${policySources}/gh-api.policy.json";
     strictReadOnly = [
-      ./policies/dsl/strict-argocd.policy.json
-      ./policies/dsl/strict-cosign.policy.json
-      ./policies/dsl/strict-crane.policy.json
-      ./policies/dsl/strict-docker.policy.json
-      ./policies/dsl/strict-jf.policy.json
-      ./policies/dsl/strict-jfrog.policy.json
-      ./policies/dsl/strict-kubectl.policy.json
-      ./policies/dsl/strict-nix.policy.json
-      ./policies/dsl/strict-nix-env.policy.json
-      ./policies/dsl/strict-nix-store.policy.json
-      ./policies/dsl/strict-npm.policy.json
-      ./policies/dsl/strict-oc.policy.json
-      ./policies/dsl/strict-pip.policy.json
-      ./policies/dsl/strict-podman.policy.json
-      ./policies/dsl/strict-podman-compose.policy.json
-      ./policies/dsl/strict-skopeo.policy.json
-      ./policies/dsl/strict-tofu.policy.json
-      ./policies/dsl/strict-uv.policy.json
-      ./policies/dsl/strict-yarn.policy.json
+      "${policySources}/strict-argocd.policy.json"
+      "${policySources}/strict-cosign.policy.json"
+      "${policySources}/strict-crane.policy.json"
+      "${policySources}/strict-docker.policy.json"
+      "${policySources}/strict-jf.policy.json"
+      "${policySources}/strict-jfrog.policy.json"
+      "${policySources}/strict-kubectl.policy.json"
+      "${policySources}/strict-nix.policy.json"
+      "${policySources}/strict-nix-env.policy.json"
+      "${policySources}/strict-nix-store.policy.json"
+      "${policySources}/strict-npm.policy.json"
+      "${policySources}/strict-oc.policy.json"
+      "${policySources}/strict-pip.policy.json"
+      "${policySources}/strict-podman.policy.json"
+      "${policySources}/strict-podman-compose.policy.json"
+      "${policySources}/strict-skopeo.policy.json"
+      "${policySources}/strict-tofu.policy.json"
+      "${policySources}/strict-uv.policy.json"
+      "${policySources}/strict-yarn.policy.json"
     ];
   };
 
@@ -178,7 +200,7 @@ in
     apiFixture = mkCodePolicy "api-fixture" "policies/code/api-fixture.policy.ts";
   };
 
-  inherit mkGhPrCreateDslPolicy;
+  inherit core policySources mkGhPrCreateDslPolicy;
 
   safetyCoreCli = stdenv.mkDerivation {
     pname = "safety-core";

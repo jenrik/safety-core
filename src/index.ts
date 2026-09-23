@@ -63,4 +63,5 @@ export * from "./policy/events.js";
 export * from "./policy/filesystem.js";
 export * from "./policy/executable.js";
 export * from "./policy/runtime.js";
+export * from "./policy/session.js";
 export * from "./policy/trace.js";

@@ -50,7 +50,7 @@ test("OpenCode rejects the current permission event and poisons later Bash callb
   } as never, "/workspace");
   const event = plugin.event as Function;
   await event({ event: { type: "permission.asked", properties: { id: "first", sessionID: "session", permission: "bash", patterns: ["first"] } } });
-  await event({ event: { type: "permission.asked", properties: { id: "second", sessionID: "session", permission: "bash", patterns: ["second"] } } });
+  await event({ event: { type: "permission.asked", properties: { id: "second", sessionID: "later-session", permission: "bash", patterns: ["second"] } } });
   expect(calls).toBe(1);
   expect(replies).toEqual([
     { directory: "/workspace", requestID: "first", reply: "reject", message: "Safety policy failed: policy failure" },

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { discoverWasmDir, initBashParser, type LoadedPolicyRuntime, type ValidatedBashPolicy } from "../src/index.ts";
 import { evaluateClaudeBashPolicy } from "../adapters/claude-code/_bash_policy.ts";
 import { classifyKubectlSecretAudit } from "../adapters/claude-code/kubectl_secret_audit_log.ts";
-import { loadClaudeSessionRuntime } from "../adapters/claude-code/bash_policy.ts";
+import { loadClaudeSessionRuntime, poisonClaudeSession } from "../adapters/claude-code/bash_policy.ts";
 
 const policies: readonly ValidatedBashPolicy[] = [
   { source: { canonicalPath: "/policy/guard" }, layer: "guard", select: [], evaluate: (event) =>
@@ -58,8 +58,13 @@ test("Claude session manifests keep config immutable and reject changed source b
   writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [join(root, "missing.policy.mjs")], projectPolicies: { mode: "disabled" }, bashAnalysis: first.limits }));
   await expect(loadClaudeSessionRuntime("session", root, env)).rejects.toThrow("configuration digest changed since session startup");
   writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify(config));
+  await expect(loadClaudeSessionRuntime("session", root, env)).rejects.toThrow("Safety policy failed:");
+
+  await loadClaudeSessionRuntime("source-drift", root, env);
   writeFileSync(policy, `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "defer" }) });\n`);
-  await expect(loadClaudeSessionRuntime("session", root, env)).rejects.toThrow("digest changed since session startup");
+  await expect(loadClaudeSessionRuntime("source-drift", root, env)).rejects.toThrow("policy source digest changed since session startup");
+  writeFileSync(policy, `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`);
+  await expect(loadClaudeSessionRuntime("source-drift", root, env)).rejects.toThrow("Safety policy failed:");
 });
 
 test("Claude startup rejects missing configured policy sources", async () => {
@@ -68,6 +73,21 @@ test("Claude startup rejects missing configured policy sources", async () => {
   mkdirSync(join(home, "safety-core"), { recursive: true });
   writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [join(root, "missing.policy.mjs")], projectPolicies: { mode: "disabled" }, bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 } }));
   await expect(loadClaudeSessionRuntime("failed", root, { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: join(root, "state") })).rejects.toThrow("cannot canonicalize policy source");
+});
+
+test("Claude persists runtime policy failures for the rest of the session", async () => {
+  const root = mkdtempSync(join(tmpdir(), "safety-core-claude-poison-"));
+  const home = join(root, "home");
+  const state = join(root, "state");
+  const policy = join(root, "policy.policy.mjs");
+  mkdirSync(join(home, "safety-core"), { recursive: true });
+  writeFileSync(policy, `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`);
+  writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [policy], projectPolicies: { mode: "disabled" }, bashAnalysis: runtime.limits }));
+  const env = { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state };
+
+  await loadClaudeSessionRuntime("poisoned", root, env);
+  poisonClaudeSession("poisoned", root, new Error("evaluation failure"), env);
+  await expect(loadClaudeSessionRuntime("poisoned", root, env)).rejects.toThrow("Safety policy failed: evaluation failure");
 });
 
 test("Claude project snapshots verify selected project configuration bytes before reloading", async () => {

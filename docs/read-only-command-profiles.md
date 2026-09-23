@@ -79,3 +79,20 @@ flags or subcommands must defer, never be treated as harmless.
 Project-controlled plugins and configured credential-helper execution are
 outside this policy's read-only classification; this policy classifies the
 requested CLI operation itself.
+
+## Policy source and session identity
+
+The profile decision is meaningful only for the exact policy bytes loaded for a
+session. The CLI reports each canonical source and SHA-256 digest with
+`safety-core validate`. OpenCode and Pi retain that loaded object until their
+plugin/extension is restarted. Claude stores a per-session manifest containing
+the selected project root, canonical global/project configuration paths and
+digests, source paths and digests, and analysis limits. A later isolated Claude
+hook verifies every configured file and policy source before evaluating it;
+changed, re-pointed, or missing sources hard-fail rather than falling back to a
+prompt or current configuration.
+
+This is an approval/steering invariant, not an execution sandbox. A policy
+exception poisons the active adapter/session and later Bash callbacks hard-fail
+until restart. See [executable identity limitations](./executable-identity-limitations.md)
+for filesystem and execution limits.

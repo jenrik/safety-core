@@ -11,7 +11,7 @@
       packages = forAllSystems (system:
         let sc = (pkgsFor system).callPackage ./package.nix { };
         in {
-          inherit (sc) piExtensionDir claudeCodeHooks safetyCoreCli;
+          inherit (sc) piExtensionDir claudeCodeHooks safetyCoreCli core policySources;
           default = sc.safetyCoreCli;
         });
 
@@ -32,8 +32,13 @@
             set -e
             test -x ${sc.safetyCoreCli}/bin/safety-core
             mkdir -p config/safety-core
-            printf '%s\n' '{"version":1,"policies":["${sc.dslPolicies.secretRead}","${sc.dslPolicies.githubHttp}","${sc.dslPolicies.kubectl}","${sc.dslPolicies.unsupportedShellSource}"],"projectPolicies":{"mode":"disabled"},"bashAnalysis":{"maxFunctionDepth":8,"maxNestedScriptDepth":8,"maxSteps":100,"maxWorkItems":100}}' > config/safety-core/config.json
+            printf '%s\n' '{"version":1,"policies":["${sc.dslPolicies.secretRead}","${sc.dslPolicies.githubHttp}","${sc.dslPolicies.kubectl}","${sc.dslPolicies.ghApi}"],"projectPolicies":{"mode":"disabled"},"bashAnalysis":{"maxFunctionDepth":8,"maxNestedScriptDepth":8,"maxSteps":100,"maxWorkItems":100}}' > config/safety-core/config.json
             test "$(SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.safetyCoreCli}/bin/safety-core validate | grep -Ec '^[0-9a-f]{64}  /nix/store/')" -eq 4
+            SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.safetyCoreCli}/bin/safety-core explain --json -- 'cat credentials.json' | grep -q '"decision": "deny"'
+            mkdir -p state
+            printf '%s' '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"cat credentials.json"},"session_id":"packaged-check","cwd":"'"$PWD"'"}' \
+              | SAFETY_CORE_CONFIG_HOME="$PWD/config" SAFETY_CORE_STATE_HOME="$PWD/state" ${sc.claudeCodeHooks}/bash_policy.mjs \
+              | grep -q '"permissionDecision":"deny"'
             touch $out
           '';
         });

@@ -11,3 +11,54 @@ The goal is to identify safe, read-only commands and automatically approve a Bas
 Unlike prefix- or regex-based matching, `safety-core` parses Bash and performs a bounded, stateful symbolic analysis of the commands that may execute. It tracks shell state, known and unknown values, branches, functions, wrappers, and nested invocations without executing them. A command is automatically approved only when the enabled policies can prove every reachable modeled execution safe; uncertain or unsupported behavior is deferred or blocked.
 
 Prefix- and regex-based solutions often become brittle when dealing with argument ordering. For example, `kubectl` accepts the `-n <namespace>` argument in multiple positions, and the selected namespace can materially affect an approval or denial decision.
+
+## Install and configure
+
+The authoritative global configuration is JSON at
+`$SAFETY_CORE_CONFIG_HOME/safety-core/config.json`, or
+`$XDG_CONFIG_HOME/safety-core/config.json`, or
+`$HOME/.config/safety-core/config.json`. The selected environment variable must
+be an absolute path. `safety-core validate` prints the canonical source path and
+SHA-256 digest selected for the current directory; use it before enabling a
+policy. `safety-core explain --json -- '<command>'` reports the exact modeled
+events and decisions for local diagnosis.
+
+```json
+{
+  "version": 1,
+  "policies": ["/absolute/path/read-only.policy.json"],
+  "projectPolicies": { "mode": "disabled" },
+  "bashAnalysis": {
+    "maxFunctionDepth": 128,
+    "maxNestedScriptDepth": 64,
+    "maxSteps": 7500,
+    "maxWorkItems": 10000
+  }
+}
+```
+
+Global sources may be trusted frozen `.policy.mjs` code or declarative
+`.policy.json` files. Project sources are declarative `.policy.json` only. Use
+`projectPolicies.mode: "all"` only when each discovered project policy is
+trusted; `"allowlisted"` requires canonical absolute roots in `allowedRoots`.
+Project permissions can expand global permission coverage, but a global guard
+denial remains dominant.
+
+The Home Manager module exposes these same fields at
+`programs.safetyCorePermissions`, plus `completePolicySources`, `prCreate`,
+`installCli`, and `installClaudeBashHook`. `completePolicySources` references
+the packaged complete DSL source set; `prCreate` renders a complete,
+repository/organization-scoped `gh pr create` DSL source. The flake packages
+the CLI, core/parser assets, DSL source directory, and Claude/OpenCode/Pi
+adapter artifacts.
+
+OpenCode and Pi load one runtime when their plugin/extension starts. Editing a
+source or configuration therefore requires a harness restart. Claude hooks are
+separate processes: SessionStart state records the selected root, canonical
+configuration/source paths, and SHA-256 digests under the session ID. Later
+hooks verify those exact bytes before loading; any changed or missing source,
+or a runtime policy exception, hard-fails the session until it is restarted.
+
+See [policy authoring](./docs/policy-authoring.md),
+[read-only profiles](./docs/read-only-command-profiles.md), and
+[executable identity limitations](./docs/executable-identity-limitations.md).

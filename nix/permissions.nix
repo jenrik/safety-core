@@ -25,9 +25,11 @@ in {
     policySources = mkOption {
       type = types.listOf types.path;
       default = [ ];
-      description = "Authoritative global trusted Bash policy source paths.";
+      description = "Authoritative global policy sources written as config.json policies.";
     };
-    completePolicySources = mkEnableOption "the complete built-in trusted policy source set";
+    completePolicySources = mkEnableOption "the complete packaged DSL policy source set";
+    installCli = mkEnableOption "install the packaged safety-core CLI";
+    installClaudeBashHook = mkEnableOption "install the packaged immutable-session Claude Bash hook";
     prCreate = {
       enable = mkEnableOption "generate and add a repository-scoped gh pr create DSL policy source";
       allowedRepositories = mkOption { type = types.listOf types.str; default = [ ]; };
@@ -46,6 +48,14 @@ in {
   };
 
   config = {
+    xdg.configFile."safety-core/bin/safety-core" = mkIf cfg.installCli {
+      source = "${safetyCore.safetyCoreCli}/bin/safety-core";
+      executable = true;
+    };
+    xdg.configFile."safety-core/claude/bash_policy.mjs" = mkIf cfg.installClaudeBashHook {
+      source = "${safetyCore.claudeCodeHooks}/bash_policy.mjs";
+      executable = true;
+    };
     xdg.configFile."safety-core/config.json".text = builtins.toJSON {
       version = 1;
       policies = map toString sources;
@@ -57,7 +67,10 @@ in {
     };
     programs.claude-code.settings.hooks.PreToolUse = mkAfter [{
       matcher = "Bash";
-      hooks = [{ type = "command"; command = "$HOME/.claude/hooks/bash_policy.mjs"; }];
+      hooks = [{ type = "command"; command = "\${XDG_CONFIG_HOME:-$HOME/.config}/safety-core/claude/bash_policy.mjs"; }];
+    }];
+    programs.claude-code.settings.hooks.SessionStart = mkAfter [{
+      hooks = [{ type = "command"; command = "\${XDG_CONFIG_HOME:-$HOME/.config}/safety-core/claude/bash_policy.mjs"; }];
     }];
   };
 }
