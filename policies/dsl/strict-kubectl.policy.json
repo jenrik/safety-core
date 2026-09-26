@@ -13,6 +13,46 @@
     "getFirstHasSlash": {
       "type": "bool",
       "initial": false
+    },
+    "kubectlApplyOnlyOptionSeen": {
+      "type": "bool",
+      "initial": false
+    },
+    "kubectlDryRunSeen": {
+      "type": "bool",
+      "initial": false
+    },
+    "kubectlDryRunValid": {
+      "type": "bool",
+      "initial": true
+    },
+    "kubectlHasFilename": {
+      "type": "bool",
+      "initial": false
+    },
+    "kubectlFilenameValid": {
+      "type": "bool",
+      "initial": true
+    },
+    "kubectlHasKustomize": {
+      "type": "bool",
+      "initial": false
+    },
+    "kubectlKustomizeValid": {
+      "type": "bool",
+      "initial": true
+    },
+    "kubectlRecursive": {
+      "type": "bool",
+      "initial": false
+    },
+    "kubectlCascadeValid": {
+      "type": "bool",
+      "initial": true
+    },
+    "kubectlApplyOutputSeen": {
+      "type": "bool",
+      "initial": false
     }
   },
   "folds": {
@@ -117,10 +157,481 @@
           }
         ]
       }
+    },
+    "kubectlOptionsTerminated": {
+      "collection": "argv",
+      "operation": "any",
+      "when": {
+        "call": "equals",
+        "args": [
+          {
+            "ref": "fold.item"
+          },
+          "--"
+        ]
+      }
     }
   },
   "options": {
-    "flag0": {
+    "kubectlDryRun": {
+      "names": [
+        "--dry-run"
+      ],
+      "value": "required",
+      "forms": [
+        "equalsLong"
+      ],
+      "availableIn": [
+        "start",
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true,
+        "kubectlDryRunSeen": true,
+        "kubectlDryRunValid": {
+          "all": [
+            {
+              "not": {
+                "ref": "kubectlDryRunSeen"
+              }
+            },
+            {
+              "call": "inStringSet",
+              "args": [
+                {
+                  "ref": "option.value"
+                },
+                [
+                  "client",
+                  "server"
+                ]
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "kubectlApplyValue0": {
+      "names": [
+        "--filename",
+        "-f"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "attachedShort",
+        "cluster",
+        "equalsLong"
+      ],
+      "availableIn": [
+        "start",
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true,
+        "kubectlHasFilename": true,
+        "kubectlFilenameValid": {
+          "all": [
+            {
+              "ref": "kubectlFilenameValid"
+            },
+            {
+              "not": {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "option.value"
+                  },
+                  ""
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "kubectlApplyValue1": {
+      "names": [
+        "--kustomize",
+        "-k"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "attachedShort",
+        "cluster",
+        "equalsLong"
+      ],
+      "availableIn": [
+        "start",
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true,
+        "kubectlHasKustomize": true,
+        "kubectlKustomizeValid": {
+          "all": [
+            {
+              "ref": "kubectlKustomizeValid"
+            },
+            {
+              "not": {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "option.value"
+                  },
+                  ""
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "kubectlApplyValue2": {
+      "names": [
+        "--cascade"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "equalsLong"
+      ],
+      "availableIn": [
+        "start",
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true,
+        "kubectlCascadeValid": {
+          "all": [
+            {
+              "ref": "kubectlCascadeValid"
+            },
+            {
+              "call": "inStringSet",
+              "args": [
+                {
+                  "ref": "option.value"
+                },
+                [
+                  "background",
+                  "foreground",
+                  "orphan"
+                ]
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "kubectlApplyValue3": {
+      "names": [
+        "--field-manager"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "equalsLong"
+      ],
+      "availableIn": [
+        "start",
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true
+      }
+    },
+    "kubectlApplyValue4": {
+      "names": [
+        "--grace-period"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "equalsLong"
+      ],
+      "availableIn": [
+        "start",
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true
+      }
+    },
+    "kubectlApplyValue5": {
+      "names": [
+        "--prune-allowlist"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "equalsLong"
+      ],
+      "availableIn": [
+        "start",
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true
+      }
+    },
+    "kubectlApplyValue6": {
+      "names": [
+        "--request-timeout"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "equalsLong"
+      ],
+      "availableIn": [
+        "start",
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true
+      }
+    },
+    "kubectlApplyValue7": {
+      "names": [
+        "--selector",
+        "-l"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "attachedShort",
+        "cluster",
+        "equalsLong"
+      ],
+      "availableIn": [
+        "start",
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true
+      }
+    },
+    "kubectlApplyValue8": {
+      "names": [
+        "--subresource"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "equalsLong"
+      ],
+      "availableIn": [
+        "start",
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true
+      }
+    },
+    "kubectlApplyValue9": {
+      "names": [
+        "--timeout"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "equalsLong"
+      ],
+      "availableIn": [
+        "start",
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true
+      }
+    },
+    "kubectlApplyBoolean0": {
+      "names": [
+        "--all"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true
+      }
+    },
+    "kubectlApplyBoolean1": {
+      "names": [
+        "--allow-missing-template-keys"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true
+      }
+    },
+    "kubectlApplyBoolean2": {
+      "names": [
+        "--force"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true
+      }
+    },
+    "kubectlApplyBoolean3": {
+      "names": [
+        "--force-conflicts"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true
+      }
+    },
+    "kubectlApplyBoolean4": {
+      "names": [
+        "--openapi-patch"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true
+      }
+    },
+    "kubectlApplyBoolean5": {
+      "names": [
+        "--overwrite"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true
+      }
+    },
+    "kubectlApplyBoolean6": {
+      "names": [
+        "--prune"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true
+      }
+    },
+    "kubectlApplyBoolean7": {
+      "names": [
+        "--recursive"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true,
+        "kubectlRecursive": true
+      }
+    },
+    "kubectlApplyBoolean8": {
+      "names": [
+        "-R"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true,
+        "kubectlRecursive": true
+      }
+    },
+    "kubectlApplyBoolean9": {
+      "names": [
+        "--server-side"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true
+      }
+    },
+    "kubectlApplyBoolean10": {
+      "names": [
+        "--show-managed-fields"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true
+      }
+    },
+    "kubectlApplyBoolean11": {
+      "names": [
+        "--wait"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true
+      }
+    },
+    "kubectlApplyBare0": {
+      "names": [
+        "--validate"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "kubectlApply"
+      ],
+      "set": {
+        "kubectlApplyOnlyOptionSeen": true
+      }
+    },
+    "kubectlGlobalValue0": {
+      "names": [
+        "--context"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "equalsLong"
+      ],
+      "availableIn": "*",
+      "set": {}
+    },
+    "kubectlGlobalValue1": {
       "names": [
         "--namespace",
         "-n"
@@ -135,19 +646,7 @@
       "availableIn": "*",
       "set": {}
     },
-    "flag1": {
-      "names": [
-        "--context"
-      ],
-      "value": "required",
-      "forms": [
-        "separate",
-        "equalsLong"
-      ],
-      "availableIn": "*",
-      "set": {}
-    },
-    "flag2": {
+    "kubectlOutput": {
       "names": [
         "--output",
         "-o"
@@ -160,7 +659,9 @@
         "equalsLong"
       ],
       "availableIn": "*",
-      "set": {}
+      "set": {
+        "kubectlApplyOutputSeen": true
+      }
     }
   },
   "fragments": {},
@@ -332,6 +833,21 @@
             "consume": "word",
             "next": "root_version"
           }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "apply"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "kubectlApply"
+          }
         }
       ],
       "default": {
@@ -399,44 +915,53 @@
               {
                 "all": [
                   {
-                    "call": "isDirectExecutable",
-                    "args": [
-                      "kubectl"
+                    "all": [
+                      {
+                        "call": "isDirectExecutable",
+                        "args": [
+                          "kubectl"
+                        ]
+                      },
+                      {
+                        "not": {
+                          "call": "hasAnyAssignment",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasRedirect",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasInheritedExecutableFunction",
+                          "args": [
+                            "kubectl"
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "environmentAnyUnsafe",
+                          "args": [
+                            [
+                              "KUBECONFIG"
+                            ]
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "ref": "fold.hasSecretOperand"
+                        }
+                      }
                     ]
                   },
                   {
                     "not": {
-                      "call": "hasAnyAssignment",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasRedirect",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasInheritedExecutableFunction",
-                      "args": [
-                        "kubectl"
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "environmentAnyUnsafe",
-                      "args": [
-                        [
-                          "KUBECONFIG"
-                        ]
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "ref": "fold.hasSecretOperand"
+                      "ref": "kubectlApplyOnlyOptionSeen"
                     }
                   }
                 ]
@@ -524,44 +1049,53 @@
               {
                 "all": [
                   {
-                    "call": "isDirectExecutable",
-                    "args": [
-                      "kubectl"
+                    "all": [
+                      {
+                        "call": "isDirectExecutable",
+                        "args": [
+                          "kubectl"
+                        ]
+                      },
+                      {
+                        "not": {
+                          "call": "hasAnyAssignment",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasRedirect",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasInheritedExecutableFunction",
+                          "args": [
+                            "kubectl"
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "environmentAnyUnsafe",
+                          "args": [
+                            [
+                              "KUBECONFIG"
+                            ]
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "ref": "fold.hasSecretOperand"
+                        }
+                      }
                     ]
                   },
                   {
                     "not": {
-                      "call": "hasAnyAssignment",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasRedirect",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasInheritedExecutableFunction",
-                      "args": [
-                        "kubectl"
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "environmentAnyUnsafe",
-                      "args": [
-                        [
-                          "KUBECONFIG"
-                        ]
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "ref": "fold.hasSecretOperand"
+                      "ref": "kubectlApplyOnlyOptionSeen"
                     }
                   }
                 ]
@@ -705,44 +1239,53 @@
               {
                 "all": [
                   {
-                    "call": "isDirectExecutable",
-                    "args": [
-                      "kubectl"
+                    "all": [
+                      {
+                        "call": "isDirectExecutable",
+                        "args": [
+                          "kubectl"
+                        ]
+                      },
+                      {
+                        "not": {
+                          "call": "hasAnyAssignment",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasRedirect",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasInheritedExecutableFunction",
+                          "args": [
+                            "kubectl"
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "environmentAnyUnsafe",
+                          "args": [
+                            [
+                              "KUBECONFIG"
+                            ]
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "ref": "fold.hasSecretOperand"
+                        }
+                      }
                     ]
                   },
                   {
                     "not": {
-                      "call": "hasAnyAssignment",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasRedirect",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasInheritedExecutableFunction",
-                      "args": [
-                        "kubectl"
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "environmentAnyUnsafe",
-                      "args": [
-                        [
-                          "KUBECONFIG"
-                        ]
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "ref": "fold.hasSecretOperand"
+                      "ref": "kubectlApplyOnlyOptionSeen"
                     }
                   }
                 ]
@@ -830,44 +1373,53 @@
               {
                 "all": [
                   {
-                    "call": "isDirectExecutable",
-                    "args": [
-                      "kubectl"
+                    "all": [
+                      {
+                        "call": "isDirectExecutable",
+                        "args": [
+                          "kubectl"
+                        ]
+                      },
+                      {
+                        "not": {
+                          "call": "hasAnyAssignment",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasRedirect",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasInheritedExecutableFunction",
+                          "args": [
+                            "kubectl"
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "environmentAnyUnsafe",
+                          "args": [
+                            [
+                              "KUBECONFIG"
+                            ]
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "ref": "fold.hasSecretOperand"
+                        }
+                      }
                     ]
                   },
                   {
                     "not": {
-                      "call": "hasAnyAssignment",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasRedirect",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasInheritedExecutableFunction",
-                      "args": [
-                        "kubectl"
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "environmentAnyUnsafe",
-                      "args": [
-                        [
-                          "KUBECONFIG"
-                        ]
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "ref": "fold.hasSecretOperand"
+                      "ref": "kubectlApplyOnlyOptionSeen"
                     }
                   }
                 ]
@@ -955,44 +1507,53 @@
               {
                 "all": [
                   {
-                    "call": "isDirectExecutable",
-                    "args": [
-                      "kubectl"
+                    "all": [
+                      {
+                        "call": "isDirectExecutable",
+                        "args": [
+                          "kubectl"
+                        ]
+                      },
+                      {
+                        "not": {
+                          "call": "hasAnyAssignment",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasRedirect",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasInheritedExecutableFunction",
+                          "args": [
+                            "kubectl"
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "environmentAnyUnsafe",
+                          "args": [
+                            [
+                              "KUBECONFIG"
+                            ]
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "ref": "fold.hasSecretOperand"
+                        }
+                      }
                     ]
                   },
                   {
                     "not": {
-                      "call": "hasAnyAssignment",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasRedirect",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasInheritedExecutableFunction",
-                      "args": [
-                        "kubectl"
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "environmentAnyUnsafe",
-                      "args": [
-                        [
-                          "KUBECONFIG"
-                        ]
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "ref": "fold.hasSecretOperand"
+                      "ref": "kubectlApplyOnlyOptionSeen"
                     }
                   }
                 ]
@@ -1136,44 +1697,53 @@
               {
                 "all": [
                   {
-                    "call": "isDirectExecutable",
-                    "args": [
-                      "kubectl"
+                    "all": [
+                      {
+                        "call": "isDirectExecutable",
+                        "args": [
+                          "kubectl"
+                        ]
+                      },
+                      {
+                        "not": {
+                          "call": "hasAnyAssignment",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasRedirect",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasInheritedExecutableFunction",
+                          "args": [
+                            "kubectl"
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "environmentAnyUnsafe",
+                          "args": [
+                            [
+                              "KUBECONFIG"
+                            ]
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "ref": "fold.hasSecretOperand"
+                        }
+                      }
                     ]
                   },
                   {
                     "not": {
-                      "call": "hasAnyAssignment",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasRedirect",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasInheritedExecutableFunction",
-                      "args": [
-                        "kubectl"
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "environmentAnyUnsafe",
-                      "args": [
-                        [
-                          "KUBECONFIG"
-                        ]
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "ref": "fold.hasSecretOperand"
+                      "ref": "kubectlApplyOnlyOptionSeen"
                     }
                   }
                 ]
@@ -1261,44 +1831,53 @@
               {
                 "all": [
                   {
-                    "call": "isDirectExecutable",
-                    "args": [
-                      "kubectl"
+                    "all": [
+                      {
+                        "call": "isDirectExecutable",
+                        "args": [
+                          "kubectl"
+                        ]
+                      },
+                      {
+                        "not": {
+                          "call": "hasAnyAssignment",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasRedirect",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasInheritedExecutableFunction",
+                          "args": [
+                            "kubectl"
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "environmentAnyUnsafe",
+                          "args": [
+                            [
+                              "KUBECONFIG"
+                            ]
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "ref": "fold.hasSecretOperand"
+                        }
+                      }
                     ]
                   },
                   {
                     "not": {
-                      "call": "hasAnyAssignment",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasRedirect",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasInheritedExecutableFunction",
-                      "args": [
-                        "kubectl"
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "environmentAnyUnsafe",
-                      "args": [
-                        [
-                          "KUBECONFIG"
-                        ]
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "ref": "fold.hasSecretOperand"
+                      "ref": "kubectlApplyOnlyOptionSeen"
                     }
                   }
                 ]
@@ -1386,44 +1965,53 @@
               {
                 "all": [
                   {
-                    "call": "isDirectExecutable",
-                    "args": [
-                      "kubectl"
+                    "all": [
+                      {
+                        "call": "isDirectExecutable",
+                        "args": [
+                          "kubectl"
+                        ]
+                      },
+                      {
+                        "not": {
+                          "call": "hasAnyAssignment",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasRedirect",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasInheritedExecutableFunction",
+                          "args": [
+                            "kubectl"
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "environmentAnyUnsafe",
+                          "args": [
+                            [
+                              "KUBECONFIG"
+                            ]
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "ref": "fold.hasSecretOperand"
+                        }
+                      }
                     ]
                   },
                   {
                     "not": {
-                      "call": "hasAnyAssignment",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasRedirect",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasInheritedExecutableFunction",
-                      "args": [
-                        "kubectl"
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "environmentAnyUnsafe",
-                      "args": [
-                        [
-                          "KUBECONFIG"
-                        ]
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "ref": "fold.hasSecretOperand"
+                      "ref": "kubectlApplyOnlyOptionSeen"
                     }
                   }
                 ]
@@ -1664,44 +2252,53 @@
               {
                 "all": [
                   {
-                    "call": "isDirectExecutable",
-                    "args": [
-                      "kubectl"
+                    "all": [
+                      {
+                        "call": "isDirectExecutable",
+                        "args": [
+                          "kubectl"
+                        ]
+                      },
+                      {
+                        "not": {
+                          "call": "hasAnyAssignment",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasRedirect",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasInheritedExecutableFunction",
+                          "args": [
+                            "kubectl"
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "environmentAnyUnsafe",
+                          "args": [
+                            [
+                              "KUBECONFIG"
+                            ]
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "ref": "fold.hasSecretOperand"
+                        }
+                      }
                     ]
                   },
                   {
                     "not": {
-                      "call": "hasAnyAssignment",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasRedirect",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasInheritedExecutableFunction",
-                      "args": [
-                        "kubectl"
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "environmentAnyUnsafe",
-                      "args": [
-                        [
-                          "KUBECONFIG"
-                        ]
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "ref": "fold.hasSecretOperand"
+                      "ref": "kubectlApplyOnlyOptionSeen"
                     }
                   }
                 ]
@@ -1789,44 +2386,53 @@
               {
                 "all": [
                   {
-                    "call": "isDirectExecutable",
-                    "args": [
-                      "kubectl"
+                    "all": [
+                      {
+                        "call": "isDirectExecutable",
+                        "args": [
+                          "kubectl"
+                        ]
+                      },
+                      {
+                        "not": {
+                          "call": "hasAnyAssignment",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasRedirect",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasInheritedExecutableFunction",
+                          "args": [
+                            "kubectl"
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "environmentAnyUnsafe",
+                          "args": [
+                            [
+                              "KUBECONFIG"
+                            ]
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "ref": "fold.hasSecretOperand"
+                        }
+                      }
                     ]
                   },
                   {
                     "not": {
-                      "call": "hasAnyAssignment",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasRedirect",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasInheritedExecutableFunction",
-                      "args": [
-                        "kubectl"
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "environmentAnyUnsafe",
-                      "args": [
-                        [
-                          "KUBECONFIG"
-                        ]
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "ref": "fold.hasSecretOperand"
+                      "ref": "kubectlApplyOnlyOptionSeen"
                     }
                   }
                 ]
@@ -1884,44 +2490,53 @@
               {
                 "all": [
                   {
-                    "call": "isDirectExecutable",
-                    "args": [
-                      "kubectl"
+                    "all": [
+                      {
+                        "call": "isDirectExecutable",
+                        "args": [
+                          "kubectl"
+                        ]
+                      },
+                      {
+                        "not": {
+                          "call": "hasAnyAssignment",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasRedirect",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasInheritedExecutableFunction",
+                          "args": [
+                            "kubectl"
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "environmentAnyUnsafe",
+                          "args": [
+                            [
+                              "KUBECONFIG"
+                            ]
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "ref": "fold.hasSecretOperand"
+                        }
+                      }
                     ]
                   },
                   {
                     "not": {
-                      "call": "hasAnyAssignment",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasRedirect",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasInheritedExecutableFunction",
-                      "args": [
-                        "kubectl"
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "environmentAnyUnsafe",
-                      "args": [
-                        [
-                          "KUBECONFIG"
-                        ]
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "ref": "fold.hasSecretOperand"
+                      "ref": "kubectlApplyOnlyOptionSeen"
                     }
                   }
                 ]
@@ -2009,44 +2624,53 @@
               {
                 "all": [
                   {
-                    "call": "isDirectExecutable",
-                    "args": [
-                      "kubectl"
+                    "all": [
+                      {
+                        "call": "isDirectExecutable",
+                        "args": [
+                          "kubectl"
+                        ]
+                      },
+                      {
+                        "not": {
+                          "call": "hasAnyAssignment",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasRedirect",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasInheritedExecutableFunction",
+                          "args": [
+                            "kubectl"
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "environmentAnyUnsafe",
+                          "args": [
+                            [
+                              "KUBECONFIG"
+                            ]
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "ref": "fold.hasSecretOperand"
+                        }
+                      }
                     ]
                   },
                   {
                     "not": {
-                      "call": "hasAnyAssignment",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasRedirect",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasInheritedExecutableFunction",
-                      "args": [
-                        "kubectl"
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "environmentAnyUnsafe",
-                      "args": [
-                        [
-                          "KUBECONFIG"
-                        ]
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "ref": "fold.hasSecretOperand"
+                      "ref": "kubectlApplyOnlyOptionSeen"
                     }
                   }
                 ]
@@ -2217,44 +2841,53 @@
               {
                 "all": [
                   {
-                    "call": "isDirectExecutable",
-                    "args": [
-                      "kubectl"
+                    "all": [
+                      {
+                        "call": "isDirectExecutable",
+                        "args": [
+                          "kubectl"
+                        ]
+                      },
+                      {
+                        "not": {
+                          "call": "hasAnyAssignment",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasRedirect",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasInheritedExecutableFunction",
+                          "args": [
+                            "kubectl"
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "environmentAnyUnsafe",
+                          "args": [
+                            [
+                              "KUBECONFIG"
+                            ]
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "ref": "fold.hasSecretOperand"
+                        }
+                      }
                     ]
                   },
                   {
                     "not": {
-                      "call": "hasAnyAssignment",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasRedirect",
-                      "args": []
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "hasInheritedExecutableFunction",
-                      "args": [
-                        "kubectl"
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "call": "environmentAnyUnsafe",
-                      "args": [
-                        [
-                          "KUBECONFIG"
-                        ]
-                      ]
-                    }
-                  },
-                  {
-                    "not": {
-                      "ref": "fold.hasSecretOperand"
+                      "ref": "kubectlApplyOnlyOptionSeen"
                     }
                   }
                 ]
@@ -2273,6 +2906,190 @@
             },
             "fold": [
               "hasSecretOperand"
+            ]
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        },
+        "fold": [
+          "hasSecretOperand"
+        ]
+      }
+    },
+    "kubectlApply": {
+      "cases": [
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "all": [
+                  {
+                    "all": [
+                      {
+                        "call": "isDirectExecutable",
+                        "args": [
+                          "kubectl"
+                        ]
+                      },
+                      {
+                        "not": {
+                          "call": "hasAnyAssignment",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasRedirect",
+                          "args": []
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "hasInheritedExecutableFunction",
+                          "args": [
+                            "kubectl"
+                          ]
+                        }
+                      },
+                      {
+                        "not": {
+                          "call": "environmentAnyUnsafe",
+                          "args": [
+                            [
+                              "KUBECONFIG"
+                            ]
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "not": {
+                      "call": "hasProvenanceRoute",
+                      "args": [
+                        "transparent-wrapper"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasProvenanceRoute",
+                      "args": [
+                        "eval"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasProvenanceRoute",
+                      "args": [
+                        "shell-command"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "call": "hasProvenanceRoute",
+                      "args": [
+                        "binding-derived-script"
+                      ]
+                    }
+                  },
+                  {
+                    "ref": "kubectlDryRunSeen"
+                  },
+                  {
+                    "ref": "kubectlDryRunValid"
+                  },
+                  {
+                    "not": {
+                      "ref": "fold.kubectlOptionsTerminated"
+                    }
+                  },
+                  {
+                    "not": {
+                      "ref": "kubectlApplyOutputSeen"
+                    }
+                  },
+                  {
+                    "ref": "kubectlCascadeValid"
+                  },
+                  {
+                    "any": [
+                      {
+                        "all": [
+                          {
+                            "ref": "kubectlHasFilename"
+                          },
+                          {
+                            "ref": "kubectlFilenameValid"
+                          },
+                          {
+                            "not": {
+                              "ref": "kubectlHasKustomize"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "all": [
+                          {
+                            "ref": "kubectlHasKustomize"
+                          },
+                          {
+                            "ref": "kubectlKustomizeValid"
+                          },
+                          {
+                            "not": {
+                              "ref": "kubectlHasFilename"
+                            }
+                          },
+                          {
+                            "not": {
+                              "ref": "kubectlRecursive"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "kubectl auto-allowed by the read-only profile"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            },
+            "fold": [
+              "kubectlOptionsTerminated"
             ]
           }
         }

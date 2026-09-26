@@ -277,6 +277,46 @@ describe("permission code-policy parity", () => {
     }
   });
 
+  test("documents the intentional native-versus-DSL kubectl dry-run separation", () => {
+    const policy = dsl("strict-kubectl");
+    for (const source of [
+      "kubectl apply --dry-run=client -f manifest.yaml",
+      "kubectl --dry-run=server apply --filename -",
+      "kubectl apply -Rfmanifest.yaml --dry-run=server",
+    ]) {
+      const options = { source, initialEnvironment: { kind: "verified" as const, values: {} } };
+      expect(analyzeBashWithPolicies({ ...options, policies: [loaded("/trusted/strict-read-only.policy.mjs", strictReadOnly)] }).decision, source).toBe("defer");
+      expect(analyzeBashWithPolicies({ ...options, policies: [policy] }).decision, source).toBe("allow");
+    }
+    for (const source of [
+      "kubectl apply -f manifest.yaml",
+      "kubectl apply --dry-run=none -f manifest.yaml",
+      "kubectl apply --dry-run=client --dry-run=client -f manifest.yaml",
+      "kubectl apply --dry-run=client --unknown -f manifest.yaml",
+      "KUBECONFIG=/tmp/kubeconfig kubectl apply --dry-run=client -f manifest.yaml",
+      "kubectl apply --dry-run=client -f manifest.yaml > rendered.yaml",
+      "strace -f kubectl apply --dry-run=client -f manifest.yaml",
+    ]) expectPermissionParity(source, strictReadOnly, policy);
+  });
+
+  test("allows prior resolved kubectl bindings but defers unresolved or leading bindings", () => {
+    const policy = dsl("strict-kubectl");
+    const options = (source: string) => ({ source, initialEnvironment: { kind: "verified" as const, values: {} }, policies: [policy] });
+
+    for (const source of [
+      'TOOL=kubectl; "$TOOL" apply --dry-run=client -f manifest.yaml',
+      'MODE=server; kubectl apply "--dry-run=$MODE" -f manifest.yaml',
+      'SOURCE=-; kubectl apply --dry-run=client -f "$SOURCE"',
+    ]) expect(analyzeBashWithPolicies(options(source)).decision, source).toBe("allow");
+
+    for (const source of [
+      '"$TOOL" apply --dry-run=client -f manifest.yaml',
+      'kubectl apply "--dry-run=$MODE" -f manifest.yaml',
+      'kubectl apply --dry-run=client -f "$SOURCE"',
+      'MARKER=1 kubectl apply --dry-run=client -f manifest.yaml',
+    ]) expect(analyzeBashWithPolicies(options(source)).decision, source).toBe("defer");
+  });
+
   test("property: strict audited paths preserve parity across option positions and execution routes", () => {
     const commands = Object.entries(STRICT_READ_ONLY_COMMANDS).flatMap(([executable, paths]) =>
       [...paths].map((path) => `${executable} ${path.replaceAll(":", " ")}`));

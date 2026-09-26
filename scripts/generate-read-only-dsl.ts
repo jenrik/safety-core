@@ -14,6 +14,19 @@ const transition = (next: string) => ({ consume: "word", next });
 const allow = (name: string, tool: string) => terminal("allow", `${tool} auto-allowed by the read-only profile`, { audit: { invocation: { ref: "event" } } });
 const defer = () => terminal("defer", undefined, { audit: { invocation: { ref: "event" } } });
 
+// This is the reviewed kubectl v1.37.0 inventory. It intentionally excludes
+// credential routing, output/template, profile, and cache-writing switches.
+const KUBECTL_APPLY_VALUE_OPTIONS = [
+  ["--filename", "-f"], ["--kustomize", "-k"], ["--cascade"], ["--field-manager"], ["--grace-period"],
+  ["--prune-allowlist"], ["--request-timeout"], ["--selector", "-l"], ["--subresource"], ["--timeout"],
+] as const;
+const KUBECTL_APPLY_BOOLEAN_OPTIONS = [
+  "--all", "--allow-missing-template-keys", "--force", "--force-conflicts", "--openapi-patch", "--overwrite",
+  "--prune", "--recursive", "-R", "--server-side", "--show-managed-fields", "--wait",
+] as const;
+const KUBECTL_APPLY_BARE_OPTIONS = ["--validate"] as const;
+const KUBECTL_GLOBAL_VALUE_OPTIONS = [["--context"], ["--namespace", "-n"]] as const;
+
 function safe(executable: string, environment: readonly string[] = [], secret = true): Expression {
   return { all: [
     call("isDirectExecutable", executable),
@@ -123,8 +136,27 @@ function strict() {
       nodes.get(current)!.terminal = true;
     }
     const env = executable === "docker" ? ["DOCKER_CONFIG"] : ["kubectl", "oc"].includes(executable) ? ["KUBECONFIG"] : [];
-    const guard = safe(executable, env);
+    const guard = executable === "kubectl"
+      ? { all: [safe(executable, env), { not: { ref: "kubectlApplyOnlyOptionSeen" } }] }
+      : safe(executable, env);
+    const kubectlDryRunGuard = { all: [
+      safe(executable, env, false),
+      { not: call("hasProvenanceRoute", "transparent-wrapper") },
+      { not: call("hasProvenanceRoute", "eval") },
+      { not: call("hasProvenanceRoute", "shell-command") },
+      { not: call("hasProvenanceRoute", "binding-derived-script") },
+      { ref: "kubectlDryRunSeen" },
+      { ref: "kubectlDryRunValid" },
+      { not: { ref: "fold.kubectlOptionsTerminated" } },
+      { not: { ref: "kubectlApplyOutputSeen" } },
+      { ref: "kubectlCascadeValid" },
+      { any: [
+        { all: [{ ref: "kubectlHasFilename" }, { ref: "kubectlFilenameValid" }, { not: { ref: "kubectlHasKustomize" } }] },
+        { all: [{ ref: "kubectlHasKustomize" }, { ref: "kubectlKustomizeValid" }, { not: { ref: "kubectlHasFilename" } }, { not: { ref: "kubectlRecursive" } }] },
+      ] },
+    ] };
     const guardedAllow = () => ({ decision: "allow", reason: [`${executable} auto-allowed by the read-only profile`], audit: { invocation: { ref: "event" } }, fold: ["hasSecretOperand"] });
+    const guardedKubectlDryRunAllow = () => ({ decision: "allow", reason: [`${executable} auto-allowed by the read-only profile`], audit: { invocation: { ref: "event" } }, fold: ["kubectlOptionsTerminated"] });
     const guardedDefer = () => ({ ...defer(), fold: ["hasSecretOperand"] });
     const protectsKubernetesResources = executable === "kubectl" || executable === "oc";
     const protectedResource = (value: Expression) => call("wordInAsciiCaseInsensitiveSet", call("normalizeKubernetesResource", call("splitComponent", call("splitComponent", value, "/", 0), ".", 0)), ["secret", "serviceaccount", "tokenrequest"]);
@@ -132,6 +164,9 @@ function strict() {
       const cases: unknown[] = [...node.children].map(([part, next]) => ({ when: word(part), action: transition(next) }));
       if (name === "root") {
         cases.unshift({ when: word("--help"), action: transition("exact") }, { when: word("--version"), action: transition("exact") });
+        if (executable === "kubectl") cases.push(
+          { when: word("apply"), action: transition("kubectlApply") },
+        );
       }
       if (protectsKubernetesResources && name === "root_get") {
         cases.push(
@@ -164,21 +199,102 @@ function strict() {
         end: guardedDefer(),
       };
     }
+    if (executable === "kubectl") {
+      states.kubectlApply = {
+        cases: [
+          { when: { all: [call("atEndOfArguments"), kubectlDryRunGuard] }, action: guardedKubectlDryRunAllow() },
+        ],
+        default: guardedDefer(),
+        end: guardedDefer(),
+      };
+    }
     const specs = STRICT_ALLOWED_FLAGS[executable] ?? [];
     const options: Record<string, unknown> = {};
-    for (const [index, flag] of specs.entries()) options[`flag${index}`] = {
+    if (executable === "kubectl") {
+      const applyStates = ["start", "kubectlApply"];
+      const postApplyStates = ["kubectlApply"];
+      const applyOnly = { kubectlApplyOnlyOptionSeen: true };
+      const valueOption = (names: readonly string[], set: Record<string, Expression> = applyOnly) => ({
+        names,
+        value: "required",
+        forms: names.length === 2 ? ["separate", "attachedShort", "cluster", "equalsLong"] : ["separate", "equalsLong"],
+        availableIn: applyStates,
+        set,
+      });
+      options.kubectlDryRun = {
+        ...valueOption(["--dry-run"], {
+          ...applyOnly,
+          kubectlDryRunSeen: true,
+          kubectlDryRunValid: { all: [
+            { not: { ref: "kubectlDryRunSeen" } },
+            call("inStringSet", { ref: "option.value" }, ["client", "server"]),
+          ] },
+        }),
+        forms: ["equalsLong"],
+      };
+      for (const [index, names] of KUBECTL_APPLY_VALUE_OPTIONS.entries()) {
+        const name = names[0];
+        const nonEmpty = { all: [
+          name === "--filename" ? { ref: "kubectlFilenameValid" } : { ref: "kubectlKustomizeValid" },
+          { not: call("equals", { ref: "option.value" }, "") },
+        ] };
+        const set = name === "--filename" ? { ...applyOnly, kubectlHasFilename: true, kubectlFilenameValid: nonEmpty }
+          : name === "--kustomize" ? { ...applyOnly, kubectlHasKustomize: true, kubectlKustomizeValid: nonEmpty }
+            : name === "--cascade" ? { ...applyOnly, kubectlCascadeValid: { all: [
+              { ref: "kubectlCascadeValid" }, call("inStringSet", { ref: "option.value" }, ["background", "foreground", "orphan"]),
+            ] } }
+              : applyOnly;
+        options[`kubectlApplyValue${index}`] = valueOption(names, set);
+      }
+      for (const [index, name] of KUBECTL_APPLY_BOOLEAN_OPTIONS.entries()) {
+        options[`kubectlApplyBoolean${index}`] = {
+          names: [name], value: "absent", forms: [], availableIn: postApplyStates,
+          set: { ...applyOnly, ...(name === "--recursive" || name === "-R" ? { kubectlRecursive: true } : {}) },
+        };
+      }
+      for (const [index, name] of KUBECTL_APPLY_BARE_OPTIONS.entries()) {
+        options[`kubectlApplyBare${index}`] = { names: [name], value: "absent", forms: [], availableIn: postApplyStates, set: applyOnly };
+      }
+      for (const [index, names] of KUBECTL_GLOBAL_VALUE_OPTIONS.entries()) {
+        options[`kubectlGlobalValue${index}`] = {
+          names, value: "required", forms: names.length === 2 ? ["separate", "attachedShort", "cluster", "equalsLong"] : ["separate", "equalsLong"], availableIn: "*", set: {},
+        };
+      }
+      options.kubectlOutput = {
+        names: ["--output", "-o"], value: "required", forms: ["separate", "attachedShort", "cluster", "equalsLong"], availableIn: "*", set: { kubectlApplyOutputSeen: true },
+      };
+    }
+    for (const [index, flag] of specs.entries()) {
+      if (executable === "kubectl" && [flag.long, flag.short].some((name) => ["--namespace", "-n", "--context", "--output", "-o"].includes(name ?? ""))) continue;
+      options[`flag${index}`] = {
       names: [flag.long, flag.short].filter(Boolean),
       value: flag.takesValue ? "required" : "absent",
       forms: flag.takesValue ? ["separate", ...(flag.short ? ["attachedShort", "cluster"] : []), ...(flag.long ? ["equalsLong"] : [])] : [],
       availableIn: "*",
       set: {},
-    };
+      };
+    }
     write(`strict-${executable}.policy.json`, document(
       [{ executable: { projection: "basename", equals: executable } }],
       states,
       options,
-      secretFold(),
-      protectsKubernetesResources ? { getFirstHasSlash: { type: "bool", initial: false } } : {},
+      executable === "kubectl" ? {
+        ...secretFold(),
+        kubectlOptionsTerminated: { collection: "argv", operation: "any", when: call("equals", { ref: "fold.item" }, "--") },
+      } : secretFold(),
+      executable === "kubectl" ? {
+        getFirstHasSlash: { type: "bool", initial: false },
+        kubectlApplyOnlyOptionSeen: { type: "bool", initial: false },
+        kubectlDryRunSeen: { type: "bool", initial: false },
+        kubectlDryRunValid: { type: "bool", initial: true },
+        kubectlHasFilename: { type: "bool", initial: false },
+        kubectlFilenameValid: { type: "bool", initial: true },
+        kubectlHasKustomize: { type: "bool", initial: false },
+        kubectlKustomizeValid: { type: "bool", initial: true },
+        kubectlRecursive: { type: "bool", initial: false },
+        kubectlCascadeValid: { type: "bool", initial: true },
+        kubectlApplyOutputSeen: { type: "bool", initial: false },
+      } : protectsKubernetesResources ? { getFirstHasSlash: { type: "bool", initial: false } } : {},
     ));
   }
 }

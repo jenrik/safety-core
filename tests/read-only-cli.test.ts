@@ -348,6 +348,27 @@ describe("strict credential-safe CLI profiles", () => {
     ] as const) expect(strict(command, executable), command).toBe("defer");
   });
 
+  test("keeps native kubectl apply dry-runs conservative while the DSL owns approval", () => {
+    for (const command of [
+      "kubectl apply --dry-run=client -f manifest.yaml",
+      "kubectl --dry-run=server apply --filename -",
+      "kubectl apply -f https://example.test/manifest.yaml --dry-run=server",
+      "kubectl apply -k plugin-enabled-overlay --dry-run=client",
+      "kubectl apply --dry-run=client -f secrets.yaml",
+      "kubectl apply -f manifest.yaml",
+      "kubectl apply --dry-run=none -f manifest.yaml",
+      "kubectl apply --dry-run -f manifest.yaml",
+      "kubectl apply --dry-run=client --dry-run=client -f manifest.yaml",
+      "kubectl apply --dry-run=client --unknown -f manifest.yaml",
+      "kubectl get pods --dry-run=client",
+      "KUBECONFIG=/tmp/kubeconfig kubectl apply --dry-run=client -f manifest.yaml",
+      "kubectl apply --dry-run=client -f manifest.yaml > rendered.yaml",
+      "strace -f kubectl apply --dry-run=client -f manifest.yaml",
+      "sh -c 'kubectl apply --dry-run=client -f manifest.yaml'",
+      "/usr/bin/kubectl apply --dry-run=client -f manifest.yaml",
+    ]) expect(strict(command, "kubectl"), command).toBe("defer");
+  });
+
   test("property: reviewed profiles never permit shell injection or flags", () => {
     const commands = [
       ["docker", "docker image ls"], ["kubectl", "kubectl get pods"], ["nix", "nix store ping"],
@@ -420,6 +441,19 @@ describe("strict credential-safe CLI profiles", () => {
       kubectl_subcommand: "get", resource: "pod", command_length: "kubectl get pod secret".length,
     } }]);
     expect(strict("kubectl get pod/example deployment/app", "kubectl")).toBe("allow");
+  });
+
+  test("property: native kubectl apply dry-run profiles defer every ordering", () => {
+    const modes = [["--dry-run=client"], ["--dry-run=server"]] as const;
+    const inputs = [["-f", "-"], ["--filename", "manifest.yaml"], ["-k", "plugin-overlay"]] as const;
+    for (const mode of modes) for (const input of inputs) {
+      for (const args of [
+        ["apply", ...mode, ...input],
+        [...mode, "apply", ...input],
+        [...input, "apply", ...mode],
+        ["apply", ...input, ...mode],
+      ]) expect(strict(["kubectl", ...args].join(" "), "kubectl"), args.join(" ")).toBe("defer");
+    }
   });
 
   test("property: credential-safe Podman and npm aliases preserve the allow decision", () => {
