@@ -1,0 +1,22 @@
+{
+  "name": "@safety-core/opencode-v1",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "OpenCode v1 safety-core server and human TUI plugins",
+  "exports": {
+    "./server": "./dist/server.js",
+    "./tui": "./dist/tui.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prepack": "bun ../../scripts/build-native-node-packages.ts"
+  },
+  "dependencies": {
+    "@safety-core/core": "0.0.0"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "1.18.32"
+  }
+}

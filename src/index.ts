@@ -9,6 +9,7 @@ export {
   basename,
   assertBashParserInitialized,
   discoverWasmDir,
+  initBundledBashParser,
   initBashParser,
   isBashParserFailure,
   isBashParserInitialized,

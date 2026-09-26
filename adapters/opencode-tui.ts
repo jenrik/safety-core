@@ -1,5 +1,7 @@
 import type { TuiPlugin } from "@opencode-ai/plugin/tui";
-import { OPENCODE_POLICY_RELOAD_COMMAND } from "../src/index.js";
+import { OPENCODE_POLICY_RELOAD_COMMAND } from "@safety-core/core";
+
+const OPENCODE_V1_PLUGIN_ID = "safety-core.policy-reload";
 
 export const createOpenCodePolicyReloadTuiPlugin: TuiPlugin = async (api) => {
   if (!api.command) throw new Error("OpenCode TUI command registration is unavailable");
@@ -30,6 +32,6 @@ export const createOpenCodePolicyReloadTuiPlugin: TuiPlugin = async (api) => {
 };
 
 export default {
-  id: "safety-core.policy-reload",
+  id: OPENCODE_V1_PLUGIN_ID,
   tui: createOpenCodePolicyReloadTuiPlugin,
 };

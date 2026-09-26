@@ -1,0 +1,20 @@
+{
+  "name": "@safety-core/core",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Shared safety-core policy engine and Bash parser runtime",
+  "exports": {
+    ".": "./dist/index.js",
+    "./cli": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "tree-sitter-bash.wasm"
+  ],
+  "scripts": {
+    "prepack": "bun ../../scripts/build-native-node-packages.ts"
+  },
+  "dependencies": {
+    "web-tree-sitter": "0.26.11"
+  }
+}

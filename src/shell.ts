@@ -4,6 +4,9 @@
 // deployment boundary; policy evaluation must never silently run without it.
 
 import { statSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Language, Node as SyntaxNode, Parser } from "web-tree-sitter";
 import type {
   BashAssignment,
@@ -47,7 +50,11 @@ export class BashParserFailure extends Error {
  *
  * Idempotent — subsequent calls return the existing parser.
  */
-export async function initBashParser(wasmDir: string, grammarPath = `${wasmDir}/tree-sitter-bash.wasm`): Promise<void> {
+export async function initBashParser(
+  wasmDir: string,
+  grammarPath = `${wasmDir}/tree-sitter-bash.wasm`,
+  runtimePath = `${wasmDir}/node_modules/web-tree-sitter/web-tree-sitter.wasm`,
+): Promise<void> {
   if (bashParser) return;
   if (initPromise) return initPromise;
 
@@ -56,7 +63,7 @@ export async function initBashParser(wasmDir: string, grammarPath = `${wasmDir}/
       // Initialise the tree-sitter runtime, pointing at our bundled WASM.
       await Parser.init({
         locateFile(): string {
-          return `${wasmDir}/node_modules/web-tree-sitter/web-tree-sitter.wasm`;
+          return runtimePath;
         },
       });
 
@@ -73,6 +80,13 @@ export async function initBashParser(wasmDir: string, grammarPath = `${wasmDir}/
   })();
 
   return initPromise;
+}
+
+/** Initialise using parser assets resolved from this installed core package. */
+export function initBundledBashParser(): Promise<void> {
+  const grammarPath = fileURLToPath(new URL("../tree-sitter-bash.wasm", import.meta.url));
+  const runtimePath = createRequire(import.meta.url).resolve("web-tree-sitter/web-tree-sitter.wasm");
+  return initBashParser(dirname(grammarPath), grammarPath, runtimePath);
 }
 
 /** True once the Bash AST parser is available for policy checks. */

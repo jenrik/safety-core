@@ -4,7 +4,16 @@
   "private": true,
   "type": "module",
   "description": "Shared TypeScript safety-policy core for pi/opencode/claude-code coding-agent hooks",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build:native-packages": "bun scripts/build-native-node-packages.ts",
+    "test": "bun run build:native-packages && bun test"
+  },
   "dependencies": {
+    "@safety-core/core": "file:packages/core",
+    "@safety-core/opencode-v1": "file:packages/opencode-v1",
     "web-tree-sitter": "0.26.11",
     "tree-sitter-bash": "0.25.1"
   }

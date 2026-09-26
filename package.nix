@@ -40,7 +40,7 @@ let
     version = "0.0.0";
     src = ./.;
     nodejs = nodejs_22;
-    npmDepsHash = "sha256-sJd9RQDXmQ+16MXXcOy+AoOkCLS5avsNB3MOFYQi7FY=";
+    npmDepsHash = "sha256-NQQX4unSh+CHRwLPgHnFlizGe7lwn0nLwYvSR0MlwVc=";
     dontNpmBuild = true;
     # tree-sitter-bash ships native-binding install scripts we don't need —
     # we only use its prebuilt tree-sitter-bash.wasm.
@@ -89,12 +89,27 @@ let
       cp ${wasmAssets}/tree-sitter-bash.wasm $out/tree-sitter-bash.wasm
     '';
   };
+  # A package-shaped view of the core lets native OpenCode artifacts resolve
+  # their parser assets from @safety-core/core, just like the npm tarball.
+  coreNodePackage = stdenv.mkDerivation {
+    name = "safety-core-core-node-package";
+    dontUnpack = true;
+    installPhase = ''
+      mkdir -p $out
+      cp -r ${core}/src $out/
+      cp -r ${core}/data $out/
+      cp ${core}/tree-sitter-bash.wasm $out/
+      cat > $out/package.json <<'EOF'
+      {"name":"@safety-core/core","type":"module","exports":"./src/index.ts"}
+      EOF
+    '';
+  };
 
   # Package a harness adapter as a directory extension (index.ts at root +
   # src/ + data/ + node_modules/ + WASM).  Rewrites `../src/` → `./src/` and
   # `../data/` → `./data/` in the adapter so it works when placed as
   # index.ts at the root of the output directory.
-  mkExtensionDir = name: adapterFile: stdenv.mkDerivation {
+  mkExtensionDir = name: adapterFile: corePackage: stdenv.mkDerivation {
     name = "safety-core-${name}";
     dontUnpack = true;
     installPhase = ''
@@ -106,22 +121,30 @@ let
       # Copy WASM files to root (referenced by initBashParser).
       cp ${wasmAssets}/tree-sitter-bash.wasm $out/
 
-      # Copy shared source and data.
-      cp -r ${src} $out/src
-      cp -r ${data} $out/data
+       # Copy shared source and data.
+       cp -r ${src} $out/src
+       cp -r ${data} $out/data
 
-      # Place the adapter as index.ts at the root, rewriting imports so they
-      # resolve relative to the new location.
-      ${gnused}/bin/sed 's|../src/|./src/|g; s|../data/|./data/|g' ${adapterFile} > $out/index.ts
-    '';
+       # Native package adapters resolve their shared implementation through
+       # the same package boundary as the published npm artifact.
+       if [ -n "${corePackage}" ]; then
+         chmod u+w $out/node_modules
+         mkdir -p $out/node_modules/@safety-core
+         cp -r ${corePackage} $out/node_modules/@safety-core/core
+       fi
+
+       # Place the adapter as index.ts at the root, rewriting imports so they
+       # resolve relative to the new location.
+       ${gnused}/bin/sed 's|../src/|./src/|g; s|../data/|./data/|g' ${adapterFile} > $out/index.ts
+     '';
   };
 
-  piDir = mkExtensionDir "pi" ./adapters/pi.ts;
+  piDir = mkExtensionDir "pi" ./adapters/pi.ts "";
   # OpenCode v1 and v2 receive independent extension directories. They share
   # behavior today but must remain separately packageable as their APIs evolve.
-  opencodePlugin = mkExtensionDir "opencode" ./adapters/opencode.ts;
-  opencodeV2Plugin = mkExtensionDir "opencode-v2" ./adapters/opencode-v2.ts;
-  opencodeTuiPlugin = mkExtensionDir "opencode-tui" ./adapters/opencode-tui.ts;
+  opencodePlugin = mkExtensionDir "opencode" ./adapters/opencode.ts coreNodePackage;
+  opencodeV2Plugin = mkExtensionDir "opencode-v2" ./adapters/opencode-v2.ts "";
+  opencodeTuiPlugin = mkExtensionDir "opencode-tui" ./adapters/opencode-tui.ts coreNodePackage;
 
   # Trusted code policies are compiled independently. The loader rejects
   # relative imports, so every artifact must be self-contained at this boundary.

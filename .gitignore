@@ -4,3 +4,7 @@ __marimo__/
 __pycache__/
 *.pyc
 .direnv/
+packages/*/dist/
+packages/*/node_modules/
+packages/*/*.tgz
+packages/core/tree-sitter-bash.wasm

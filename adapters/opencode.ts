@@ -5,9 +5,8 @@ import type { Plugin, PluginInput } from "@opencode-ai/plugin";
 import {
   SECRET_BLOCK_MESSAGE,
   checkWebfetchUrl,
-  discoverWasmDir,
   evaluateLoadedPolicies,
-  initBashParser,
+  initBundledBashParser,
   isSecretPath,
   loadPolicyRuntime,
   nodeExecutableFilesystem,
@@ -22,7 +21,9 @@ import {
   type LoadedPolicyRuntime,
   type BashPolicyEvaluation,
   type ExecutableFilesystem,
-} from "../src/index.js";
+} from "@safety-core/core";
+
+const OPENCODE_V1_PLUGIN_ID = "safety-core.policy-reload";
 
 type PolicyEvaluator = (runtime: LoadedPolicyRuntime, source: string, context?: { readonly cwd?: string; readonly executableFilesystem?: ExecutableFilesystem }) => BashPolicyEvaluation;
 
@@ -38,7 +39,7 @@ export async function createOpenCodePlugin(
   client?: PluginInput["client"],
   directory?: string,
 ) {
-  await initBashParser(discoverWasmDir(import.meta.url));
+  await initBundledBashParser();
   const cwd = directory ?? process.cwd();
   const runtime = createPolicyRuntimeReloader(
     dependencies.loadRuntime ?? loadPolicyRuntime,
@@ -150,7 +151,10 @@ export async function createOpenCodePlugin(
   } satisfies Plugin;
 }
 
-export default async (input?: PluginInput) => createOpenCodePlugin({}, input?.client, input?.directory);
+export default {
+  id: OPENCODE_V1_PLUGIN_ID,
+  server: async (input?: PluginInput) => createOpenCodePlugin({}, input?.client, input?.directory),
+};
 
 export function blockReason(result: BashPolicyEvaluation): string {
   const denial = result.traces.find((trace) => trace.decision.kind === "deny");
