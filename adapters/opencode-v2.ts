@@ -1,7 +1,5 @@
 import type { Plugin, PluginInput } from "@opencode-ai/plugin";
 
-// This adapter targets only the OpenCode v1 plugin API. Keep OpenCode v2
-// compatibility in adapters/opencode-v2.ts so either API can evolve independently.
 import {
   SECRET_BLOCK_MESSAGE,
   checkWebfetchUrl,
@@ -24,16 +22,16 @@ import {
 
 type PolicyEvaluator = (runtime: LoadedPolicyRuntime, source: string, context?: { readonly cwd?: string; readonly executableFilesystem?: ExecutableFilesystem }) => BashPolicyEvaluation;
 
-export interface OpenCodePluginDependencies {
+export interface OpenCodeV2PluginDependencies {
   readonly runtime?: LoadedPolicyRuntime;
   readonly loadRuntime?: (cwd: string) => Promise<LoadedPolicyRuntime>;
   readonly evaluatePolicies?: PolicyEvaluator;
   readonly executableFilesystem?: ExecutableFilesystem;
 }
 
-/** Load once at plugin startup; a startup failure prevents the plugin from running. */
-export async function createOpenCodePlugin(
-  dependencies: OpenCodePluginDependencies = {},
+/** Load once at OpenCode v2 plugin startup; a startup failure prevents the plugin from running. */
+export async function createOpenCodeV2Plugin(
+  dependencies: OpenCodeV2PluginDependencies = {},
   client?: PluginInput["client"],
   directory?: string,
 ) {
@@ -133,7 +131,7 @@ export async function createOpenCodePlugin(
   } satisfies Plugin;
 }
 
-export default async (input?: PluginInput) => createOpenCodePlugin({}, input?.client, input?.directory);
+export default async (input?: PluginInput) => createOpenCodeV2Plugin({}, input?.client, input?.directory);
 
 export function blockReason(result: BashPolicyEvaluation): string {
   const denial = result.traces.find((trace) => trace.decision.kind === "deny");

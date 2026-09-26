@@ -1,5 +1,10 @@
 # OpenCode2 integration design
 
+> **Implementation update (2026-09-26):** The planned shared v1 artifact was
+> replaced with the separate `adapters/opencode-v2.ts` and
+> `opencodeV2PluginFile` package export. The implementations intentionally
+> match today, while separate artifacts allow either plugin API to change.
+
 ## Context
 
 `nixos-config` ships `opencode2`, an experimental build of `anomalyco/opencode`'s

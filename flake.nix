@@ -11,7 +11,7 @@
       packages = forAllSystems (system:
         let sc = (pkgsFor system).callPackage ./package.nix { };
         in {
-          inherit (sc) piExtensionDir opencodePlugin claudeCodeHooks safetyCoreCli core policySources;
+          inherit (sc) piExtensionDir opencodePlugin opencodeV2Plugin claudeCodeHooks safetyCoreCli core policySources;
           default = sc.safetyCoreCli;
         });
 
@@ -47,8 +47,10 @@
             test -x ${sc.safetyCoreCli}/bin/safety-core
             test -f ${sc.piExtensionDir}/index.ts
             test -f ${sc.opencodePlugin}/index.ts
+            test -f ${sc.opencodeV2Plugin}/index.ts
             grep -q 'completePolicyInitialEnvironment' ${sc.piExtensionDir}/index.ts
             grep -q 'completePolicyInitialEnvironment' ${sc.opencodePlugin}/index.ts
+            grep -q 'completePolicyInitialEnvironment' ${sc.opencodeV2Plugin}/index.ts
             mkdir -p config/safety-core
             printf '%s\n' '${builtins.toJSON {
               version = 1;

@@ -117,7 +117,10 @@ let
   };
 
   piDir = mkExtensionDir "pi" ./adapters/pi.ts;
+  # OpenCode v1 and v2 receive independent extension directories. They share
+  # behavior today but must remain separately packageable as their APIs evolve.
   opencodePlugin = mkExtensionDir "opencode" ./adapters/opencode.ts;
+  opencodeV2Plugin = mkExtensionDir "opencode-v2" ./adapters/opencode-v2.ts;
 
   # Trusted code policies are compiled independently. The loader rejects
   # relative imports, so every artifact must be self-contained at this boundary.
@@ -158,10 +161,12 @@ in
   # index.ts inside it.
   piExtensionDir = piDir;
 
-  # Path to the opencode adapter .ts file inside a store directory that also
+  # Path to the OpenCode v1 adapter .ts file inside a store directory that also
   # contains ./src/, node_modules/, and WASM assets.
   opencodePluginFile = "${opencodePlugin}/index.ts";
-  inherit opencodePlugin;
+  # Equivalent packaged artifact for the OpenCode v2 plugin API.
+  opencodeV2PluginFile = "${opencodeV2Plugin}/index.ts";
+  inherit opencodePlugin opencodeV2Plugin;
 
   # Not wired into harness configuration yet; Task 4 only produces trusted,
   # source-provenanced artifacts for loader and differential-policy testing.

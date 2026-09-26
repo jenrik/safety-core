@@ -1,5 +1,9 @@
 # OpenCode2 Integration Implementation Plan
 
+> **Implementation update (2026-09-26):** The v1 artifact reuse described
+> below was superseded by a direct, separately packaged OpenCode v2 adapter.
+> The two adapters intentionally have matching behavior today.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Extend safety-core's OpenCode safety plugin and `readOnlyBash` permission profile to OpenCode2 (nixos-config's experimental, config-isolated OpenCode build), fixing the shared-profile-config resolution bug that OpenCode2's `XDG_CONFIG_HOME` override would otherwise cause.
