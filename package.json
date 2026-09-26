@@ -13,7 +13,9 @@
   },
   "dependencies": {
     "@safety-core/core": "file:packages/core",
+    "@safety-core/claude-code": "file:packages/claude-code",
     "@safety-core/opencode-v1": "file:packages/opencode-v1",
+    "@safety-core/pi": "file:packages/pi",
     "web-tree-sitter": "0.26.11",
     "tree-sitter-bash": "0.25.1"
   }

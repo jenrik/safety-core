@@ -31,16 +31,18 @@
 #   WASM runtime — no native addons). We bundle the runtime and grammar WASM
 #   files alongside the code. The web-tree-sitter JS module is placed in a
 #   node_modules/ directory so Node's bare-specifier resolution finds it.
-#   Both packages come from a real package.json/package-lock.json via
-#   buildNpmPackage rather than hand-vendored fetchurl tarballs.
+#   Both packages come from a dedicated dependency-only package manifest via
+#   buildNpmPackage rather than hand-vendored fetchurl tarballs. Keeping this
+#   lock separate prevents npm workspace entrypoints from becoming Nix runtime
+#   dependencies.
 let
   # ── npm dependencies ──────────────────────────────────────────────────
   nodeModules = buildNpmPackage {
     pname = "safety-core-deps";
     version = "0.0.0";
-    src = ./.;
+    src = ./nix/npm-deps;
     nodejs = nodejs_22;
-    npmDepsHash = "sha256-NQQX4unSh+CHRwLPgHnFlizGe7lwn0nLwYvSR0MlwVc=";
+    npmDepsHash = "sha256-vkdDnjq0AECm7lj/jsrGsaARqsw2PnuduJ7R88HmUc4=";
     dontNpmBuild = true;
     # tree-sitter-bash ships native-binding install scripts we don't need —
     # we only use its prebuilt tree-sitter-bash.wasm.
@@ -89,8 +91,8 @@ let
       cp ${wasmAssets}/tree-sitter-bash.wasm $out/tree-sitter-bash.wasm
     '';
   };
-  # A package-shaped view of the core lets native OpenCode artifacts resolve
-  # their parser assets from @safety-core/core, just like the npm tarball.
+  # A package-shaped view of the core lets native Pi and OpenCode artifacts
+  # resolve parser assets from @safety-core/core, just like npm tarballs.
   coreNodePackage = stdenv.mkDerivation {
     name = "safety-core-core-node-package";
     dontUnpack = true;
@@ -139,7 +141,7 @@ let
      '';
   };
 
-  piDir = mkExtensionDir "pi" ./adapters/pi.ts "";
+  piDir = mkExtensionDir "pi" ./adapters/pi.ts coreNodePackage;
   # OpenCode v1 and v2 receive independent extension directories. They share
   # behavior today but must remain separately packageable as their APIs evolve.
   opencodePlugin = mkExtensionDir "opencode" ./adapters/opencode.ts coreNodePackage;
@@ -273,7 +275,8 @@ in
           --platform=node \
           --format=esm \
           --target=node20 \
-          --external:web-tree-sitter \
+           --external:web-tree-sitter \
+           --alias:@safety-core/core=./src/index.ts \
           --outfile="$out/$name.mjs" \
           --banner:js='#!${nodejs_22}/bin/node' \
           "$f"

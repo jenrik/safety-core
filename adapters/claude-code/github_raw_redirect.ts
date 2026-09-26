@@ -5,7 +5,7 @@ import {
   buildFallbackGithubBlock,
   checkWebfetchUrl,
   detectBlockedDomain,
-} from "../../src/index.js";
+} from "@safety-core/core";
 
 import { emitDeny, parseHookEvent, readStdin, run } from "./_shared.js";
 

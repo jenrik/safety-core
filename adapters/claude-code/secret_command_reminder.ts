@@ -6,7 +6,7 @@
 // MAIN AGENT (not the judge) that the "allow" decision is a best-effort
 // filter, not a guarantee. Always exits 0; only injects additionalContext.
 
-import { SECRET_COMMAND_REMINDER } from "../../src/index.js";
+import { SECRET_COMMAND_REMINDER } from "@safety-core/core";
 
 import { emitPostContext, readStdin, run } from "./_shared.js";
 

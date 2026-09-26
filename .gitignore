@@ -7,4 +7,5 @@ __pycache__/
 packages/*/dist/
 packages/*/node_modules/
 packages/*/*.tgz
+packages/pi/extensions/extension.js
 packages/core/tree-sitter-bash.wasm

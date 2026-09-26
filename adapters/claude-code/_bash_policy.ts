@@ -5,7 +5,7 @@ import {
   type BashPolicyEvaluation,
   type LoadedPolicyRuntime,
   type ExecutableFilesystem,
-} from "../../src/index.js";
+} from "@safety-core/core";
 import type { HookEvent } from "./_shared.js";
 
 export interface ClaudeBashPolicyDependencies {

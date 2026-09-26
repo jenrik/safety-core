@@ -7,7 +7,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { analyzeBashWithPolicies, analyzeKubectlInvocation, appendAuditRecord, discoverWasmDir, initBashParser } from "../../src/index.js";
+import { analyzeBashWithPolicies, analyzeKubectlInvocation, appendAuditRecord, discoverWasmDir, initBashParser } from "@safety-core/core";
 
 import { parseHookEvent, readStdin, run } from "./_shared.js";
 

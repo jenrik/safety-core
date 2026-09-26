@@ -1,0 +1,29 @@
+{
+  "name": "@safety-core/claude-code",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Claude Code safety-core hook commands",
+  "exports": {
+    "./bash-policy": "./dist/bash_policy.js",
+    "./github-raw-redirect": "./dist/github_raw_redirect.js",
+    "./kubectl-secret-audit-log": "./dist/kubectl_secret_audit_log.js",
+    "./secret-command-reminder": "./dist/secret_command_reminder.js",
+    "./secrets-policy": "./dist/secrets_policy.js"
+  },
+  "bin": {
+    "safety-core-claude-bash-policy": "./dist/bash_policy.js",
+    "safety-core-claude-github-raw-redirect": "./dist/github_raw_redirect.js",
+    "safety-core-claude-kubectl-secret-audit-log": "./dist/kubectl_secret_audit_log.js",
+    "safety-core-claude-secret-command-reminder": "./dist/secret_command_reminder.js",
+    "safety-core-claude-secrets-policy": "./dist/secrets_policy.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prepack": "bun ../../scripts/build-native-node-packages.ts"
+  },
+  "dependencies": {
+    "@safety-core/core": "0.0.0"
+  }
+}

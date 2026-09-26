@@ -8,9 +8,8 @@ import { Type } from "typebox";
 import {
   SECRET_BLOCK_MESSAGE,
   checkWebfetchUrl,
-  discoverWasmDir,
   evaluateLoadedPolicies,
-  initBashParser,
+  initBundledBashParser,
   isSecretPath,
   loadPolicyRuntime,
   nodeExecutableFilesystem,
@@ -27,7 +26,7 @@ import {
   type ExecutableFilesystem,
   type JudgeProvider,
   type PiAdapterConfig,
-} from "../src/index.js";
+} from "@safety-core/core";
 
 export interface PiExtensionDependencies {
   readonly runtime?: Promise<LoadedPolicyRuntime>;
@@ -54,7 +53,7 @@ const PI_SETTINGS_ENTRY = "safety-core-pi-settings";
 const ACTIVE_MODEL = "active model";
 
 export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDependencies = {}) {
-  const parserReady = initBashParser(discoverWasmDir(import.meta.url));
+  const parserReady = initBundledBashParser();
   void parserReady.catch(() => {});
   const runtime = createPolicyRuntimeReloader(dependencies.loadRuntime ?? loadPolicyRuntime, dependencies.runtime);
   let poisoned: string | undefined;

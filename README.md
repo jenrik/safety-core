@@ -79,3 +79,6 @@ configuration above (or the matching Home Manager options).
 See [policy authoring](./docs/policy-authoring.md),
 [read-only profiles](./docs/read-only-command-profiles.md), and
 [executable identity limitations](./docs/executable-identity-limitations.md).
+Native Node installation forms for the supported harness adapters are documented
+in [native adapter packages](./docs/native-node-adapter-packages.md); policy
+sources remain distributed through Nix configuration.

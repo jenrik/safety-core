@@ -13,7 +13,7 @@ import {
   parsePolicySessionManifest,
   type LoadedPolicyRuntime,
   type PolicySessionManifest,
-} from "../../src/index.js";
+} from "@safety-core/core";
 import { evaluateClaudeBashPolicy, isBashPreToolUse } from "./_bash_policy.js";
 import { emitAllow, emitDeny, parseHookEvent, readStdin, run } from "./_shared.js";
 

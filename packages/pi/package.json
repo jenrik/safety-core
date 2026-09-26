@@ -1,0 +1,26 @@
+{
+  "name": "@safety-core/pi",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Pi safety-core extension",
+  "files": [
+    "extensions"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/extension.js"
+    ]
+  },
+  "scripts": {
+    "prepack": "bun ../../scripts/build-native-node-packages.ts"
+  },
+  "dependencies": {
+    "@safety-core/core": "0.0.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.87.1",
+    "@earendil-works/pi-coding-agent": "0.87.1",
+    "@earendil-works/pi-tui": "0.87.1",
+    "typebox": "1.3.27"
+  }
+}

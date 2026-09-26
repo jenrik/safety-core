@@ -13,7 +13,7 @@ import {
   basename,
   buildSecretBlockMessage,
   isSecretPath,
-} from "../../src/index.js";
+} from "@safety-core/core";
 
 import { hardBlock, parseHookEvent, readStdin, run } from "./_shared.js";
 
