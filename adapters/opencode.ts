@@ -12,6 +12,8 @@ import {
   loadPolicyRuntime,
   nodeExecutableFilesystem,
   completePolicyInitialEnvironment,
+  createPolicyRuntimeReloader,
+  OPENCODE_POLICY_RELOAD_COMMAND,
   setJudgeProvider,
   invokeJudge,
   shouldInvokeJudge,
@@ -31,21 +33,25 @@ export interface OpenCodePluginDependencies {
   readonly executableFilesystem?: ExecutableFilesystem;
 }
 
-/** Load once at plugin startup; a startup failure prevents the plugin from running. */
 export async function createOpenCodePlugin(
   dependencies: OpenCodePluginDependencies = {},
   client?: PluginInput["client"],
   directory?: string,
 ) {
   await initBashParser(discoverWasmDir(import.meta.url));
-  const runtime = dependencies.runtime ?? await (dependencies.loadRuntime ?? loadPolicyRuntime)(directory ?? process.cwd());
+  const cwd = directory ?? process.cwd();
+  const runtime = createPolicyRuntimeReloader(
+    dependencies.loadRuntime ?? loadPolicyRuntime,
+    dependencies.runtime === undefined ? undefined : Promise.resolve(dependencies.runtime),
+  );
+  await runtime.ensure(cwd);
   const executableFilesystem = dependencies.executableFilesystem ?? nodeExecutableFilesystem;
   const evaluate = dependencies.evaluatePolicies ?? ((loaded, source, context) => evaluateLoadedPolicies(loaded, source, completePolicyInitialEnvironment(process.env), context));
   const results = new Map<string, BashPolicyEvaluation>();
   let poisoned: string | undefined;
   setJudgeProvider(buildJudgeProvider());
 
-  const evaluateCommand = (source: string) => evaluate(runtime, source, { cwd: directory ?? process.cwd(), executableFilesystem });
+  const evaluateCommand = (source: string) => evaluate(runtime.current()!, source, { cwd, executableFilesystem });
   const cacheKey = (value: Record<string, unknown>, source: string) =>
     typeof value.sessionID === "string" && typeof value.callID === "string" ? `${value.sessionID}\u0000${value.callID}\u0000${source}` : undefined;
   const poison = (error: unknown) => {
@@ -103,6 +109,17 @@ export async function createOpenCodePlugin(
       if (result.decision === "allow" || result.decision === "deny") output.status = result.decision;
     },
     event: async ({ event }) => {
+      if (event.type === "tui.command.execute" && event.properties.command === OPENCODE_POLICY_RELOAD_COMMAND) {
+        try {
+          await runtime.reload(cwd);
+          poisoned = undefined;
+          notifyPolicyReload(client, cwd, "Safety policies reloaded", "success");
+        } catch (error) {
+          // Keep the known-good runtime active when the replacement is invalid.
+          notifyPolicyReload(client, cwd, error instanceof Error ? `Safety policy reload failed: ${error.message}` : "Safety policy reload failed", "error");
+        }
+        return;
+      }
       if (!client || event.type !== "permission.asked" || event.properties.permission !== "bash") return;
       const source = event.properties.patterns.join(" && ");
       const existingPoison = poisoned;
@@ -145,4 +162,21 @@ function buildJudgeProvider() {
   if (process.env.ANTHROPIC_API_KEY) return createAnthropicJudge({ apiKey: process.env.ANTHROPIC_API_KEY });
   if (process.env.OPENAI_API_KEY) return createOpenAIJudge({ apiKey: process.env.OPENAI_API_KEY });
   return null;
+}
+
+function notifyPolicyReload(
+  client: PluginInput["client"] | undefined,
+  directory: string,
+  message: string,
+  variant: "success" | "error",
+): void {
+  const tui = (client as unknown as { tui?: { showToast?: (options: { query: { directory: string }; body: { title: string; message: string; variant: string } }) => Promise<unknown> } } | undefined)?.tui;
+  try {
+    void Promise.resolve(tui?.showToast?.({
+      query: { directory },
+      body: { title: "Safety policy reload", message, variant },
+    })).catch(() => {});
+  } catch {
+    // A toast failure must not change the policy decision path.
+  }
 }

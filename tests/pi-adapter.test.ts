@@ -141,6 +141,8 @@ test("Pi settings put judge selection in a submenu and auto-approve only policy 
   const handlers = new Map<string, Function>();
   const commands = new Map<string, { handler: Function }>();
   const entries: unknown[] = [];
+  const notifications: Array<{ message: string; level: string }> = [];
+  let reloads = 0;
   renderedSettings.length = 0;
   createPiExtension({
     on: (name: string, handler: Function) => handlers.set(name, handler),
@@ -149,6 +151,10 @@ test("Pi settings put judge selection in a submenu and auto-approve only policy 
     appendEntry: (type: string, data: unknown) => entries.push({ type: "custom", customType: type, data }),
   } as never, {
     runtime: Promise.resolve(runtime),
+    loadRuntime: async () => {
+      reloads++;
+      return runtime;
+    },
     evaluatePolicies: (_runtime, source) => source === "deny" ? deny : defer,
   });
   const context = {
@@ -158,7 +164,7 @@ test("Pi settings put judge selection in a submenu and auto-approve only policy 
     signal: undefined,
     ui: {
       custom: async (factory: Function) => factory({ requestRender() {} }, { fg: (_name: string, value: string) => value, bold: (value: string) => value }, {}, () => {}),
-      notify() {},
+      notify: (message: string, level: string) => notifications.push({ message, level }),
       confirm: async () => { throw new Error("auto-approve must not prompt"); },
     },
     modelRegistry: { getAvailable: () => [], getAll: () => [] },
@@ -166,7 +172,7 @@ test("Pi settings put judge selection in a submenu and auto-approve only policy 
   };
   await commands.get("safety-core")!.handler("", context);
   const root = renderedSettings[0]!;
-  expect(root.items.map((item) => item.id)).toEqual(["auto-approve", "judge"]);
+  expect(root.items.map((item) => item.id)).toEqual(["auto-approve", "judge", "reload-policies"]);
   expect(root.items[1]!.submenu).toBeFunction();
   const judge = root.items[1]!.submenu("active model", () => {});
   expect((judge as { items: Array<{ id: string }> }).items.map((item) => item.id)).toEqual(["judge-model"]);
@@ -180,6 +186,30 @@ test("Pi settings put judge selection in a submenu and auto-approve only policy 
   await expect(handlers.get("tool_call")!({ toolName: "bash", toolCallId: "defer", input: { command: "defer" } }, context)).resolves.toBeUndefined();
   await expect(handlers.get("tool_call")!({ toolName: "bash", toolCallId: "deny", input: { command: "deny" } }, context))
     .resolves.toEqual({ block: true, reason: "generic denial" });
+
+  await root.onChange("reload-policies", "reload");
+  expect(reloads).toBe(1);
+  expect(notifications).toContainEqual({ message: "Safety policies reloaded", level: "info" });
+});
+
+test("Pi exposes policy reload only through its TUI settings command", async () => {
+  const { createPiExtension } = await import("../adapters/pi.ts");
+  const commands = new Map<string, { handler: Function }>();
+  const tools: string[] = [];
+  let reloads = 0;
+  createPiExtension({
+    on() {},
+    registerTool: (tool: { name: string }) => tools.push(tool.name),
+    registerCommand: (name: string, command: { handler: Function }) => commands.set(name, command),
+    appendEntry() {},
+  } as never, {
+    runtime: Promise.resolve(runtime),
+    loadRuntime: async () => { reloads++; return runtime; },
+  });
+
+  expect(tools).toEqual(["bash"]);
+  await commands.get("safety-core")!.handler("", { cwd: "/workspace", mode: "json", ui: { notify() {} } });
+  expect(reloads).toBe(0);
 });
 
 test("property: Pi session settings use the latest valid branch entry across 1,024 histories", async () => {

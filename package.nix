@@ -121,6 +121,7 @@ let
   # behavior today but must remain separately packageable as their APIs evolve.
   opencodePlugin = mkExtensionDir "opencode" ./adapters/opencode.ts;
   opencodeV2Plugin = mkExtensionDir "opencode-v2" ./adapters/opencode-v2.ts;
+  opencodeTuiPlugin = mkExtensionDir "opencode-tui" ./adapters/opencode-tui.ts;
 
   # Trusted code policies are compiled independently. The loader rejects
   # relative imports, so every artifact must be self-contained at this boundary.
@@ -166,7 +167,9 @@ in
   opencodePluginFile = "${opencodePlugin}/index.ts";
   # Equivalent packaged artifact for the OpenCode v2 plugin API.
   opencodeV2PluginFile = "${opencodeV2Plugin}/index.ts";
-  inherit opencodePlugin opencodeV2Plugin;
+  # Human-only TUI companion that emits the reload action to either server adapter.
+  opencodeTuiPluginFile = "${opencodeTuiPlugin}/index.ts";
+  inherit opencodePlugin opencodeV2Plugin opencodeTuiPlugin;
 
   # Not wired into harness configuration yet; Task 4 only produces trusted,
   # source-provenanced artifacts for loader and differential-policy testing.

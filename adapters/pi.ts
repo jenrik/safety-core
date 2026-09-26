@@ -15,6 +15,7 @@ import {
   loadPolicyRuntime,
   nodeExecutableFilesystem,
   completePolicyInitialEnvironment,
+  createPolicyRuntimeReloader,
   createCompletionJudge,
   setJudgeVerdict,
   getJudgeVerdict,
@@ -52,16 +53,12 @@ interface ModelRuntimeAccess {
 const PI_SETTINGS_ENTRY = "safety-core-pi-settings";
 const ACTIVE_MODEL = "active model";
 
-/** Pi loads one policy set for the extension lifetime and never reloads it. */
 export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDependencies = {}) {
   const parserReady = initBashParser(discoverWasmDir(import.meta.url));
   void parserReady.catch(() => {});
-  let runtimeReady = dependencies.runtime;
+  const runtime = createPolicyRuntimeReloader(dependencies.loadRuntime ?? loadPolicyRuntime, dependencies.runtime);
   let poisoned: string | undefined;
-  const ensureRuntime = (cwd: string) => {
-    runtimeReady ??= (dependencies.loadRuntime ?? loadPolicyRuntime)(cwd);
-    return runtimeReady;
-  };
+  const ensureRuntime = (cwd: string) => runtime.ensure(cwd);
   const executableFilesystem = dependencies.executableFilesystem ?? nodeExecutableFilesystem;
   const evaluate = dependencies.evaluatePolicies ?? ((runtime, source, context) => evaluateLoadedPolicies(runtime, source, completePolicyInitialEnvironment(process.env), context));
   let settings: PiSessionSettings = { autoApprove: false };
@@ -77,6 +74,16 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
     activeModel = ctx.model;
     modelRegistry = ctx.modelRegistry;
     await refreshJudge();
+  };
+  const reloadPolicies = async (ctx: ExtensionContext) => {
+    try {
+      await runtime.reload(ctx.cwd);
+      poisoned = undefined;
+      await restoreSettings(ctx);
+      ctx.ui.notify("Safety policies reloaded", "info");
+    } catch (error) {
+      ctx.ui.notify(policyFailureReason(error), "error");
+    }
   };
   const persistSettings = () => {
     pi.appendEntry<PiSessionSettingsEntry>(PI_SETTINGS_ENTRY, {
@@ -117,7 +124,13 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
         ctx.ui.notify("/safety-core requires TUI mode", "error");
         return;
       }
-      await restoreSettings(ctx);
+      try {
+        await restoreSettings(ctx);
+      } catch (error) {
+        // A TUI user can repair an invalid policy and use this menu to retry.
+        poisoned = policyFailureReason(error);
+        ctx.ui.notify(poisoned, "error");
+      }
       await ctx.ui.custom((tui, theme, _keybindings, done) => {
         const judgeChoices = availableJudgeModels(modelRegistry).map(modelKey);
         const currentJudge = settings.judgeModel ?? ACTIVE_MODEL;
@@ -149,12 +162,23 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
               () => close(),
             ),
           },
+          {
+            id: "reload-policies",
+            label: "Reload policies from disk",
+            description: "Replace the active policy set only after the configured policy sources load successfully.",
+            currentValue: "reload",
+            values: ["reload"],
+          },
         ];
         const settingsList = new SettingsList(
           items,
           items.length,
           getSettingsListTheme(),
           async (id, value) => {
+            if (id === "reload-policies") {
+              await reloadPolicies(ctx);
+              return;
+            }
             if (id === "auto-approve") settings = { ...settings, autoApprove: value === "enabled" };
             if (id === "judge") settings = { ...settings, judgeModel: value === ACTIVE_MODEL ? undefined : value };
             persistSettings();

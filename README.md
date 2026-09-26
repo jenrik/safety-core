@@ -58,9 +58,13 @@ OpenCode v2, and Pi adapter artifacts. OpenCode v1 and v2 use separate
 packaged plugin files so either plugin API can evolve without changing the
 other adapter.
 
-OpenCode and Pi load one runtime when their plugin/extension starts. Editing a
-source or configuration therefore requires a harness restart. Claude hooks are
-separate processes: SessionStart state records the selected root, canonical
+OpenCode and Pi load one runtime when their plugin/extension starts. Their
+human-controlled TUI actions can replace that runtime with the latest valid
+policies from disk without restarting: select `Reload policies from disk` in
+Pi's `/safety-core` settings, or install OpenCode's separate
+`opencodeTuiPluginFile` companion and select `Reload safety policies`. Neither
+action is registered as an agent tool; a failed reload retains the active
+policy runtime. Claude hooks are separate processes: SessionStart state records the selected root, canonical
 configuration/source paths, and SHA-256 digests under the session ID. Later
 hooks verify those exact bytes before loading; any changed or missing source,
 or a runtime policy exception, hard-fails the session until it is restarted.
