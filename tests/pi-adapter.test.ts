@@ -4,19 +4,36 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPolicyRuntime, type BashPolicyEvaluation, type LoadedPolicyRuntime } from "../src/index.ts";
 
-mock.module("@earendil-works/pi-coding-agent", () => ({ createBashTool: () => ({ execute() {} }) }));
-mock.module("@earendil-works/pi-tui", () => ({ Container: class { addChild() {} }, Text: class {} }));
+const renderedSettings: Array<{ items: any[]; onChange: (id: string, value: string) => unknown }> = [];
+mock.module("@earendil-works/pi-coding-agent", () => ({
+  createBashTool: () => ({ execute() {} }),
+  getSettingsListTheme: () => ({}),
+}));
+mock.module("@earendil-works/pi-tui", () => ({
+  Container: class { addChild() {}; render() { return []; }; invalidate() {} },
+  Text: class {},
+  SettingsList: class {
+    items: any[];
+    onChange: (id: string, value: string) => unknown;
+    constructor(items: any[], _maxVisible: number, _theme: unknown, onChange: (id: string, value: string) => unknown) {
+      this.items = items;
+      this.onChange = onChange;
+      renderedSettings.push(this);
+    }
+    handleInput() {}
+  },
+}));
 mock.module("typebox", () => ({ Type: { Object: (value: unknown) => value, String: () => ({}), Optional: (value: unknown) => value, Number: () => ({}) } }));
 
 const limits = { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 };
-const runtime = { config: { bashAnalysis: limits }, policySet: { policies: [], sources: [] }, limits } as unknown as LoadedPolicyRuntime;
+const runtime = { config: { bashAnalysis: limits, pi: { autoApprove: false } }, policySet: { policies: [], sources: [] }, limits } as unknown as LoadedPolicyRuntime;
 const deny: BashPolicyEvaluation = { decision: "deny", analysis: { complete: true }, events: [], traces: [{ source: { canonicalPath: "/p" }, layer: "guard", event: {} as never, decision: { kind: "deny", reason: [{ kind: "literal", value: "generic denial" }] } }] };
 const defer: BashPolicyEvaluation = { decision: "defer", analysis: { complete: false }, events: [], traces: [] };
 
 test("Pi blocks generic denial and prompts only generic defer", async () => {
   const { createPiExtension } = await import("../adapters/pi.ts");
   const handlers = new Map<string, Function>();
-  createPiExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerTool() {} } as never, {
+  createPiExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerTool() {}, registerCommand() {}, appendEntry() {} } as never, {
     runtime: Promise.resolve(runtime),
     evaluatePolicies: (_runtime, source) => source === "deny" ? deny : defer,
   });
@@ -30,7 +47,7 @@ test("Pi supplies tool cwd and an explicit executable resolver", async () => {
   const { createPiExtension } = await import("../adapters/pi.ts");
   const handlers = new Map<string, Function>();
   let context: { readonly cwd?: string; readonly executableFilesystem?: unknown } | undefined;
-  createPiExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerTool() {} } as never, {
+  createPiExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerTool() {}, registerCommand() {}, appendEntry() {} } as never, {
     runtime: Promise.resolve(runtime),
     evaluatePolicies: (_runtime, _source, value) => {
       context = value;
@@ -54,7 +71,7 @@ test("Pi supplies inherited environment values to a real DSL permission policy",
   try {
     process.env.CANARY_INHERITED = "exact-pi-inherited-value";
     const handlers = new Map<string, Function>();
-    createPiExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerTool() {} } as never, { runtime: Promise.resolve(loaded) });
+    createPiExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerTool() {}, registerCommand() {}, appendEntry() {} } as never, { runtime: Promise.resolve(loaded) });
     await handlers.get("session_start")!({}, { cwd: root });
     await expect(handlers.get("tool_call")!({ toolName: "bash", toolCallId: "environment", input: { command: "printf canary" } }, { cwd: root, ui: { notify() {} } })).resolves.toBeUndefined();
   } finally {
@@ -66,7 +83,7 @@ test("Pi propagates policy startup failure and no active session can evaluate af
   const { createPiExtension } = await import("../adapters/pi.ts");
   const handlers = new Map<string, Function>();
   let evaluations = 0;
-  createPiExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerTool() {} } as never, {
+  createPiExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerTool() {}, registerCommand() {}, appendEntry() {} } as never, {
     runtime: Promise.reject(new Error("startup failure")),
     evaluatePolicies: () => { evaluations++; return defer; },
   });
@@ -80,7 +97,7 @@ test("Pi persists poison after an evaluation exception without re-evaluating", a
   const { createPiExtension } = await import("../adapters/pi.ts");
   const handlers = new Map<string, Function>();
   let calls = 0;
-  createPiExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerTool() {} } as never, {
+  createPiExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerTool() {}, registerCommand() {}, appendEntry() {} } as never, {
     runtime: Promise.resolve(runtime),
     evaluatePolicies: () => { calls++; throw new Error("evaluation failure"); },
   });
@@ -111,12 +128,79 @@ test("Pi loads its immutable runtime from the session project cwd", async () => 
   const handlers = new Map<string, Function>();
   let loadedCwd: string | undefined;
   let loadedRuntime: LoadedPolicyRuntime | undefined;
-  createPiExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerTool() {} } as never, {
+  createPiExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerTool() {}, registerCommand() {}, appendEntry() {} } as never, {
     loadRuntime: async (cwd) => { loadedCwd = cwd; return loadedRuntime = await loadPolicyRuntime(cwd, { SAFETY_CORE_CONFIG_HOME: home }); },
   });
   await handlers.get("session_start")!({}, { cwd: project });
   expect(loadedCwd).toBe(project);
   expect(loadedRuntime!.policySet.sources.map((source) => source.canonicalPath)).toContain(projectPolicy);
+});
+
+test("Pi settings put judge selection in a submenu and auto-approve only policy defers", async () => {
+  const { createPiExtension } = await import("../adapters/pi.ts");
+  const handlers = new Map<string, Function>();
+  const commands = new Map<string, { handler: Function }>();
+  const entries: unknown[] = [];
+  renderedSettings.length = 0;
+  createPiExtension({
+    on: (name: string, handler: Function) => handlers.set(name, handler),
+    registerTool() {},
+    registerCommand: (name: string, command: { handler: Function }) => commands.set(name, command),
+    appendEntry: (type: string, data: unknown) => entries.push({ type: "custom", customType: type, data }),
+  } as never, {
+    runtime: Promise.resolve(runtime),
+    evaluatePolicies: (_runtime, source) => source === "deny" ? deny : defer,
+  });
+  const context = {
+    cwd: "/workspace",
+    mode: "tui",
+    hasUI: true,
+    signal: undefined,
+    ui: {
+      custom: async (factory: Function) => factory({ requestRender() {} }, { fg: (_name: string, value: string) => value, bold: (value: string) => value }, {}, () => {}),
+      notify() {},
+      confirm: async () => { throw new Error("auto-approve must not prompt"); },
+    },
+    modelRegistry: { getAvailable: () => [], getAll: () => [] },
+    sessionManager: { getBranch: () => entries },
+  };
+  await commands.get("safety-core")!.handler("", context);
+  const root = renderedSettings[0]!;
+  expect(root.items.map((item) => item.id)).toEqual(["auto-approve", "judge"]);
+  expect(root.items[1]!.submenu).toBeFunction();
+  const judge = root.items[1]!.submenu("active model", () => {});
+  expect((judge as { items: Array<{ id: string }> }).items.map((item) => item.id)).toEqual(["judge-model"]);
+
+  await root.onChange("auto-approve", "enabled");
+  expect(entries).toEqual([{
+    type: "custom",
+    customType: "safety-core-pi-settings",
+    data: { autoApprove: true, judgeModel: null },
+  }]);
+  await expect(handlers.get("tool_call")!({ toolName: "bash", toolCallId: "defer", input: { command: "defer" } }, context)).resolves.toBeUndefined();
+  await expect(handlers.get("tool_call")!({ toolName: "bash", toolCallId: "deny", input: { command: "deny" } }, context))
+    .resolves.toEqual({ block: true, reason: "generic denial" });
+});
+
+test("property: Pi session settings use the latest valid branch entry across 1,024 histories", async () => {
+  const { resolvePiSessionSettings } = await import("../adapters/pi.ts");
+  for (let seed = 0; seed < 1_024; seed++) {
+    const entries: unknown[] = [{ type: "custom", customType: "other", data: { autoApprove: true, judgeModel: "ignored" } }];
+    let expected = { autoApprove: false, judgeModel: "configured/model" };
+    for (let index = 0; index < 1 + (seed % 16); index++) {
+      if ((seed + index) % 5 === 0) {
+        entries.push({ type: "custom", customType: "safety-core-pi-settings", data: { autoApprove: "invalid", judgeModel: null } });
+        continue;
+      }
+      expected = { autoApprove: (seed + index) % 2 === 0, judgeModel: (seed + index) % 3 === 0 ? undefined : `provider/model-${seed}-${index}` };
+      entries.push({
+        type: "custom",
+        customType: "safety-core-pi-settings",
+        data: { autoApprove: expected.autoApprove, judgeModel: expected.judgeModel ?? null },
+      });
+    }
+    expect(resolvePiSessionSettings(entries, { autoApprove: false, judgeModel: "configured/model" }), `seed ${seed}`).toEqual(expected);
+  }
 });
 
 function environmentPermissionPolicy(): Record<string, unknown> {

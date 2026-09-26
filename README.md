@@ -33,6 +33,9 @@ events and decisions for local diagnosis.
     "maxNestedScriptDepth": 64,
     "maxSteps": 7500,
     "maxWorkItems": 10000
+  },
+  "pi": {
+    "autoApprove": false
   }
 }
 ```
@@ -46,11 +49,14 @@ denial remains dominant.
 
 The Home Manager module exposes these same fields at
 `programs.safetyCorePermissions`, plus `completePolicySources`, `prCreate`,
-`installCli`, and `installClaudeBashHook`. `completePolicySources` references
+`installCli`, and `installClaudeBashHook`, plus Pi's `autoApprove` and
+`judgeModel` settings. `completePolicySources` references
 the packaged complete DSL source set; `prCreate` renders a complete,
 repository/organization-scoped `gh pr create` DSL source. The flake packages
-the CLI, core/parser assets, DSL source directory, and Claude/OpenCode/Pi
-adapter artifacts.
+the CLI, core/parser assets, DSL source directory, and Claude, OpenCode v1,
+OpenCode v2, and Pi adapter artifacts. OpenCode v1 and v2 use separate
+packaged plugin files so either plugin API can evolve without changing the
+other adapter.
 
 OpenCode and Pi load one runtime when their plugin/extension starts. Editing a
 source or configuration therefore requires a harness restart. Claude hooks are
@@ -58,6 +64,13 @@ separate processes: SessionStart state records the selected root, canonical
 configuration/source paths, and SHA-256 digests under the session ID. Later
 hooks verify those exact bytes before loading; any changed or missing source,
 or a runtime policy exception, hard-fails the session until it is restarted.
+
+Pi exposes `/safety-core` in TUI mode. Its `Auto-approve deferred commands`
+setting skips only the one-time confirmation for policy `defer` outcomes; it
+never bypasses deterministic policy denials, startup/evaluation failures,
+secret-path blocks, or a judge denial. The setting and the selected judge model
+follow the active Pi session branch. Global Pi defaults come from the `pi`
+configuration above (or the matching Home Manager options).
 
 See [policy authoring](./docs/policy-authoring.md),
 [read-only profiles](./docs/read-only-command-profiles.md), and

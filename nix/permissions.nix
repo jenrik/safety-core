@@ -45,6 +45,14 @@ in {
       maxSteps = mkOption { type = types.addCheck types.ints.positive (value: value <= 9007199254740991); default = 7500; };
       maxWorkItems = mkOption { type = types.addCheck types.ints.positive (value: value <= 9007199254740991); default = 10000; };
     };
+    pi = {
+      autoApprove = mkEnableOption "automatically approve policy-deferred Pi Bash calls";
+      judgeModel = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        description = "Pi provider/model key used by the secret-command judge, such as anthropic/claude-haiku.";
+      };
+    };
   };
 
   config = {
@@ -61,6 +69,9 @@ in {
         allowedRoots = map toString cfg.projectPolicies.allowedRoots;
       } else { mode = cfg.projectPolicies.mode; };
       bashAnalysis = cfg.bashAnalysis;
+      pi = { autoApprove = cfg.pi.autoApprove; } // optionalAttrs (cfg.pi.judgeModel != null) {
+        judgeModel = cfg.pi.judgeModel;
+      };
     };
     programs.claude-code.settings.hooks.PreToolUse = mkIf cfg.installClaudeBashHook (mkAfter [{
       matcher = "Bash";

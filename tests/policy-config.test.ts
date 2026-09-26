@@ -93,8 +93,22 @@ describe("authoritative global policy configuration", () => {
     writeGlobalConfig(home, globalConfig(["policies/read.policy.mjs"]));
     const loaded = loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home });
     expect(loaded.bashAnalysis).toEqual({ maxFunctionDepth: 7, maxNestedScriptDepth: 6, maxSteps: 5, maxWorkItems: 4 });
+    expect(loaded.pi).toEqual({ autoApprove: false });
     expect(Object.isFrozen(loaded)).toBeTrue();
     expect(Object.isFrozen(loaded.bashAnalysis)).toBeTrue();
+  });
+
+  test("parses Pi defaults and rejects malformed Pi adapter configuration", () => {
+    const home = fixtureDirectory();
+    writeGlobalConfig(home, { ...globalConfig(), pi: { autoApprove: true, judgeModel: "anthropic/claude-haiku" } });
+    expect(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }).pi).toEqual({
+      autoApprove: true,
+      judgeModel: "anthropic/claude-haiku",
+    });
+    for (const pi of [true, { autoApprove: "true" }, { judgeModel: "" }, { unknown: true }]) {
+      writeGlobalConfig(home, { ...globalConfig(), pi });
+      expect(() => loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), JSON.stringify(pi)).toThrow(PolicyStartupError);
+    }
   });
 
   test("resolves global references from their configuration and permits code or DSL sources", () => {

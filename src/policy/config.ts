@@ -28,6 +28,13 @@ export interface ProjectPoliciesConfig {
   readonly allowedRoots: readonly string[];
 }
 
+export interface PiAdapterConfig {
+  /** Automatically accept policy-deferred Bash calls in the Pi adapter. */
+  readonly autoApprove: boolean;
+  /** Optional Pi provider/model key used for the secret-command judge. */
+  readonly judgeModel?: string;
+}
+
 export interface GlobalPolicyConfig {
   readonly path: string;
   readonly configuration: PolicyConfigurationSource;
@@ -35,6 +42,7 @@ export interface GlobalPolicyConfig {
   readonly policies: readonly string[];
   readonly projectPolicies: ProjectPoliciesConfig;
   readonly bashAnalysis: BashAnalysisConfig;
+  readonly pi: PiAdapterConfig;
 }
 
 export interface ResolvedPolicySource {
@@ -117,12 +125,13 @@ function readJson(path: string): { readonly bytes: Buffer; readonly value: unkno
 
 function parseGlobalConfig(value: unknown, path: string, configuration: PolicyConfigurationSource): GlobalPolicyConfig {
   const record = requireRecord(value, path, "configuration must be an object");
-  requireOnlyKeys(record, new Set(["version", "policies", "projectPolicies", "bashAnalysis"]), path);
+  requireOnlyKeys(record, new Set(["version", "policies", "projectPolicies", "bashAnalysis", "pi"]), path);
   if (record.version !== 1) throw new PolicyStartupError(path, "version must be 1");
   const policies = parsePolicies(record.policies, path);
   requireGlobalSourceExtensions(policies, path);
   const projectPolicies = parseProjectPolicies(record.projectPolicies, path);
   const bashAnalysis = parseBashAnalysis(record.bashAnalysis, path);
+  const pi = parsePiAdapter(record.pi, path);
 
   return Object.freeze({
     path,
@@ -131,7 +140,21 @@ function parseGlobalConfig(value: unknown, path: string, configuration: PolicyCo
     policies: Object.freeze(policies),
     projectPolicies,
     bashAnalysis,
+    pi,
   });
+}
+
+function parsePiAdapter(value: unknown, path: string): PiAdapterConfig {
+  if (value === undefined) return Object.freeze({ autoApprove: false });
+  const record = requireRecord(value, path, "pi must be an object");
+  requireOnlyKeys(record, new Set(["autoApprove", "judgeModel"]), path);
+  const autoApprove = record.autoApprove ?? false;
+  if (typeof autoApprove !== "boolean") throw new PolicyStartupError(path, "pi.autoApprove must be a boolean");
+  const judgeModel = record.judgeModel;
+  if (judgeModel !== undefined && (typeof judgeModel !== "string" || judgeModel.length === 0)) {
+    throw new PolicyStartupError(path, "pi.judgeModel must be a non-empty string");
+  }
+  return Object.freeze({ autoApprove, ...(judgeModel === undefined ? {} : { judgeModel }) });
 }
 
 function parseProjectPolicies(value: unknown, path: string): ProjectPoliciesConfig {
