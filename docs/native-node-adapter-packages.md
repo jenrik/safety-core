@@ -13,8 +13,9 @@ changing the adapter packages.
 
 ## Proposed package boundaries
 
-- `@safety-core/core` owns the shared policy engine, configuration loader,
-  parser initialization, `web-tree-sitter`, and `tree-sitter-bash.wasm`.
+- `@safety-core/core` owns the shared policy engine, `safety-core` CLI,
+  configuration loader, parser initialization, `web-tree-sitter`, and
+  `tree-sitter-bash.wasm`.
 - `@safety-core/opencode-v1` provides the OpenCode v1 server and TUI plugin
   entrypoints.
 - Reserve `@safety-core/opencode-v2` for the v2 adapter, but do not document a

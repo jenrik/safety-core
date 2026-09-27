@@ -53,7 +53,15 @@ test("Pi packages declare one native extension and keep host modules development
   ]);
 });
 
-test("packed packages install and expose the OpenCode v1 server and TUI forms", () => {
+test("core package declares the safety-core executable", () => {
+  const manifest = JSON.parse(run("node", ["--input-type=module", "--eval", `
+    import manifest from "./packages/core/package.json" with { type: "json" };
+    console.log(JSON.stringify(manifest));
+  `], root));
+  expect(manifest.bin).toEqual({ "safety-core": "./dist/cli.js" });
+});
+
+test("packed packages install and expose the OpenCode v1 server and TUI forms; property: core CLI rejects 1,024 unsupported commands", () => {
   const core = pack("core");
   const opencode = pack("opencode-v1");
   const pi = pack("pi");
@@ -88,6 +96,25 @@ test("packed packages install and expose the OpenCode v1 server and TUI forms", 
     expect(run(join(installation, "node_modules", ".bin", "safety-core-claude-github-raw-redirect"), [], installation,
       JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "WebFetch", tool_input: { url: "https://api.github.com/user" } })),
     ).toContain('"permissionDecision":"deny"');
+    const cli = spawnSync(join(installation, "node_modules", ".bin", "safety-core"), ["validate"], {
+      cwd: installation,
+      encoding: "utf8",
+      env: { ...process.env, SAFETY_CORE_CONFIG_HOME: join(installation, "missing-config") },
+    });
+    expect(cli.status).toBe(1);
+    expect(cli.stderr).toContain("config.json");
+
+    run("node", ["--input-type=module", "--eval", `
+      import { main } from "@safety-core/core/cli";
+      for (let seed = 0; seed < 1024; seed++) {
+        try {
+          await main(["unsupported-command-" + seed]);
+          throw new Error("seed " + seed + " unexpectedly succeeded");
+        } catch (error) {
+          if (!(error instanceof Error) || !error.message.startsWith("usage: safety-core")) throw error;
+        }
+      }
+    `], installation);
   } finally {
     rmSync(installation, { force: true, recursive: true });
   }

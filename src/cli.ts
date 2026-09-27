@@ -1,4 +1,5 @@
 import { discoverWasmDir, initBashParser } from "./shell.js";
+import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { PolicyStartupError } from "./policy/config.js";
 import { createExplainTrace, renderExplainTrace } from "./policy/trace.js";
@@ -25,7 +26,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   process.stdout.write(renderExplainTrace(createExplainTrace(runtime, evaluation), json));
 }
 
-if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+if (process.argv[1] && pathToFileURL(realpathSync(process.argv[1])).href === import.meta.url) {
   main().catch((error: unknown) => {
     const message = error instanceof PolicyStartupError || error instanceof Error ? error.message : "safety-core failed";
     process.stderr.write(`safety-core: ${message}\n`);

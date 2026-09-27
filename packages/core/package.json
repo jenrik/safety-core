@@ -7,6 +7,9 @@
     ".": "./dist/index.js",
     "./cli": "./dist/cli.js"
   },
+  "bin": {
+    "safety-core": "./dist/cli.js"
+  },
   "files": [
     "dist",
     "tree-sitter-bash.wasm"

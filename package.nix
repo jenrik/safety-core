@@ -83,12 +83,15 @@ let
     pname = "safety-core-core";
     version = "0";
     dontUnpack = true;
+    nativeBuildInputs = [ esbuild ];
     installPhase = ''
-      mkdir -p $out
+      mkdir -p $out/bin
       cp -r ${src} $out/src
       cp -r ${data} $out/data
       cp -r ${wasmAssets}/node_modules $out/node_modules
       cp ${wasmAssets}/tree-sitter-bash.wasm $out/tree-sitter-bash.wasm
+      esbuild --bundle --platform=node --format=esm --target=node20 --external:web-tree-sitter --outfile="$out/bin/safety-core" --banner:js='#!${nodejs_22}/bin/node' "$out/src/cli.ts"
+      chmod +x $out/bin/safety-core
     '';
   };
   # A package-shaped view of the core lets native Pi and OpenCode artifacts
@@ -236,19 +239,8 @@ in
 
   inherit core policySources mkGhPrCreateDslPolicy;
 
-  safetyCoreCli = stdenv.mkDerivation {
-    pname = "safety-core";
-    version = "0";
-    src = ./.;
-    nativeBuildInputs = [ esbuild ];
-    installPhase = ''
-      mkdir -p $out/bin $out/node_modules
-      cp -r ${wasmAssets}/node_modules/web-tree-sitter $out/node_modules/
-      cp ${wasmAssets}/tree-sitter-bash.wasm $out/tree-sitter-bash.wasm
-      esbuild --bundle --platform=node --format=esm --target=node20 --external:web-tree-sitter --outfile="$out/bin/safety-core" --banner:js='#!${nodejs_22}/bin/node' "$src/src/cli.ts"
-      chmod +x $out/bin/safety-core
-    '';
-  };
+  # Compatibility alias for Home Manager and callers using the former name.
+  safetyCoreCli = core;
 
   # Standalone bundled hook scripts for claude-code. Produces a directory of
   # executable .mjs files matching the original .py names one-for-one.
