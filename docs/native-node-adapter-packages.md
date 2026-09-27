@@ -28,6 +28,12 @@ an additional asset-version and resolution contract. The core package should
 resolve the bundled asset from its installed package location rather than from
 an adapter-relative copied directory.
 
+The WASM is generated during `@safety-core/core`'s `prepack` lifecycle from the
+locked `tree-sitter-bash` source and pinned `tree-sitter-cli`, then checked
+against its expected SHA-256 before npm creates the tarball. A source checkout
+therefore needs only `npm install` and `npm pack ./packages/core`; it does not
+depend on a Nix shell or a checked-in parser binary.
+
 ## OpenCode v1
 
 The current OpenCode integration has separate server and human-only TUI

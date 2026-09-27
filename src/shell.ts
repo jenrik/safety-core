@@ -3,9 +3,9 @@
 // Uses tree-sitter-bash for accurate shell parsing. Parser initialization is a
 // deployment boundary; policy evaluation must never silently run without it.
 
-import { statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Language, Node as SyntaxNode, Parser } from "web-tree-sitter";
 import type {
@@ -82,10 +82,56 @@ export async function initBashParser(
   return initPromise;
 }
 
-/** Initialise using parser assets resolved from this installed core package. */
-export function initBundledBashParser(): Promise<void> {
-  const grammarPath = fileURLToPath(new URL("../tree-sitter-bash.wasm", import.meta.url));
-  const runtimePath = createRequire(import.meta.url).resolve("web-tree-sitter/web-tree-sitter.wasm");
+export interface BundledBashAssets {
+  readonly grammarPath: string;
+  readonly runtimePath: string;
+}
+
+/**
+ * Resolve assets independently: core owns the grammar while normal Node module
+ * resolution owns the runtime. This supports source, packed-core, and bundled
+ * adapter layouts without duplicating either asset.
+ */
+export function resolveBundledBashAssets(
+  moduleUrl = import.meta.url,
+  runtimePath?: string,
+): BundledBashAssets {
+  const { pathname, protocol } = new URL(moduleUrl);
+  if (protocol !== "file:") throw new BashParserFailure(`Bash parser assets require a file URL, received ${moduleUrl}`);
+
+  const requireFromModule = createRequire(moduleUrl);
+  let coreEntrypoint: string | undefined;
+  try {
+    coreEntrypoint = requireFromModule.resolve("@safety-core/core");
+  } catch {
+    // Standalone bundles do not have a core package boundary.
+  }
+  const resolvedRuntimePath = runtimePath ?? createRequire(coreEntrypoint ?? moduleUrl).resolve("web-tree-sitter/web-tree-sitter.wasm");
+
+  if (coreEntrypoint) {
+    const grammarPath = join(dirname(coreEntrypoint), "..", "tree-sitter-bash.wasm");
+    if (existsSync(grammarPath)) return Object.freeze({ grammarPath, runtimePath: resolvedRuntimePath });
+  }
+
+  let dir = dirname(fileURLToPath(moduleUrl));
+  for (let i = 0; i < 10; i++) {
+    for (const grammarPath of [
+      join(dir, "tree-sitter-bash.wasm"),
+      join(dir, "packages", "core", "tree-sitter-bash.wasm"),
+    ]) {
+      if (existsSync(grammarPath)) return Object.freeze({ grammarPath, runtimePath: resolvedRuntimePath });
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  throw new BashParserFailure(`Bash parser grammar could not be resolved from ${pathname}`);
+}
+
+/** Initialise using parser assets resolved from this core or adapter module. */
+export function initBundledBashParser(moduleUrl = import.meta.url): Promise<void> {
+  const { grammarPath, runtimePath } = resolveBundledBashAssets(moduleUrl);
   return initBashParser(dirname(grammarPath), grammarPath, runtimePath);
 }
 

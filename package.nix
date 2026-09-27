@@ -5,6 +5,7 @@
   nodejs_22,
   esbuild,
   gnused,
+  pkgs,
 }:
 # Shared TypeScript core for the LLM safety hook, plus per-harness artifacts
 # that wrap it for claude-code, pi, and opencode.
@@ -44,14 +45,19 @@ let
     nodejs = nodejs_22;
     npmDepsHash = "sha256-vkdDnjq0AECm7lj/jsrGsaARqsw2PnuduJ7R88HmUc4=";
     dontNpmBuild = true;
-    # tree-sitter-bash ships native-binding install scripts we don't need —
-    # we only use its prebuilt tree-sitter-bash.wasm.
+    # tree-sitter-bash ships native-binding install scripts we don't need.
     npmFlags = [ "--ignore-scripts" ];
     installPhase = ''
       mkdir -p $out/node_modules
       cp -r node_modules/web-tree-sitter $out/node_modules/
       cp -r node_modules/tree-sitter-bash $out/node_modules/
     '';
+  };
+
+  # This invocation remains lazy until a runtime package requests the grammar,
+  # avoiding cross-toolchain evaluation for DSL-only module configuration.
+  patchedGrammar = import ./nix/patched-bash-grammar.nix {
+    inherit nodeModules pkgs;
   };
 
   # Lay out the files we need so that Node module resolution works
@@ -63,22 +69,14 @@ let
     installPhase = ''
       mkdir -p $out/node_modules
       cp -r ${nodeModules}/node_modules/web-tree-sitter $out/node_modules/
-      cp ${./tree-sitter-bash.wasm} $out/tree-sitter-bash.wasm
+      cp ${patchedGrammar}/tree-sitter-bash.wasm $out/tree-sitter-bash.wasm
     '';
   };
 
   src = ./src;
   data = ./data;
-  policySources = stdenv.mkDerivation {
-    pname = "safety-core-policy-sources";
-    version = "0";
-    src = ./policies/dsl;
-    dontUnpack = true;
-    installPhase = ''
-      mkdir -p $out
-      cp -r $src/. $out/
-    '';
-  };
+  policyArtifacts = import ./nix/dsl-policies.nix { inherit stdenv; };
+  inherit (policyArtifacts) policySources dslPolicies;
   core = stdenv.mkDerivation {
     pname = "safety-core-core";
     version = "0";
@@ -199,45 +197,11 @@ in
   opencodeTuiPluginFile = "${opencodeTuiPlugin}/index.ts";
   inherit opencodePlugin opencodeV2Plugin opencodeTuiPlugin;
 
-  # Not wired into harness configuration yet; Task 4 only produces trusted,
-  # source-provenanced artifacts for loader and differential-policy testing.
-  dslPolicies = {
-    secretRead = "${policySources}/secret-read.policy.json";
-    githubHttp = "${policySources}/github-http.policy.json";
-    kubectl = "${policySources}/kubectl.policy.json";
-    unsupportedShellSource = "${policySources}/unsupported-shell-source.policy.json";
-    genericReadOnly = "${policySources}/generic-read-only.policy.json";
-    ghReadOnly = "${policySources}/gh-read-only.policy.json";
-    helmReadOnly = "${policySources}/helm-read-only.policy.json";
-    ghApi = "${policySources}/gh-api.policy.json";
-    strictReadOnly = [
-      "${policySources}/strict-argocd.policy.json"
-      "${policySources}/strict-cosign.policy.json"
-      "${policySources}/strict-crane.policy.json"
-      "${policySources}/strict-docker.policy.json"
-      "${policySources}/strict-jf.policy.json"
-      "${policySources}/strict-jfrog.policy.json"
-      "${policySources}/strict-kubectl.policy.json"
-      "${policySources}/strict-nix.policy.json"
-      "${policySources}/strict-nix-env.policy.json"
-      "${policySources}/strict-nix-store.policy.json"
-      "${policySources}/strict-npm.policy.json"
-      "${policySources}/strict-oc.policy.json"
-      "${policySources}/strict-pip.policy.json"
-      "${policySources}/strict-podman.policy.json"
-      "${policySources}/strict-podman-compose.policy.json"
-      "${policySources}/strict-skopeo.policy.json"
-      "${policySources}/strict-tofu.policy.json"
-      "${policySources}/strict-uv.policy.json"
-      "${policySources}/strict-yarn.policy.json"
-    ];
-  };
-
   codePolicies = {
     apiFixture = mkCodePolicy "api-fixture" "policies/code/api-fixture.policy.ts";
   };
 
-  inherit core policySources mkGhPrCreateDslPolicy;
+  inherit core dslPolicies policySources mkGhPrCreateDslPolicy;
 
   # Compatibility alias for Home Manager and callers using the former name.
   safetyCoreCli = core;

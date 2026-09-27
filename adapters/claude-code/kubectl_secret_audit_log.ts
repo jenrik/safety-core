@@ -7,14 +7,14 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { analyzeBashWithPolicies, analyzeKubectlInvocation, appendAuditRecord, discoverWasmDir, initBashParser } from "@safety-core/core";
+import { analyzeBashWithPolicies, analyzeKubectlInvocation, appendAuditRecord, initBundledBashParser } from "@safety-core/core";
 
 import { parseHookEvent, readStdin, run } from "./_shared.js";
 
 const LOG_PATH = join(homedir(), ".claude", "logs", "kubectl-secret-audit.jsonl");
 
 run(async () => {
-  await initBashParser(discoverWasmDir(import.meta.url));
+  await initBundledBashParser(import.meta.url);
   const event = parseHookEvent(readStdin());
   if (!event || event.tool_name !== "Bash") return;
 

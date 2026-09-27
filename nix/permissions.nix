@@ -3,16 +3,17 @@ with lib;
 let
   cfg = config.programs.safetyCorePermissions;
   safetyCore = pkgs.safety-core or (pkgs.callPackage ../package.nix { });
+  policyArtifacts = import ./dsl-policies.nix { inherit (pkgs) stdenv; };
   completeSources = [
-    safetyCore.dslPolicies.secretRead
-    safetyCore.dslPolicies.githubHttp
-    safetyCore.dslPolicies.kubectl
-    safetyCore.dslPolicies.unsupportedShellSource
-    safetyCore.dslPolicies.genericReadOnly
-    safetyCore.dslPolicies.ghReadOnly
-    safetyCore.dslPolicies.helmReadOnly
-    safetyCore.dslPolicies.ghApi
-  ] ++ safetyCore.dslPolicies.strictReadOnly;
+    policyArtifacts.dslPolicies.secretRead
+    policyArtifacts.dslPolicies.githubHttp
+    policyArtifacts.dslPolicies.kubectl
+    policyArtifacts.dslPolicies.unsupportedShellSource
+    policyArtifacts.dslPolicies.genericReadOnly
+    policyArtifacts.dslPolicies.ghReadOnly
+    policyArtifacts.dslPolicies.helmReadOnly
+    policyArtifacts.dslPolicies.ghApi
+  ] ++ policyArtifacts.dslPolicies.strictReadOnly;
   prSource = safetyCore.mkGhPrCreateDslPolicy {
     allowedRepositories = cfg.prCreate.allowedRepositories;
     allowedOrganizations = cfg.prCreate.allowedOrganizations;

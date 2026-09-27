@@ -1,12 +1,15 @@
 import { afterAll, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "..");
 const packageDirectories = ["core", "opencode-v1", "pi", "claude-code"] as const;
 const generatedTarballs: string[] = [];
+const packedTarballs = new Map<typeof packageDirectories[number], string>();
+const patchedGrammarSha256 = "e9d5f7c623675e6c02b35973350f7be8d87d74f6a6ca1a40701654623af31a06";
 
 function run(command: string, args: readonly string[], cwd: string, input?: string): string {
   const result = spawnSync(command, args, { cwd, encoding: "utf8", input });
@@ -17,13 +20,22 @@ function run(command: string, args: readonly string[], cwd: string, input?: stri
 }
 
 function pack(packageName: typeof packageDirectories[number]): string {
+  const existing = packedTarballs.get(packageName);
+  if (existing) return existing;
   const directory = join(root, "packages", packageName);
   const output = run("npm", ["pack", "--json"], directory);
   const filename = JSON.parse(output)[0]?.filename;
   if (typeof filename !== "string") throw new Error(`npm pack did not produce ${packageName}`);
   const tarball = join(directory, filename);
   generatedTarballs.push(tarball);
+  packedTarballs.set(packageName, tarball);
   return tarball;
+}
+
+function readTarballFile(tarball: string, path: string): Buffer {
+  const result = spawnSync("tar", ["-xOf", tarball, path], { maxBuffer: 2_000_000 });
+  if (result.status !== 0) throw new Error(`tar -xOf ${path} failed: ${result.stderr.toString()}`);
+  return result.stdout;
 }
 
 afterAll(() => {
@@ -59,6 +71,11 @@ test("core package declares the safety-core executable", () => {
     console.log(JSON.stringify(manifest));
   `], root));
   expect(manifest.bin).toEqual({ "safety-core": "./dist/cli.js" });
+});
+
+test("packed core includes the reproducibly generated patched Bash grammar", () => {
+  const wasm = readTarballFile(pack("core"), "package/tree-sitter-bash.wasm");
+  expect(createHash("sha256").update(wasm).digest("hex")).toBe(patchedGrammarSha256);
 });
 
 test("packed packages install and expose the OpenCode v1 server and TUI forms; property: core CLI rejects 1,024 unsupported commands", () => {
@@ -103,6 +120,13 @@ test("packed packages install and expose the OpenCode v1 server and TUI forms; p
     });
     expect(cli.status).toBe(1);
     expect(cli.stderr).toContain("config.json");
+    const bashHook = spawnSync(join(installation, "node_modules", ".bin", "safety-core-claude-bash-policy"), [], {
+      cwd: installation,
+      encoding: "utf8",
+      input: JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "printf package-installed" }, session_id: "missing", cwd: installation }),
+    });
+    expect(bashHook.status).toBe(2);
+    expect(bashHook.stderr).toContain("SessionStart must establish it before PreToolUse");
 
     run("node", ["--input-type=module", "--eval", `
       import { main } from "@safety-core/core/cli";

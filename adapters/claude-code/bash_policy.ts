@@ -5,8 +5,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { dirname, join } from "node:path";
 
 import {
-  discoverWasmDir,
-  initBashParser,
+  initBundledBashParser,
   loadPolicyRuntime,
   createPolicySessionManifest,
   loadPolicySessionRuntime,
@@ -25,7 +24,7 @@ run(async () => {
   }
   if (!isBashPreToolUse(event)) return;
 
-  await initBashParser(discoverWasmDir(import.meta.url));
+  await initBundledBashParser(import.meta.url);
   const cwd = event.cwd ?? process.cwd();
   const runtime = await loadClaudeSessionRuntime(event.session_id, cwd);
   let decision;

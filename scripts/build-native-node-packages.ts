@@ -1,6 +1,8 @@
-import { copyFileSync, mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { buildPatchedBashGrammar } from "./build-bash-grammar.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -31,7 +33,7 @@ for (const packageName of ["core", "opencode-v1", "pi", "claude-code"]) {
 
 await build("src/index.ts", "packages/core/dist", ["web-tree-sitter"]);
 await build("src/cli.ts", "packages/core/dist", ["web-tree-sitter"], "#!/usr/bin/env node\n");
-copyFileSync(resolve(root, "tree-sitter-bash.wasm"), resolve(root, "packages/core/tree-sitter-bash.wasm"));
+await buildPatchedBashGrammar(root, resolve(root, "packages/core/tree-sitter-bash.wasm"));
 
 await build("packages/opencode-v1/server.ts", "packages/opencode-v1/dist", ["@safety-core/core"]);
 await build("packages/opencode-v1/tui.ts", "packages/opencode-v1/dist", ["@safety-core/core"]);

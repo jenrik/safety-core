@@ -2,7 +2,7 @@ import { beforeAll, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { discoverWasmDir, initBashParser, loadPolicyRuntime, type LoadedPolicyRuntime, type ValidatedBashPolicy } from "../src/index.ts";
+import { initBundledBashParser, loadPolicyRuntime, type LoadedPolicyRuntime, type ValidatedBashPolicy } from "../src/index.ts";
 import { evaluateClaudeBashPolicy } from "../adapters/claude-code/_bash_policy.ts";
 import { classifyKubectlSecretAudit } from "../adapters/claude-code/kubectl_secret_audit_log.ts";
 import { establishClaudeSessionRuntime, loadClaudeSessionRuntime, poisonClaudeSession } from "../adapters/claude-code/bash_policy.ts";
@@ -20,7 +20,7 @@ const policies: readonly ValidatedBashPolicy[] = [
 const runtime = { config: { bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 } }, policySet: { policies, sources: [] }, limits: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 } } as unknown as LoadedPolicyRuntime;
 const event = (command: string) => ({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } }) as const;
 
-beforeAll(() => initBashParser(discoverWasmDir(import.meta.url)));
+beforeAll(() => initBundledBashParser());
 
 test("Claude maps generic allow, deny, and defer without policy-name presentation", () => {
   expect(evaluateClaudeBashPolicy(event("cat credentials.json"), { runtime })).toEqual({ kind: "deny", reason: "protected read" });

@@ -6,15 +6,28 @@
 token for reserved-word `time -p`, so safety-core does not recover reserved-word
 syntax by rewriting or reparsing source.
 
-The checked-in `tree-sitter-bash.wasm` was generated with tree-sitter CLI
-0.26.11 and has SHA-256
+`@safety-core/core` generates and includes `tree-sitter-bash.wasm` during its
+`prepack` lifecycle step. The generator uses the version-pinned
+`tree-sitter-bash` v0.25.1 npm input and `tree-sitter-cli` v0.26.11 development
+dependency, applies this patch strictly, and requires SHA-256
 `e9d5f7c623675e6c02b35973350f7be8d87d74f6a6ca1a40701654623af31a06`.
 
-To regenerate it in a clean checkout of that upstream commit:
+After `npm install`, package the core without Nix:
 
 ```sh
-git apply /path/to/safety-core/patches/tree-sitter-bash-time-coproc.patch
-nix shell nixpkgs#tree-sitter -c tree-sitter generate
-nix shell nixpkgs#tree-sitter -c tree-sitter build --wasm -o /path/to/safety-core/tree-sitter-bash.wasm
-sha256sum /path/to/safety-core/tree-sitter-bash.wasm
+npm pack ./packages/core
 ```
+
+The first `tree-sitter build --wasm` invocation downloads the WASI SDK used by
+the pinned CLI. The digest check makes a changed compiler or grammar input fail
+closed instead of publishing a different parser. Nix independently regenerates
+its grammar from the pinned `tree-sitter` 0.26.9 package, the Nix-native WASI
+cross toolchain, and locked npm grammar input; neither path consumes a checked-
+in WASM file. The cross toolchain is built for the active Nix build host, so the
+same derivation supports both x86_64-linux and aarch64-linux.
+
+In a source checkout, run `bun run build:native-packages` before invoking the
+core CLI or source adapters. `initBundledBashParser` then resolves the generated
+grammar from `packages/core/` and the runtime through the root npm dependency;
+packed core and standalone adapter bundles resolve the same assets from their
+installed package or bundle root.

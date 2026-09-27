@@ -1,4 +1,4 @@
-import { discoverWasmDir, initBashParser } from "./shell.js";
+import { initBundledBashParser } from "./shell.js";
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { PolicyStartupError } from "./policy/config.js";
@@ -21,7 +21,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     for (const source of runtime.policySet.sources) process.stdout.write(`${source.sha256}  ${source.canonicalPath}\n`);
     return;
   }
-  await initBashParser(discoverWasmDir(import.meta.url));
+  await initBundledBashParser();
   const evaluation = evaluateLoadedPolicies(runtime, sourceArguments[1]!, { kind: "verified", values: process.env as Record<string, string> }, { cwd: process.cwd(), executableFilesystem: nodeExecutableFilesystem });
   process.stdout.write(renderExplainTrace(createExplainTrace(runtime, evaluation), json));
 }

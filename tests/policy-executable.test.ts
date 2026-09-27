@@ -22,7 +22,7 @@ const unavailable = Object.freeze({ kind: "incomplete" as const, failure: "unava
 
 beforeAll(async () => {
   mkdirSync(join(wasmDir, "node_modules"), { recursive: true });
-  const packagedWasm = join(process.cwd(), "tree-sitter-bash.wasm");
+  const packagedWasm = join(process.cwd(), "packages", "core", "tree-sitter-bash.wasm");
   copyFileSync(existsSync(packagedWasm) ? packagedWasm : join(process.cwd(), "node_modules", "tree-sitter-bash", "tree-sitter-bash.wasm"), join(wasmDir, "tree-sitter-bash.wasm"));
   symlinkSync(join(process.cwd(), "node_modules", "web-tree-sitter"), join(wasmDir, "node_modules", "web-tree-sitter"));
   await initBashParser(wasmDir);

@@ -15,8 +15,10 @@ export {
   isBashParserInitialized,
   matchesAnyGlob,
   parseBashProgram,
+  resolveBundledBashAssets,
 } from "./shell.js";
 export { BashParserFailure } from "./shell.js";
+export type { BundledBashAssets } from "./shell.js";
 export type {
   BashAssignment,
   BashCommand,

@@ -26,7 +26,7 @@ const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-bash-dispatch-"));
 
 beforeAll(async () => {
   mkdirSync(join(wasmDir, "node_modules"), { recursive: true });
-  const packagedWasm = join(process.cwd(), "tree-sitter-bash.wasm");
+  const packagedWasm = join(process.cwd(), "packages", "core", "tree-sitter-bash.wasm");
   copyFileSync(
     existsSync(packagedWasm)
       ? packagedWasm

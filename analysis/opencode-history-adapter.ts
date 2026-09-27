@@ -40,7 +40,7 @@ export async function replayHistoricalBashEvents(
   // Source checkouts keep the grammar under node_modules; packaged adapters
   // keep it at their root. Initialize before importing the production plugin.
   const root = fileURLToPath(new URL("..", import.meta.url));
-  const packagedGrammar = `${root}/tree-sitter-bash.wasm`;
+  const packagedGrammar = `${root}/packages/core/tree-sitter-bash.wasm`;
   await initBashParser(
     root,
     existsSync(packagedGrammar) ? packagedGrammar : `${root}/node_modules/tree-sitter-bash/tree-sitter-bash.wasm`,
