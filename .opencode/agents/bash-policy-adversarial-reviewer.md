@@ -20,7 +20,7 @@ Use the packaged `safety-core` CLI as independent runtime evidence. Review only 
 
 Run `safety-core explain --json -- '<bash-source>'` for the supplied expected `permit`, `defer`, and `deny` examples and for any natural gaps you identify within scope. Compare modeled events, argv, and the final decision with the stated scope and tests. The CLI does not replace direct or property tests, but disagreement between a trace and the claimed behavior is a finding.
 
-Always sanitize the CLI environment and use synthetic non-secret values. `explain --json` emits inherited environment values in its trace; use an explicit configuration home and a minimal environment such as `env -i PATH="$PATH" SAFETY_CORE_CONFIG_HOME=/absolute/config-home safety-core ...`, adding only reviewed non-secret variables needed for a case.
+Always sanitize the CLI environment and use synthetic non-secret values. `explain --json` emits inherited environment values in its trace; use an explicit configuration file and a minimal environment such as `env -i PATH="$PATH" safety-core --config /absolute/config.json ...`, adding only reviewed non-secret variables needed for a case.
 
 Attempt only natural, non-malicious gaps within the stated scope and threat model. Check argv ordering, supported flags, aliases, and common wrappers or standard equivalent forms when the policy declares they are covered. Check for false positives, parser/analysis failure behavior, unsupported-form handling, and other fail-open conditions. Do not propose deliberate bypasses outside the threat model.
 

@@ -30,7 +30,7 @@ Use the packaged `safety-core` CLI throughout development. Select the exact edit
 
 For each declared `permit`, `defer`, and `deny` behavior, run `safety-core explain --json -- '<bash-source>'` against that configuration. Cover representative natural variants that the scope claims are equivalent, including relevant ordering, alias, and flag forms. Check the modeled events and decision, not only the final decision. The CLI evidence complements direct and property tests; it does not replace them.
 
-Run CLI commands with a sanitized environment and synthetic non-secret values. `explain --json` can include inherited environment values in its trace, so use an explicit configuration home and a minimal environment such as `env -i PATH="$PATH" SAFETY_CORE_CONFIG_HOME=/absolute/config-home safety-core ...`; add only reviewed non-secret variables needed for the case.
+Run CLI commands with a sanitized environment and synthetic non-secret values. `explain --json` can include inherited environment values in its trace, so use an explicit configuration file and a minimal environment such as `env -i PATH="$PATH" safety-core --config /absolute/config.json ...`; add only reviewed non-secret variables needed for the case.
 
 ## Authoring Workflow
 

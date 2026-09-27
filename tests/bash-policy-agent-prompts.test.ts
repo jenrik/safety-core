@@ -9,7 +9,8 @@ const reviewer = readFileSync(resolve(root, ".opencode/agents/bash-policy-advers
 test("Bash policy author requires sanitized safety-core CLI evidence", () => {
   expect(author).toContain("safety-core validate");
   expect(author).toContain("safety-core explain --json -- '<bash-source>'");
-  expect(author).toContain("env -i PATH=\"$PATH\" SAFETY_CORE_CONFIG_HOME=/absolute/config-home safety-core");
+  expect(author).toContain("env -i PATH=\"$PATH\" safety-core --config /absolute/config.json");
+  expect(author).not.toContain("SAFETY_CORE_CONFIG_HOME");
   expect(author).toContain("CLI evidence");
 });
 
@@ -17,7 +18,8 @@ test("Bash policy reviewer requires independently verifiable CLI evidence", () =
   expect(reviewer).toContain("safety-core validate");
   expect(reviewer).toContain("safety-core explain --json -- '<bash-source>'");
   expect(reviewer).toContain("report the review as inconclusive");
-  expect(reviewer).toContain("env -i PATH=\"$PATH\" SAFETY_CORE_CONFIG_HOME=/absolute/config-home safety-core");
+  expect(reviewer).toContain("env -i PATH=\"$PATH\" safety-core --config /absolute/config.json");
+  expect(reviewer).not.toContain("SAFETY_CORE_CONFIG_HOME");
 });
 
 test("property: both prompts retain co-located scope requirements for 1,024 policy names", () => {
