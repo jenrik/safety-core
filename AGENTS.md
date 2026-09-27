@@ -10,4 +10,4 @@ When implementing a new set of restrictions make sure we have the strongest matc
 
 All changes must be accompanied by a set of unit tests and property tests. The threat model does not include adversarial/malicious agents, only agents that uses the tool naturally, so actively trying to bypass something like `gh api` being forbidden with `curl` is out-of-scope, but making sure we have all the command aliases and argument orderings is covered.
 
-Implementation work is to be send to subagents, minor fixes and issues that subagents fails to fix should be done by you. Always prefer structural fixes that fixes the most general case, with the least amount of special cases that still resolves the general case structurally. Spot fixes are to be avoided in favor of solving the problem structurally.
+Always prefer structural fixes that fixes the most general case, with the least amount of special cases that still resolves the general case structurally. Spot fixes are to be avoided in favor of solving the problem structurally.
