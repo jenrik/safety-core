@@ -20,7 +20,6 @@ type InputReference = { readonly word: ResolvedWord; readonly start?: number; re
 type RuntimeValue = unknown | InputReference | typeof UNKNOWN;
 const UNKNOWN = Symbol("dsl-unknown");
 const NORMAL_WORD = -1;
-const OPTIONS_ENDED = -2;
 
 /** Create a pure, one-event DCRM policy. Every call starts from its fixed initial configuration. */
 export function createDslPolicy(program: CompiledPolicyProgram, source: string | PolicySourceIdentity): DslLoadedBashPolicy {
@@ -70,14 +69,7 @@ function evaluateProgram(program: CompiledPolicyProgram, event: BashPolicyEvent)
       return frozenEvaluation(decision, steps);
     }
 
-    if (clusterByteIndex === NORMAL_WORD && isKnown(activeWord) && activeWord.value === "--") {
-      steps.push(step(state, argvIndex, OPTIONS_ENDED, "$.states", "argv:--", "end-options", []));
-      argvIndex++;
-      clusterByteIndex = OPTIONS_ENDED;
-      continue;
-    }
-
-    const malformedOption = clusterByteIndex !== OPTIONS_ENDED && stateProgram.cases.some((entry) => entry.action.kind === "option"
+    const malformedOption = stateProgram.cases.some((entry) => entry.action.kind === "option"
       && matchOption(entry.action, activeWord, clusterByteIndex, argv[argvIndex + 1]) === undefined
       && optionSpellingMatches(entry.action, activeWord, clusterByteIndex));
     let matched = false;
@@ -87,7 +79,7 @@ function evaluateProgram(program: CompiledPolicyProgram, event: BashPolicyEvent)
       const context = runtimeContext(event, activeWord, option?.value, registers, foldCache);
       if (entry.action.kind === "terminal") computeFolds(program, entry.action.fold, event, registers, foldCache);
       const guard = isOptionPredicate(entry.when)
-        ? option !== undefined && clusterByteIndex !== OPTIONS_ENDED
+        ? option !== undefined
         : evaluateExpression(entry.when, context) === true;
       if (!guard) continue;
 
@@ -104,7 +96,7 @@ function evaluateProgram(program: CompiledPolicyProgram, event: BashPolicyEvent)
       registers = Object.freeze({ ...registers, ...updated });
       const progress = action.kind === "option"
         ? consumeOption(action, option!, activeWord, argvIndex, clusterByteIndex, argv)
-        : { argvIndex: argvIndex + 1, clusterByteIndex: clusterByteIndex === OPTIONS_ENDED ? OPTIONS_ENDED : NORMAL_WORD };
+        : { argvIndex: argvIndex + 1, clusterByteIndex: NORMAL_WORD };
       steps.push(step(state, argvIndex, clusterByteIndex, entry.source, entry.origin, action.kind, folds, action.next));
       state = action.next;
       argvIndex = progress.argvIndex;

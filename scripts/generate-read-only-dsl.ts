@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-import { HELM_CREDENTIAL_SAFE_COMMANDS, STRICT_ALLOWED_FLAGS, STRICT_READ_ONLY_COMMANDS } from "../src/bash/policies/read-only-data.ts";
+import { STRICT_ALLOWED_FLAGS, STRICT_READ_ONLY_COMMANDS } from "../src/bash/policies/read-only-data.ts";
 
 type Expression = unknown;
 type State = { cases: unknown[]; default: unknown; end: unknown };
@@ -102,21 +102,6 @@ function generic() {
     ...secretFold(),
     unsafeGitOption: { collection: "argv", operation: "any", when: call("longOptionPrefixesAny", { ref: "fold.item" }, ["--ext-diff", "--no-index", "--open-files-in-pager", "--output", "--textconv"]) },
   }));
-}
-
-function helm() {
-  const guardedAllow = () => ({ decision: "allow", reason: ["helm auto-allowed by the read-only profile"], audit: { invocation: { ref: "event" } }, fold: ["hasSecretOperand"] });
-  const guardedDefer = () => ({ ...defer(), fold: ["hasSecretOperand"] });
-  const permitted = (values: readonly string[]) => values.map((value) => ({ when: word(value), action: transition("accepted") }));
-  write("helm-read-only.policy.json", document([{ executable: { projection: "basename", equals: "helm" } }], {
-    start: { cases: [{ when: word("--help"), action: transition("exact") }, { when: word("--version"), action: transition("exact") }, ...permitted(["help", "completion", "verify"]), { when: word("show"), action: transition("show") }, { when: word("inspect"), action: transition("inspect") }, { when: word("search"), action: transition("search") }, { when: word("version"), action: transition("exact") }], default: guardedDefer(), end: guardedDefer() },
-    exact: { cases: [], default: guardedDefer(), end: guardedAllow() },
-    accepted: { cases: [{ when: true, action: transition("accepted") }], default: guardedDefer(), end: guardedAllow() },
-    show: { cases: [{ when: word("chart"), action: transition("showChart") }], default: guardedDefer(), end: guardedDefer() },
-    inspect: { cases: [{ when: word("chart"), action: transition("showChart") }], default: guardedDefer(), end: guardedDefer() },
-    showChart: { cases: [{ when: true, action: transition("exact") }], default: guardedDefer(), end: guardedDefer() },
-    search: { cases: permitted(["hub", "repo"]), default: guardedDefer(), end: guardedDefer() },
-  }, {}, secretFold()));
 }
 
 function strict() {
@@ -300,5 +285,4 @@ function strict() {
 }
 
 generic();
-helm();
 strict();

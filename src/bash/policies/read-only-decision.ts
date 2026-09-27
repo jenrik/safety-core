@@ -1,6 +1,6 @@
 import type { PolicyEvidence } from "../outcome.js";
 
-export type ReadOnlyPolicyName = "generic-read-only" | "gh-read-only" | "helm-read-only" | "strict-read-only";
+export type ReadOnlyPolicyName = "generic-read-only" | "gh-read-only" | "strict-read-only";
 export type ReadOnlyInvocationDecision =
   | { readonly kind: "allow"; readonly reason: string; readonly evidence: PolicyEvidence }
   | { readonly kind: "defer"; readonly evidence: PolicyEvidence };

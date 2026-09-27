@@ -41,7 +41,6 @@ function snapshot(overrides: Partial<BashProfileSnapshot> = {}): BashProfileSnap
     readOnlyBash: false,
     ghApiReadOnly: false,
     ghReadOnly: false,
-    helmReadOnly: false,
     strictProfiles: Object.freeze(Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false]))) as BashProfileSnapshot["strictProfiles"],
     ghPrCreate: Object.freeze({ enabled: false, allowedRepositories: Object.freeze([]), allowedOrganizations: Object.freeze([]) }),
     limits: Object.freeze({ maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 7_500, maxWorkItems: 10_000 }),
@@ -65,9 +64,6 @@ function ghReadOnly(source: string): string {
   return configured(source, snapshot({ ghReadOnly: true })).permission.kind;
 }
 
-function helmReadOnly(source: string): string {
-  return configured(source, snapshot({ helmReadOnly: true })).permission.kind;
-}
 
 function strictReadOnly(source: string, profile: "dockerReadOnly" | "kubectlReadOnly"): string {
   return configured(source, snapshot({
@@ -507,9 +503,8 @@ describe("walker-backed gh policy compatibility", () => {
     expect(strictReadOnly("TOOL=docker; $TOOL image ls; docker volume ls", "dockerReadOnly")).toBe("allow");
   });
 
-  test("migrates gh and helm read-only profiles through assignments and wrappers", () => {
+  test("migrates gh read-only profiles through assignments and wrappers", () => {
     expect(ghReadOnly("TOOL=gh; strace $TOOL version")).toBe("defer");
-    expect(helmReadOnly("TOOL=helm; nice $TOOL version")).toBe("allow");
   });
 
   test("defers credential-safe profiles after persisted credential configuration bindings", () => {

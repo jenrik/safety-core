@@ -9,7 +9,6 @@ import genericReadOnly from "./fixtures/code-policies/generic-read-only.policy.t
 import ghApi from "./fixtures/code-policies/gh-api.policy.ts";
 import { createGhPrCreatePolicy } from "./fixtures/code-policies/gh-pr-create.policy.ts";
 import ghReadOnly from "./fixtures/code-policies/gh-read-only.policy.ts";
-import helmReadOnly from "./fixtures/code-policies/helm-read-only.policy.ts";
 import kubectl from "./fixtures/code-policies/kubectl.policy.ts";
 import secretRead from "./fixtures/code-policies/secret-read.policy.ts";
 import strictReadOnly from "./fixtures/code-policies/strict-read-only.policy.ts";
@@ -254,14 +253,12 @@ describe("baseline guard code-policy parity", () => {
 });
 
 describe("permission code-policy parity", () => {
-  test("differential: generic and Helm grammar, environment routes, and qualified paths", () => {
+  test("differential: generic grammar, environment routes, and qualified paths", () => {
     for (const source of [
       "git diff HEAD", "git diff --ext-diff", "git branch --list", "git branch --list topic",
-      "sha256sum README.md", "tea --help", "tea help", "helm search repo nginx", "helm show chart nginx",
-      "helm show chart nginx --debug", "./git diff HEAD", "GIT_EXTERNAL_DIFF=helper git diff HEAD",
+      "sha256sum README.md", "tea --help", "tea help", "./git diff HEAD", "GIT_EXTERNAL_DIFF=helper git diff HEAD",
     ]) {
       expectPermissionParity(source, genericReadOnly, dsl("generic-read-only"));
-      expectPermissionParity(source, helmReadOnly, dsl("helm-read-only"));
     }
   });
 

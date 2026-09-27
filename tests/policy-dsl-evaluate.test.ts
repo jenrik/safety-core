@@ -90,7 +90,7 @@ describe("DCRM evaluation", () => {
     }
   });
 
-  test("distinguishes missing required values, optional absent values, unknown input, duplicates, conflicts, and --", () => {
+  test("distinguishes missing required values, optional absent values, unknown input, duplicates, conflicts, and ordinary -- argv", () => {
     const required = policy(base());
     expect(required.evaluate(event([{ kind: "known", value: "run" }, { kind: "known", value: "-o" }]))).toMatchObject({ kind: "deny" });
     expect(required.evaluate(event([{ kind: "unknown", reason: { kind: "expansion" } }]))).toMatchObject({ kind: "deny" });
@@ -110,7 +110,7 @@ describe("DCRM evaluation", () => {
     expect(policy(conflict).evaluate(event([{ kind: "known", value: "run" }, { kind: "known", value: "-v" }, { kind: "known", value: "operand" }]))).toMatchObject({ kind: "deny" });
   });
 
-  test("reserves declared spellings with disabled forms while -- restores ordinary operands", () => {
+  test("keeps -- as an ordinary argv word while later options retain their declared forms", () => {
     const restricted = base();
     restricted.options.output.forms = ["separate"];
     for (const spelling of ["--output=value", "-ovalue"]) {
@@ -119,7 +119,7 @@ describe("DCRM evaluation", () => {
     expect(policy(restricted).evaluate(event([
       { kind: "known", value: "run" }, { kind: "known", value: "--" },
       { kind: "known", value: "-o" }, { kind: "known", value: "--output" },
-    ]))).toMatchObject({ kind: "allow" });
+    ]))).toMatchObject({ kind: "allow", reason: [{ kind: "literal", value: "output=" }, { kind: "value", value: "--output" }] });
   });
 
   test("unknown builtin operands select a deterministic terminal instead of coercing a Symbol", () => {

@@ -34,7 +34,6 @@ mutation.
 | Nix option | Executable | Approved command paths |
 | --- | --- | --- |
 | `ghReadOnly` | `gh` | All audited forms currently defer because common GitHub CLI startup can migrate configuration, check for updates, and launch telemetry before dispatch. `gh api` remains owned by `ghApiReadOnly`, and `gh pr create` remains owned by `ghPrCreate`. See the [exhaustive GitHub CLI 2.100.0 audit](./gh-read-only-command-audit.md). |
-| `helmReadOnly` | `helm` | help/completion, search/chart metadata and documented aliases, verify, version; repository configuration, lint, and chart values/README/CRD contents are excluded because they can expose credentials or chart values |
 | `argocdReadOnly` | `argocd` | account inspection, app/appset/cluster/repository/project lists, project role lists and the `project`/`proj` aliases, version |
 | `cosignReadOnly` | `cosign` | tree, verify variants, version; environment output is excluded |
 | `craneReadOnly` | `crane` | catalog, digest, ls, manifest, validate, version; image configuration is excluded |

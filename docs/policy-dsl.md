@@ -116,6 +116,12 @@ forms. Value-taking options name one or more of `separate`, `attachedShort`,
 `equalsLong`, and `cluster`; short forms require an exact one-byte short name,
 and `equalsLong` requires a long name. Option names are globally unique.
 
+The evaluator preserves every Bash argv word, including `--`. It does not apply
+an evaluator-wide option terminator rule: a policy may inspect `--` as an
+ordinary word, and option declarations may consume it as a separate value. DSL
+evaluation only classifies immutable argv; it never changes the command boundary
+or the argv passed to the kernel.
+
 `availableIn: "*"` is machine-wide; a non-empty state-name list makes the
 option state-local. Compilation inserts applicable options in declaration order
 before fragment and state cases in every applicable state. A compiled option

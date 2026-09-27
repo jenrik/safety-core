@@ -31,7 +31,6 @@ function snapshot(overrides: Partial<BashProfileSnapshot> = {}): BashProfileSnap
     readOnlyBash: false,
     ghApiReadOnly: false,
     ghReadOnly: false,
-    helmReadOnly: false,
     strictProfiles: Object.freeze(Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false]))) as BashProfileSnapshot["strictProfiles"],
     ghPrCreate: Object.freeze({ enabled: false, allowedRepositories: Object.freeze([]), allowedOrganizations: Object.freeze([]) }),
     limits,

@@ -16,7 +16,6 @@ const profileSnapshot: BashProfileSnapshot = Object.freeze({
   readOnlyBash: false,
   ghApiReadOnly: false,
   ghReadOnly: false,
-  helmReadOnly: false,
   strictProfiles: Object.freeze(Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false]))) as BashProfileSnapshot["strictProfiles"],
   ghPrCreate: Object.freeze({ enabled: false, allowedRepositories: Object.freeze([]), allowedOrganizations: Object.freeze([]) }),
   limits: Object.freeze({ maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 7_500, maxWorkItems: 10_000 }),

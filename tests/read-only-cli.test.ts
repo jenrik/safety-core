@@ -30,7 +30,6 @@ function snapshot(overrides: Partial<BashProfileSnapshot> = {}): BashProfileSnap
     readOnlyBash: false,
     ghApiReadOnly: false,
     ghReadOnly: false,
-    helmReadOnly: false,
     strictProfiles: Object.freeze(Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false]))) as BashProfileSnapshot["strictProfiles"],
     ghPrCreate: Object.freeze({ enabled: false, allowedRepositories: Object.freeze([]), allowedOrganizations: Object.freeze([]) }),
     limits: Object.freeze({ maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 7_500, maxWorkItems: 10_000 }),
@@ -46,9 +45,6 @@ function gh(command: string): string {
   return configured(command, snapshot({ ghReadOnly: true })).permission.kind;
 }
 
-function helm(command: string): string {
-  return configured(command, snapshot({ helmReadOnly: true })).permission.kind;
-}
 
 function generic(command: string): string {
   return configured(command, snapshot({ readOnlyBash: true })).permission.kind;
@@ -140,37 +136,6 @@ describe("gh read-only profile", () => {
   });
 });
 
-describe("helm read-only profile", () => {
-  test("allows credential-safe inspection and validation commands without flags", () => {
-    for (const command of [
-      "helm --help", "helm help upgrade", "helm completion bash",
-      "helm search hub nginx", "helm search repo nginx",
-      "helm show chart example", "helm inspect chart example", "helm verify chart", "helm version",
-    ]) expect(helm(command), command).toBe("allow");
-  });
-
-  test("defers flags and commands that alter state or can expose release content", () => {
-    for (const command of [
-      "helm install release chart", "helm upgrade release chart", "helm uninstall release", "helm rollback release 1",
-      "helm repo add stable url", "helm repo update", "helm dependency build chart", "helm pull chart", "helm package chart",
-      "helm plugin install url", "helm registry login registry", "helm test release", "helm get values release > values.yaml",
-      "helm get values release", "helm list", "helm template release chart", "helm show values chart --output json",
-      "helm env", "helm repo list", "helm repo ls", "helm show values chart", "./helm repo list",
-      "HELM_KUBETOKEN=value helm env",
-      "helm show readme chart", "helm show crds chart", "helm lint credentials.json",
-      "helm lint chart", "helm verify private.key", "helm show readme credentials.json",
-      "helm template release chart --dependency-update", "helm template release chart --output-dir rendered",
-      "helm template release chart --post-renderer ./rewrite.sh",
-    ]) expect(helm(command)).toBe("defer");
-  });
-
-  test("property: Helm shell operators always defer", () => {
-    const commands = ["helm list", "helm template release chart", "helm version"];
-    const operators = ["; id", " && id", " | sh", " > output", " $(id)", " 'quoted'"];
-    for (const command of commands) for (const operator of operators) expect(helm(`${command}${operator}`)).toBe("defer");
-  });
-});
-
 describe("generic read-only Bash profile", () => {
   test("allows the reviewed Tea help and Git inspection commands", () => {
     for (const command of [
@@ -229,7 +194,6 @@ describe("generic read-only Bash profile", () => {
   test("property: strace output forms defer every parsed read-only profile", () => {
     const profiles = [
       { command: "gh label list", analyze: gh },
-      { command: "helm version", analyze: helm },
       { command: "docker image ls", analyze: (command: string) => strict(command, "docker") },
     ];
     for (const profile of profiles) {
@@ -244,7 +208,6 @@ describe("generic read-only Bash profile", () => {
     const profiles = [
       { command: "git diff --stat origin/main...origin/feature", analyze: generic },
       { command: "gh label list", analyze: gh },
-      { command: "helm version", analyze: helm },
       { command: "docker image ls", analyze: (command: string) => strict(command, "docker") },
       { command: "kubectl get pods", analyze: (command: string) => strict(command, "kubectl") },
     ];
@@ -260,7 +223,6 @@ describe("generic read-only Bash profile", () => {
     const profiles = [
       { command: "git diff --stat origin/main...origin/feature", analyze: generic },
       { command: "gh label list", analyze: gh },
-      { command: "helm version", analyze: helm },
       { command: "docker image ls", analyze: (command: string) => strict(command, "docker") },
     ];
     for (const profile of profiles) {
@@ -275,7 +237,6 @@ describe("generic read-only Bash profile", () => {
     const profiles = [
       { command: "git diff --stat origin/main...origin/feature", analyze: generic },
       { command: "gh label list", analyze: gh },
-      { command: "helm version", analyze: helm },
       { command: "docker image ls", analyze: (command: string) => strict(command, "docker") },
     ];
     for (const profile of profiles) {
@@ -479,10 +440,7 @@ describe("strict credential-safe CLI profiles", () => {
     expect(strict("podman-compose ps", "podman-compose")).toBe("defer");
   });
 
-  test("property: credential-safe Helm and Argo CD command aliases preserve the allow decision", () => {
-    for (const command of ["helm show chart example", "helm inspect chart example"]) {
-      expect(helm(command), command).toBe("allow");
-    }
+  test("property: Argo CD command aliases preserve the allow decision", () => {
     for (const command of ["argocd proj list", "argocd project list", "argocd proj role list example", "argocd project role list example"]) {
       expect(strict(command, "argocd"), command).toBe("allow");
     }

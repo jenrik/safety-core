@@ -103,7 +103,7 @@ export interface DslPolicyTraceStep {
   readonly clusterByteIndex: number;
   readonly source: string;
   readonly origin: string;
-  readonly action: "transition" | "option" | "terminal" | "end-options";
+  readonly action: "transition" | "option" | "terminal";
   readonly folds: readonly string[];
   readonly nextState?: string;
   readonly decision?: PolicyDecision["kind"];

@@ -16,7 +16,7 @@ import { ghReadOnlyHandler } from "./bash/handlers/command-gh-read-only.js";
 import { ghPrCreateHandler, ghPrCreateInterpreterObservers } from "./bash/handlers/command-gh-pr-create.js";
 import { straceReadOnlyHandler } from "./bash/handlers/command-strace-read-only.js";
 import { isGhPrCreateCommand } from "./bash/handlers/gh-command-line.js";
-import { genericReadOnlyHandlers, helmReadOnlyHandlers, strictReadOnlyHandlers } from "./bash/handlers/read-only.js";
+import { genericReadOnlyHandlers, strictReadOnlyHandlers } from "./bash/handlers/read-only.js";
 import { STRICT_BASH_PROFILE_EXECUTABLES, type BashProfileSnapshot, type StrictBashProfile } from "./legacy-config.js";
 import type { GhPrCreatePolicy } from "./bash/policies/gh-pr-create.js";
 
@@ -63,7 +63,7 @@ export interface BashConfiguredOptions {
   readonly profileSnapshot: BashProfileSnapshot;
 }
 
-type BashPermissionProfile = "readOnlyBash" | "ghApiReadOnly" | "ghReadOnly" | "helmReadOnly" | StrictBashProfile | "ghPrCreate";
+type BashPermissionProfile = "readOnlyBash" | "ghApiReadOnly" | "ghReadOnly" | StrictBashProfile | "ghPrCreate";
 type BashConfiguredPermissionDecision =
   | { readonly kind: "allow"; readonly profile: BashPermissionProfile; readonly reason: string }
   | { readonly kind: "deny"; readonly profile: BashPermissionProfile; readonly reason: string }
@@ -120,7 +120,6 @@ function configuredHandlers(snapshot: BashProfileSnapshot): readonly PolicyObser
   const handlers: PolicyObserver[] = [...baseHandlers];
   if (snapshot.readOnlyBash) handlers.push(...genericReadOnlyHandlers);
   if (snapshot.ghReadOnly) handlers.push(straceReadOnlyHandler, snapshot.ghPrCreate.enabled ? configuredGhReadOnlyHandler : ghReadOnlyHandler);
-  if (snapshot.helmReadOnly) handlers.push(...helmReadOnlyHandlers);
   for (const [profile, executable] of STRICT_BASH_PROFILE_EXECUTABLES) if (snapshot.strictProfiles[profile]) handlers.push(...strictReadOnlyHandlers(executable));
   if (snapshot.ghApiReadOnly) handlers.push(ghApiHandler);
   if (snapshot.ghPrCreate.enabled) handlers.push(ghPrCreateHandler(snapshot.ghPrCreate), ...ghPrCreateInterpreterObservers);
@@ -152,7 +151,6 @@ function enabledProfiles(snapshot: BashProfileSnapshot): BashPermissionProfile[]
   if (snapshot.ghApiReadOnly) profiles.push("ghApiReadOnly");
   if (snapshot.ghReadOnly) profiles.push("ghReadOnly");
   if (snapshot.readOnlyBash) profiles.push("readOnlyBash");
-  if (snapshot.helmReadOnly) profiles.push("helmReadOnly");
   for (const [profile] of STRICT_BASH_PROFILE_EXECUTABLES) if (snapshot.strictProfiles[profile]) profiles.push(profile);
   return profiles;
 }
@@ -165,7 +163,6 @@ function belongsToProfile(policy: PolicyEvidence, profile: BashPermissionProfile
   if (profile === "ghPrCreate") return policy.name === "gh-pr-create";
   if (profile === "ghApiReadOnly") return policy.name === "gh-api";
   if (profile === "ghReadOnly") return policy.name === "gh-read-only";
-  if (profile === "helmReadOnly") return policy.name === "helm-read-only";
   if (profile === "readOnlyBash") return policy.name === "generic-read-only";
   return policy.name === "strict-read-only" && STRICT_BASH_PROFILE_EXECUTABLES.some(([name, executable]) => name === profile && executable === policy.readOnly?.tool);
 }

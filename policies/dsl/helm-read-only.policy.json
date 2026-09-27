@@ -1,518 +1,76 @@
 {
   "language": "safety-core/bash-policy-v1",
   "layer": "permission",
-  "select": [
-    {
-      "executable": {
-        "projection": "basename",
-        "equals": "helm"
-      }
-    }
-  ],
-  "registers": {},
-  "folds": {
-    "hasSecretOperand": {
-      "collection": "argv",
-      "operation": "any",
-      "when": {
-        "all": [
-          {
-            "not": {
-              "call": "startsWith",
-              "args": [
-                {
-                  "ref": "fold.item"
-                },
-                "-"
-              ]
-            }
-          },
-          {
-            "not": {
-              "call": "anySafeGlob",
-              "args": [
-                {
-                  "call": "asciiLower",
-                  "args": [
-                    {
-                      "call": "basename",
-                      "args": [
-                        {
-                          "ref": "fold.item"
-                        }
-                      ]
-                    }
-                  ]
-                },
-                [
-                  "*.env.example",
-                  "*.env.sample",
-                  "*.env.template",
-                  "*.env.dist"
-                ]
-              ]
-            }
-          },
-          {
-            "call": "anySafeGlob",
-            "args": [
-              {
-                "call": "asciiLower",
-                "args": [
-                  {
-                    "call": "basename",
-                    "args": [
-                      {
-                        "ref": "fold.item"
-                      }
-                    ]
-                  }
-                ]
-              },
-              [
-                "*.env",
-                "*.env.*",
-                ".envrc",
-                "*.pem",
-                "*.key",
-                "id_rsa*",
-                "id_ed25519*",
-                "id_dsa*",
-                "id_ecdsa*",
-                "*.p12",
-                "*.pfx",
-                "*.pkcs12",
-                ".netrc",
-                "credentials.json",
-                "credentials.yaml",
-                "credentials.yml",
-                "*-credentials.json",
-                "*-credentials.yaml",
-                "*-credentials.yml",
-                "*.credentials.json",
-                "*.credentials.yaml",
-                "*.credentials.yml",
-                "service-account*.json",
-                "service_account*.json",
-                "secrets.json",
-                "secrets.yaml",
-                "secrets.yml",
-                "*-secrets.json",
-                "*-secrets.yaml",
-                "*-secrets.yml",
-                "*.secrets.json",
-                "*.secrets.yaml",
-                "*.secrets.yml",
-                "*.secret.json",
-                "*.secret.yaml",
-                "*.secret.yml",
-                "kubeconfig"
-              ]
-            ]
-          }
-        ]
-      }
-    }
+  "select": [{ "executable": { "projection": "basename", "equals": "helm" } }],
+  "registers": { "tableOutput": { "type": "bool", "initial": true }, "dryRunValid": { "type": "bool", "initial": true }, "namespaceBeforeCommand": { "type": "bool", "initial": false } },
+  "folds": {},
+  "options": {
+    "namespace": { "names": ["--namespace", "-n"], "value": "required", "forms": ["separate", "attachedShort", "cluster", "equalsLong"], "availableIn": ["start", "list", "history", "historyRelease"], "set": { "namespaceBeforeCommand": true } },
+    "table": { "names": ["--output", "-o"], "value": "required", "forms": ["separate", "attachedShort", "cluster", "equalsLong"], "availableIn": ["repoList", "list", "history", "historyRelease", "searchHub", "searchHubKeyword", "searchRepo", "searchRepoKeyword"], "set": { "tableOutput": { "all": [{ "ref": "tableOutput" }, { "call": "equals", "args": [{ "ref": "option.value" }, "table"] }] } } },
+    "listFlags": { "names": ["--all-namespaces", "-A", "--deployed", "--failed", "--pending", "--superseded", "--uninstalled", "--uninstalling"], "value": "absent", "forms": [], "availableIn": ["list"], "set": {} },
+    "historyFlags": { "names": ["--show-rollback-revision"], "value": "absent", "forms": [], "availableIn": ["history", "historyRelease"], "set": {} },
+    "showVersion": { "names": ["--version"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["showChart", "showChartInput", "template", "templateOne", "templateTwo"], "set": {} },
+    "repo": { "names": ["--repo"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["showChart", "showChartInput", "template", "templateOne", "templateTwo"], "set": {} },
+    "devel": { "names": ["--devel"], "value": "absent", "forms": [], "availableIn": ["showChart", "showChartInput", "searchRepo", "searchRepoKeyword", "template", "templateOne", "templateTwo"], "set": {} },
+    "showNetwork": { "names": ["--insecure-skip-tls-verify", "--plain-http", "--verify"], "value": "absent", "forms": [], "availableIn": ["showChart", "showChartInput", "template", "templateOne", "templateTwo"], "set": {} },
+    "searchRepoFlags": { "names": ["--versions", "-l"], "value": "absent", "forms": [], "availableIn": ["searchRepo", "searchRepoKeyword"], "set": {} },
+    "values": { "names": ["--values", "-f"], "value": "required", "forms": ["separate", "attachedShort", "cluster", "equalsLong"], "availableIn": ["lint", "lintInput", "template", "templateOne", "templateTwo"], "set": {} },
+    "setValues": { "names": ["--set", "--set-file", "--set-json", "--set-literal", "--set-string"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["lint", "lintInput", "template", "templateOne", "templateTwo"], "set": {} },
+    "lintFlags": { "names": ["--quiet", "--strict", "--skip-schema-validation", "--with-subcharts"], "value": "absent", "forms": [], "availableIn": ["lint", "lintInput"], "set": {} },
+    "dryRun": { "names": ["--dry-run"], "value": "required", "forms": ["equalsLong"], "availableIn": ["template", "templateOne", "templateTwo"], "set": { "dryRunValid": { "all": [{ "ref": "dryRunValid" }, { "call": "inStringSet", "args": [{ "ref": "option.value" }, ["client", "server"]] }] } } },
+    "templateValues": { "names": ["--api-versions", "-a", "--show-only", "-s"], "value": "required", "forms": ["separate", "attachedShort", "cluster", "equalsLong"], "availableIn": ["template", "templateOne", "templateTwo"], "set": {} },
+    "templateFlags": { "names": ["--include-crds", "--no-hooks", "--skip-crds", "--skip-tests"], "value": "absent", "forms": [], "availableIn": ["template", "templateOne", "templateTwo"], "set": {} },
+    "versionShort": { "names": ["--short"], "value": "absent", "forms": [], "availableIn": ["version"], "set": {} }
   },
-  "options": {},
-  "fragments": {},
+  "fragments": {
+    "rejectTerminator": { "cases": [{ "when": { "call": "equals", "args": [{ "ref": "word" }, "--"] }, "action": { "decision": "defer" } }] },
+    "allowAtEnd": { "cases": [{ "when": { "all": [
+      { "call": "atEndOfArguments", "args": [] }, { "call": "isDirectExecutable", "args": ["helm"] },
+      { "not": { "call": "hasAnyAssignment", "args": [] } }, { "not": { "call": "hasRedirect", "args": [] } },
+      { "not": { "call": "hasInheritedExecutableFunction", "args": ["helm"] } },
+      { "not": { "call": "environmentAnyUnsafe", "args": [["KUBECONFIG", "HELM_KUBETOKEN"]] } },
+      { "ref": "tableOutput" }, { "ref": "dryRunValid" }
+    ] }, "action": { "decision": "allow", "reason": ["helm auto-allowed by the read-only profile"], "audit": { "invocation": { "ref": "event" } } } }] }
+  },
   "start": "start",
   "states": {
-    "start": {
-      "cases": [
-        {
-          "when": {
-            "call": "equals",
-            "args": [
-              {
-                "ref": "word"
-              },
-              "--help"
-            ]
-          },
-          "action": {
-            "consume": "word",
-            "next": "exact"
-          }
-        },
-        {
-          "when": {
-            "call": "equals",
-            "args": [
-              {
-                "ref": "word"
-              },
-              "--version"
-            ]
-          },
-          "action": {
-            "consume": "word",
-            "next": "exact"
-          }
-        },
-        {
-          "when": {
-            "call": "equals",
-            "args": [
-              {
-                "ref": "word"
-              },
-              "help"
-            ]
-          },
-          "action": {
-            "consume": "word",
-            "next": "accepted"
-          }
-        },
-        {
-          "when": {
-            "call": "equals",
-            "args": [
-              {
-                "ref": "word"
-              },
-              "completion"
-            ]
-          },
-          "action": {
-            "consume": "word",
-            "next": "accepted"
-          }
-        },
-        {
-          "when": {
-            "call": "equals",
-            "args": [
-              {
-                "ref": "word"
-              },
-              "verify"
-            ]
-          },
-          "action": {
-            "consume": "word",
-            "next": "accepted"
-          }
-        },
-        {
-          "when": {
-            "call": "equals",
-            "args": [
-              {
-                "ref": "word"
-              },
-              "show"
-            ]
-          },
-          "action": {
-            "consume": "word",
-            "next": "show"
-          }
-        },
-        {
-          "when": {
-            "call": "equals",
-            "args": [
-              {
-                "ref": "word"
-              },
-              "inspect"
-            ]
-          },
-          "action": {
-            "consume": "word",
-            "next": "inspect"
-          }
-        },
-        {
-          "when": {
-            "call": "equals",
-            "args": [
-              {
-                "ref": "word"
-              },
-              "search"
-            ]
-          },
-          "action": {
-            "consume": "word",
-            "next": "search"
-          }
-        },
-        {
-          "when": {
-            "call": "equals",
-            "args": [
-              {
-                "ref": "word"
-              },
-              "version"
-            ]
-          },
-          "action": {
-            "consume": "word",
-            "next": "exact"
-          }
-        }
-      ],
-      "default": {
-        "decision": "defer",
-        "audit": {
-          "invocation": {
-            "ref": "event"
-          }
-        },
-        "fold": [
-          "hasSecretOperand"
-        ]
-      },
-      "end": {
-        "decision": "defer",
-        "audit": {
-          "invocation": {
-            "ref": "event"
-          }
-        },
-        "fold": [
-          "hasSecretOperand"
-        ]
-      }
-    },
-    "exact": {
-      "cases": [],
-      "default": {
-        "decision": "defer",
-        "audit": {
-          "invocation": {
-            "ref": "event"
-          }
-        },
-        "fold": [
-          "hasSecretOperand"
-        ]
-      },
-      "end": {
-        "decision": "allow",
-        "reason": [
-          "helm auto-allowed by the read-only profile"
-        ],
-        "audit": {
-          "invocation": {
-            "ref": "event"
-          }
-        },
-        "fold": [
-          "hasSecretOperand"
-        ]
-      }
-    },
-    "accepted": {
-      "cases": [
-        {
-          "when": true,
-          "action": {
-            "consume": "word",
-            "next": "accepted"
-          }
-        }
-      ],
-      "default": {
-        "decision": "defer",
-        "audit": {
-          "invocation": {
-            "ref": "event"
-          }
-        },
-        "fold": [
-          "hasSecretOperand"
-        ]
-      },
-      "end": {
-        "decision": "allow",
-        "reason": [
-          "helm auto-allowed by the read-only profile"
-        ],
-        "audit": {
-          "invocation": {
-            "ref": "event"
-          }
-        },
-        "fold": [
-          "hasSecretOperand"
-        ]
-      }
-    },
-    "show": {
-      "cases": [
-        {
-          "when": {
-            "call": "equals",
-            "args": [
-              {
-                "ref": "word"
-              },
-              "chart"
-            ]
-          },
-          "action": {
-            "consume": "word",
-            "next": "showChart"
-          }
-        }
-      ],
-      "default": {
-        "decision": "defer",
-        "audit": {
-          "invocation": {
-            "ref": "event"
-          }
-        },
-        "fold": [
-          "hasSecretOperand"
-        ]
-      },
-      "end": {
-        "decision": "defer",
-        "audit": {
-          "invocation": {
-            "ref": "event"
-          }
-        },
-        "fold": [
-          "hasSecretOperand"
-        ]
-      }
-    },
-    "inspect": {
-      "cases": [
-        {
-          "when": {
-            "call": "equals",
-            "args": [
-              {
-                "ref": "word"
-              },
-              "chart"
-            ]
-          },
-          "action": {
-            "consume": "word",
-            "next": "showChart"
-          }
-        }
-      ],
-      "default": {
-        "decision": "defer",
-        "audit": {
-          "invocation": {
-            "ref": "event"
-          }
-        },
-        "fold": [
-          "hasSecretOperand"
-        ]
-      },
-      "end": {
-        "decision": "defer",
-        "audit": {
-          "invocation": {
-            "ref": "event"
-          }
-        },
-        "fold": [
-          "hasSecretOperand"
-        ]
-      }
-    },
-    "showChart": {
-      "cases": [
-        {
-          "when": true,
-          "action": {
-            "consume": "word",
-            "next": "exact"
-          }
-        }
-      ],
-      "default": {
-        "decision": "defer",
-        "audit": {
-          "invocation": {
-            "ref": "event"
-          }
-        },
-        "fold": [
-          "hasSecretOperand"
-        ]
-      },
-      "end": {
-        "decision": "defer",
-        "audit": {
-          "invocation": {
-            "ref": "event"
-          }
-        },
-        "fold": [
-          "hasSecretOperand"
-        ]
-      }
-    },
-    "search": {
-      "cases": [
-        {
-          "when": {
-            "call": "equals",
-            "args": [
-              {
-                "ref": "word"
-              },
-              "hub"
-            ]
-          },
-          "action": {
-            "consume": "word",
-            "next": "accepted"
-          }
-        },
-        {
-          "when": {
-            "call": "equals",
-            "args": [
-              {
-                "ref": "word"
-              },
-              "repo"
-            ]
-          },
-          "action": {
-            "consume": "word",
-            "next": "accepted"
-          }
-        }
-      ],
-      "default": {
-        "decision": "defer",
-        "audit": {
-          "invocation": {
-            "ref": "event"
-          }
-        },
-        "fold": [
-          "hasSecretOperand"
-        ]
-      },
-      "end": {
-        "decision": "defer",
-        "audit": {
-          "invocation": {
-            "ref": "event"
-          }
-        },
-        "fold": [
-          "hasSecretOperand"
-        ]
-      }
-    }
+    "start": { "cases": [
+      { "when": { "all": [{ "not": { "ref": "namespaceBeforeCommand" } }, { "call": "inStringSet", "args": [{ "ref": "word" }, ["--help", "--version", "env"]] }] }, "action": { "consume": "word", "next": "exact" } },
+      { "when": { "all": [{ "not": { "ref": "namespaceBeforeCommand" } }, { "call": "equals", "args": [{ "ref": "word" }, "help"] }] }, "action": { "consume": "word", "next": "help" } },
+      { "when": { "all": [{ "not": { "ref": "namespaceBeforeCommand" } }, { "call": "equals", "args": [{ "ref": "word" }, "version"] }] }, "action": { "consume": "word", "next": "version" } },
+      { "when": { "all": [{ "not": { "ref": "namespaceBeforeCommand" } }, { "call": "equals", "args": [{ "ref": "word" }, "completion"] }] }, "action": { "consume": "word", "next": "completion" } },
+      { "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["list", "ls"]] }, "action": { "consume": "word", "next": "list" } },
+      { "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["history", "hist"]] }, "action": { "consume": "word", "next": "history" } },
+      { "when": { "all": [{ "not": { "ref": "namespaceBeforeCommand" } }, { "call": "inStringSet", "args": [{ "ref": "word" }, ["show", "inspect"]] }] }, "action": { "consume": "word", "next": "show" } },
+      { "when": { "all": [{ "not": { "ref": "namespaceBeforeCommand" } }, { "call": "equals", "args": [{ "ref": "word" }, "repo"] }] }, "action": { "consume": "word", "next": "repo" } },
+      { "when": { "all": [{ "not": { "ref": "namespaceBeforeCommand" } }, { "call": "equals", "args": [{ "ref": "word" }, "search"] }] }, "action": { "consume": "word", "next": "search" } },
+      { "when": { "all": [{ "not": { "ref": "namespaceBeforeCommand" } }, { "call": "equals", "args": [{ "ref": "word" }, "lint"] }] }, "action": { "consume": "word", "next": "lint" } },
+      { "when": { "all": [{ "not": { "ref": "namespaceBeforeCommand" } }, { "call": "equals", "args": [{ "ref": "word" }, "template"] }] }, "action": { "consume": "word", "next": "template" } },
+      { "when": { "all": [{ "not": { "ref": "namespaceBeforeCommand" } }, { "call": "equals", "args": [{ "ref": "word" }, "verify"] }] }, "action": { "consume": "word", "next": "verify" } }
+    ], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "exact": { "fragments": ["rejectTerminator", "allowAtEnd"], "cases": [], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "help": { "fragments": ["rejectTerminator", "allowAtEnd"], "cases": [{ "when": { "not": { "call": "startsWith", "args": [{ "ref": "word" }, "-"] } }, "action": { "consume": "word", "next": "help" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "version": { "fragments": ["rejectTerminator", "allowAtEnd"], "cases": [], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "completion": { "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["bash", "fish", "powershell", "zsh"]] }, "action": { "consume": "word", "next": "exact" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "repo": { "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["list", "ls"]] }, "action": { "consume": "word", "next": "repoList" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "repoList": { "fragments": ["rejectTerminator", "allowAtEnd"], "cases": [], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "list": { "fragments": ["rejectTerminator", "allowAtEnd"], "cases": [], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "history": { "cases": [{ "when": { "not": { "call": "startsWith", "args": [{ "ref": "word" }, "-"] } }, "action": { "consume": "word", "next": "historyRelease" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "historyRelease": { "fragments": ["rejectTerminator", "allowAtEnd"], "cases": [], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "show": { "cases": [{ "when": { "call": "equals", "args": [{ "ref": "word" }, "chart"] }, "action": { "consume": "word", "next": "showChart" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "showChart": { "cases": [{ "when": { "not": { "call": "startsWith", "args": [{ "ref": "word" }, "-"] } }, "action": { "consume": "word", "next": "showChartInput" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "showChartInput": { "fragments": ["rejectTerminator", "allowAtEnd"], "cases": [], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "search": { "cases": [{ "when": { "call": "equals", "args": [{ "ref": "word" }, "hub"] }, "action": { "consume": "word", "next": "searchHub" } }, { "when": { "call": "equals", "args": [{ "ref": "word" }, "repo"] }, "action": { "consume": "word", "next": "searchRepo" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "searchHub": { "fragments": ["rejectTerminator", "allowAtEnd"], "cases": [{ "when": { "not": { "call": "startsWith", "args": [{ "ref": "word" }, "-"] } }, "action": { "consume": "word", "next": "searchHubKeyword" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "searchHubKeyword": { "fragments": ["rejectTerminator", "allowAtEnd"], "cases": [], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "searchRepo": { "fragments": ["rejectTerminator", "allowAtEnd"], "cases": [{ "when": { "not": { "call": "startsWith", "args": [{ "ref": "word" }, "-"] } }, "action": { "consume": "word", "next": "searchRepoKeyword" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "searchRepoKeyword": { "fragments": ["rejectTerminator", "allowAtEnd"], "cases": [], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "lint": { "cases": [{ "when": { "not": { "call": "startsWith", "args": [{ "ref": "word" }, "-"] } }, "action": { "consume": "word", "next": "lintInput" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "lintInput": { "fragments": ["rejectTerminator", "allowAtEnd"], "cases": [], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "template": { "cases": [{ "when": { "not": { "call": "startsWith", "args": [{ "ref": "word" }, "-"] } }, "action": { "consume": "word", "next": "templateOne" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "templateOne": { "fragments": ["rejectTerminator", "allowAtEnd"], "cases": [{ "when": { "not": { "call": "startsWith", "args": [{ "ref": "word" }, "-"] } }, "action": { "consume": "word", "next": "templateTwo" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "templateTwo": { "fragments": ["rejectTerminator", "allowAtEnd"], "cases": [], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "verify": { "cases": [{ "when": { "not": { "call": "startsWith", "args": [{ "ref": "word" }, "-"] } }, "action": { "consume": "word", "next": "verifyInput" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "verifyInput": { "fragments": ["rejectTerminator", "allowAtEnd"], "cases": [], "default": { "decision": "defer" }, "end": { "decision": "defer" } }
   }
 }

@@ -1,6 +1,5 @@
 import type { AllowedFlag } from "./read-only.js";
 
-export const HELM_CREDENTIAL_SAFE_COMMANDS = new Set(["completion", "inspect:chart", "search:hub", "search:repo", "show:chart", "verify", "version"]);
 export const STRICT_READ_ONLY_COMMANDS: Readonly<Record<string, ReadonlySet<string>>> = {
   argocd: new Set(["account:can-i", "account:get", "account:get-user-info", "account:list", "app:list", "appset:list", "cluster:list", "proj:list", "proj:role:list", "project:list", "project:role:list", "repo:list", "version"]),
   cosign: new Set(["tree", "verify", "verify-attestation", "verify-blob", "verify-blob-attestation", "version"]), crane: new Set(["catalog", "digest", "ls", "manifest", "validate", "version"]),

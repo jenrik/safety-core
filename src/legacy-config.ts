@@ -16,7 +16,6 @@ export interface BashProfileSnapshot {
   readonly readOnlyBash: boolean;
   readonly ghApiReadOnly: boolean;
   readonly ghReadOnly: boolean;
-  readonly helmReadOnly: boolean;
   readonly strictProfiles: Readonly<Record<StrictBashProfile, boolean>>;
   readonly ghPrCreate: {
     readonly enabled: boolean;

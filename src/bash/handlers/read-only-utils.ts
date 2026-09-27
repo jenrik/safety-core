@@ -9,7 +9,7 @@ import {
 } from "../policy-environment.js";
 import { isSecretPath, readOnlyAllow, readOnlyDefer, type AllowedFlag, type ReadOnlyInvocationDecision } from "../policies/read-only.js";
 
-export type ReadOnlyPolicy = "generic-read-only" | "gh-read-only" | "helm-read-only" | "strict-read-only";
+export type ReadOnlyPolicy = "generic-read-only" | "gh-read-only" | "strict-read-only";
 
 const UNSAFE_CONFIGURATION_BINDINGS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   docker: ["DOCKER_CONFIG"],
