@@ -33,8 +33,12 @@ export interface PolicyRuntimeManifest {
 }
 
 /** Load the authoritative config and every policy source once for this runtime. */
-export async function loadPolicyRuntime(cwd: string, env: Readonly<Record<string, string | undefined>> = process.env): Promise<LoadedPolicyRuntime> {
-  const config = loadGlobalPolicyConfig(env);
+export async function loadPolicyRuntime(
+  cwd: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  configPath?: string,
+): Promise<LoadedPolicyRuntime> {
+  const config = loadGlobalPolicyConfig(env, configPath);
   const resolved = resolveSessionPolicyConfig(config, cwd);
   const policySet = await loadPolicySet(resolved);
   return Object.freeze({

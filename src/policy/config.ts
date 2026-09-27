@@ -66,9 +66,9 @@ export interface ResolvedSessionPolicyConfig {
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
-/** Load the authoritative global file selected solely by environment presence. */
-export function loadGlobalPolicyConfig(env: Environment = process.env): GlobalPolicyConfig {
-  const path = canonicalPath(globalConfigPath(env), "global configuration");
+/** Load the authoritative global file selected by an explicit path or environment presence. */
+export function loadGlobalPolicyConfig(env: Environment = process.env, configPath?: string): GlobalPolicyConfig {
+  const path = canonicalPath(configPath ?? globalConfigPath(env), "global configuration");
   const document = readJson(path);
   return parseGlobalConfig(document.value, path, configurationSource(path, "global", document.bytes));
 }

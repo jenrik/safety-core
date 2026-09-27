@@ -4,6 +4,8 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { main } from "../src/cli.ts";
+
 const fixtures: string[] = [];
 
 function fixture(): string {
@@ -35,6 +37,40 @@ function cli(home: string, args: readonly string[], extraEnv: Record<string, str
 }
 
 describe("safety-core CLI", () => {
+  test("an explicit config path overrides the environment-selected configuration", () => {
+    const home = fixture();
+    const config = join(home, "safety-core", "config.json");
+    const result = cli(join(home, "missing"), ["--config", config, "validate"]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/^[a-f0-9]{64}  \/.*canary\.policy\.mjs\n$/);
+  });
+
+  test("property: both config flag forms work before or after the command", async () => {
+    const home = fixture();
+    const config = join(home, "safety-core", "config.json");
+    writeFileSync(config, JSON.stringify({
+      version: 1,
+      policies: [],
+      projectPolicies: { mode: "disabled" },
+      bashAnalysis: { maxFunctionDepth: 7, maxNestedScriptDepth: 6, maxSteps: 50, maxWorkItems: 50 },
+    }));
+    for (let seed = 0; seed < 1_024; seed++) {
+      const option = seed % 2 === 0 ? ["--config", config] : [`--config=${config}`];
+      const args = seed % 4 < 2 ? [...option, "validate"] : ["validate", ...option];
+      await expect(main(args), `seed ${seed}`).resolves.toBeUndefined();
+    }
+  });
+
+  test("rejects missing and duplicate global config flags", () => {
+    const home = fixture();
+    const config = join(home, "safety-core", "config.json");
+    for (const args of [["--config", "validate"], ["--config=", "validate"], ["--config", config, "--config", config, "validate"]]) {
+      const result = cli(home, args);
+      expect(result.status, JSON.stringify(args)).not.toBe(0);
+      expect(result.stderr, JSON.stringify(args)).toContain("--config");
+    }
+  });
+
   test("validate reports canonical sources and digests and does not consult profiles.json", () => {
     const home = fixture();
     writeFileSync(join(home, "safety-core", "profiles.json"), "not json");
