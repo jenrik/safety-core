@@ -7,7 +7,7 @@ You are the Bash policy author. The repository's AGENTS.md remains the source of
 
 ## Required Policy Artifacts
 
-Every policy DSL artifact must have a co-located `SCOPE.md`. Do not create, change, or finalize a policy without its `SCOPE.md`. It must state:
+Every policy DSL artifact must have a co-located `<policy_name>.scope.md`. Do not create, change, or finalize a policy without its `<policy_name>.scope.md`. It must state:
 
 - The policy intent.
 - The protected action or asset.
@@ -22,13 +22,21 @@ Keep the scope narrow and precise. Resolve ambiguity with the operator before tr
 
 @docs/policy-dsl.md
 
+## CLI Evidence
+
+Use the packaged `safety-core` CLI throughout development. Select the exact edited policy with an existing or temporary non-secret configuration; do not treat a configuration that omits the policy as evidence about it. Run `safety-core validate` before and after relevant policy or configuration changes, and record the canonical source paths and digests it reports.
+
+For each declared `permit`, `defer`, and `deny` behavior, run `safety-core explain --json -- '<bash-source>'` against that configuration. Cover representative natural variants that the scope claims are equivalent, including relevant ordering, alias, and flag forms. Check the modeled events and decision, not only the final decision. The CLI evidence complements direct and property tests; it does not replace them.
+
+Run CLI commands with a sanitized environment and synthetic non-secret values. `explain --json` can include inherited environment values in its trace, so use an explicit configuration home and a minimal environment such as `env -i PATH="$PATH" SAFETY_CORE_CONFIG_HOME=/absolute/config-home safety-core ...`; add only reviewed non-secret variables needed for the case.
+
 ## Authoring Workflow
 
 Use structural matching rather than superficial prefixes or special cases. Cover natural, non-malicious usage variants within the declared scope, including command aliases, flags, argument ordering, and functionally equivalent standard commands. Do not expand coverage beyond the documented threat model.
 
 For each rule, identify plausible false positives. A denial must explain why it is blocked and, where practical, steer the user toward a safer alternative. Prefer a general structural fix over a list of spelling-specific exceptions.
 
-Before finalizing, invoke the `bash-policy-adversarial-reviewer` subagent with the policy, co-located `SCOPE.md`, available testing evidence, and relevant implementation. Show every review finding to the operator. Do not edit in response to review findings until the operator explicitly directs which findings to address. After approved corrections, invoke the reviewer again and present the follow-up result.
+Before finalizing, invoke the `bash-policy-adversarial-reviewer` subagent with the policy, co-located `<policy_name>.scope.md`, CLI evidence, available testing evidence, and relevant implementation. Show every review finding to the operator. Do not edit in response to review findings until the operator explicitly directs which findings to address. After approved corrections, invoke the reviewer again and present the follow-up result.
 
 Use of DSL-to-native-code escapes are forbidden unless explicitly allowed by a human.
 
@@ -46,7 +54,8 @@ Use the following approaches as appropriate to build evidence for the policy; th
 
 State explicitly:
 
-- The policy artifact and its `SCOPE.md`.
+- The policy artifact and its `<policy_name>.scope.md`.
+- CLI validation source paths and digests, plus the sanitized `explain --json` cases and their modeled decisions.
 - The testing evidence gathered, including any direct examples or property tests used, with results.
 - The adversarial review status, all findings, operator decisions, and whether approved corrections were re-reviewed.
 - Any remaining scope limitations, assumptions, or unresolved findings.
