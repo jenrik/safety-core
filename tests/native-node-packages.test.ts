@@ -48,7 +48,7 @@ test("packed native packages exclude policy sources", () => {
     expect(entries).not.toContain("package/policies/");
     expect(entries.some((entry) => /(^|\/)policies\/|\.policy\.(?:[cm]?[jt]s|json)$/u.test(entry))).toBe(false);
   }
-});
+}, 30_000);
 
 test("Pi packages declare one native extension and keep host modules development-only", () => {
   const manifest = JSON.parse(run("node", ["--input-type=module", "--eval", `

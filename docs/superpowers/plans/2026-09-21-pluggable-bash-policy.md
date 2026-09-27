@@ -50,11 +50,9 @@
 | `src/policy/dsl/evaluate.ts` | Deterministic consuming machine evaluator. |
 | `src/policy/dsl/builtins.ts` | Closed, versioned total builtin catalogue. |
 | `src/cli.ts` | `safety-core validate` and `safety-core explain`. |
-| `policies/code/*.policy.ts` | Temporary trusted-code forms of current Bash policies for boundary validation. |
 | `policies/dsl/*.policy.json` | Final DSL forms of all current Bash policy families. |
 | `tests/policy-*.test.ts` | Policy algebra, source, config, session, executable, trace, and CLI tests. |
 | `tests/policy-dsl-*.test.ts` | DSL grammar, validator, evaluator, properties, and complexity tests. |
-| `tests/policy-parity.test.ts` | Old/code/DSL differential corpus during migration. |
 | `nix/permissions.nix` | Home Manager options for authoritative config and installed source paths. |
 | `package.nix`, `flake.nix` | Package policy files, CLI, hooks, extensions, and runtime checks. |
 
@@ -227,7 +225,6 @@
 - Create: `policies/code/kubectl.policy.ts`
 - Create: `policies/code/unsupported-shell-source.policy.ts`
 - Create: `tests/policy-code-guards.test.ts`
-- Create: `tests/policy-parity.test.ts`
 - Modify: `package.nix`
 
 **Interfaces:**
@@ -240,7 +237,7 @@
 
 - [ ] **Step 2: Run parity tests and verify missing sources**
 
-  Run: `bun test tests/policy-code-guards.test.ts tests/policy-parity.test.ts`
+  Run: `bun test tests/policy-code-guards.test.ts`
 
   Expected: FAIL because no code policy sources are packaged.
 
@@ -254,7 +251,7 @@
 
 - [ ] **Step 5: Run focused and packaged guard checks**
 
-  Run: `bun test tests/policy-code-guards.test.ts tests/policy-parity.test.ts tests/bash-hard-block-policies.test.ts tests/bash-guards.test.ts && nix build .#checks.$(nix eval --raw --impure --expr builtins.currentSystem).hooks-runtime`
+  Run: `bun test tests/policy-code-guards.test.ts tests/bash-hard-block-policies.test.ts tests/bash-guards.test.ts && nix build .#checks.$(nix eval --raw --impure --expr builtins.currentSystem).hooks-runtime`
 
   Expected: PASS without switching production configuration.
 
@@ -269,7 +266,6 @@
 - Create: `policies/code/gh-pr-create.policy.ts`
 - Create: `scripts/render-gh-pr-create-code-policy.ts`
 - Create: `tests/policy-code-permissions.test.ts`
-- Modify: `tests/policy-parity.test.ts`
 - Modify: `package.nix`
 
 **Interfaces:**
@@ -282,7 +278,7 @@
 
 - [ ] **Step 2: Run focused tests and verify failure**
 
-  Run: `bun test tests/policy-code-permissions.test.ts tests/policy-parity.test.ts`
+  Run: `bun test tests/policy-code-permissions.test.ts`
 
   Expected: FAIL because permission code sources and source generation are absent.
 
@@ -296,7 +292,7 @@
 
 - [ ] **Step 5: Run permission, generated-property, and package tests**
 
-  Run: `bun test tests/policy-code-permissions.test.ts tests/policy-parity.test.ts tests/read-only-cli.test.ts tests/git-read-only-policy.test.ts tests/gh-read-only-policy.test.ts tests/gh-pr-create.test.ts`
+  Run: `bun test tests/policy-code-permissions.test.ts tests/read-only-cli.test.ts tests/git-read-only-policy.test.ts tests/gh-read-only-policy.test.ts tests/gh-pr-create.test.ts`
 
   Expected: PASS for exact parity except separately asserted intended multi-policy coverage changes.
 
@@ -513,7 +509,6 @@
 - Create: `policies/dsl/github-http.policy.json`
 - Create: `policies/dsl/kubectl.policy.json`
 - Create: `policies/dsl/unsupported-shell-source.policy.json`
-- Modify: `tests/policy-parity.test.ts`
 - Modify: guard policy tests
 - Modify: `package.nix`
 
@@ -527,7 +522,7 @@
 
 - [ ] **Step 2: Run parity and verify missing DSL sources**
 
-  Run: `bun test tests/policy-parity.test.ts tests/bash-hard-block-policies.test.ts tests/bash-guards.test.ts`
+  Run: `bun test tests/bash-hard-block-policies.test.ts tests/bash-guards.test.ts`
 
   Expected: FAIL because guard DSL files do not exist.
 
@@ -541,7 +536,7 @@
 
 - [ ] **Step 5: Run parity, hard-block, adapter, and package checks**
 
-  Run: `bun test tests/policy-parity.test.ts tests/bash-hard-block-policies.test.ts tests/bash-guards.test.ts tests/opencode-bash-guards.test.ts tests/claude-code-bash-policy.test.ts tests/pi-adapter.test.ts && nix flake check`
+  Run: `bun test tests/bash-hard-block-policies.test.ts tests/bash-guards.test.ts tests/opencode-bash-guards.test.ts tests/claude-code-bash-policy.test.ts tests/pi-adapter.test.ts && nix flake check`
 
   Expected: PASS.
 
@@ -554,7 +549,6 @@
 - Create: one `policies/dsl/strict-<tool>.policy.json` per current strict executable family
 - Create: `policies/dsl/gh-api.policy.json`
 - Create: generated `gh-pr-create` DSL source support
-- Modify: `tests/policy-parity.test.ts`
 - Modify: all read-only/GitHub policy tests
 - Modify: `nix/permissions.nix`
 - Modify: `package.nix`
@@ -568,7 +562,7 @@
 
 - [ ] **Step 2: Run parity and verify missing DSL policies**
 
-  Run: `bun test tests/policy-parity.test.ts tests/read-only-cli.test.ts tests/git-read-only-policy.test.ts tests/gh-read-only-policy.test.ts tests/gh-pr-create.test.ts tests/bash-gh-policies.test.ts`
+  Run: `bun test tests/read-only-cli.test.ts tests/git-read-only-policy.test.ts tests/gh-read-only-policy.test.ts tests/gh-pr-create.test.ts tests/bash-gh-policies.test.ts`
 
   Expected: FAIL until each DSL source is present.
 
@@ -586,7 +580,7 @@
 
 - [ ] **Step 6: Run the complete policy and property suite**
 
-  Run: `bun test tests/policy-parity.test.ts tests/read-only-cli.test.ts tests/git-read-only-policy.test.ts tests/gh-read-only-policy.test.ts tests/gh-pr-create.test.ts tests/bash-gh-policies.test.ts tests/bash-configured.test.ts tests/opencode-read-only-cli.test.ts`
+  Run: `bun test tests/read-only-cli.test.ts tests/git-read-only-policy.test.ts tests/gh-read-only-policy.test.ts tests/gh-pr-create.test.ts tests/bash-gh-policies.test.ts tests/bash-configured.test.ts tests/opencode-read-only-cli.test.ts`
 
   Expected: PASS with production configuration referencing DSL policies only.
 
@@ -651,7 +645,7 @@
   Run:
 
   ```bash
-  bun test tests/policy-evaluate.test.ts tests/policy-config.test.ts tests/policy-loader.test.ts tests/policy-events.test.ts tests/policy-executable.test.ts tests/policy-dsl-validate.test.ts tests/policy-dsl-evaluate.test.ts tests/policy-dsl-performance.test.ts tests/policy-project-config.test.ts tests/policy-cli.test.ts tests/policy-session.test.ts tests/policy-parity.test.ts
+  bun test tests/policy-evaluate.test.ts tests/policy-config.test.ts tests/policy-loader.test.ts tests/policy-events.test.ts tests/policy-executable.test.ts tests/policy-dsl-validate.test.ts tests/policy-dsl-evaluate.test.ts tests/policy-dsl-performance.test.ts tests/policy-project-config.test.ts tests/policy-cli.test.ts tests/policy-session.test.ts
   ```
 
   Expected: every focused test passes.

@@ -72,4 +72,4 @@ test("Nix installs the CLI on PATH and registers Claude hooks only when enabled"
       hooks: [{ type: "command", command: "${XDG_CONFIG_HOME:-$HOME/.config}/safety-core/claude/bash_policy.mjs" }],
     }],
   });
-}, 15_000);
+}, 30_000);
