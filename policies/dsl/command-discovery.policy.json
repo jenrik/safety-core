@@ -1,0 +1,158 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "permission",
+  "select": [
+    {
+      "executable": {
+        "projection": "basename",
+        "equals": "command"
+      }
+    }
+  ],
+  "registers": {},
+  "folds": {},
+  "options": {},
+  "fragments": {},
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "command"
+                ]
+              },
+              {
+                "not": {
+                  "call": "hasAnyAssignment",
+                  "args": []
+                }
+              },
+              {
+                "not": {
+                  "call": "hasRedirect",
+                  "args": []
+                }
+              },
+              {
+                "not": {
+                  "call": "hasInheritedExecutableFunction",
+                  "args": [
+                    "command"
+                  ]
+                }
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "-v"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "name"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      }
+    },
+    "name": {
+      "cases": [
+        {
+          "when": {
+            "all": [
+              {
+                "not": {
+                  "call": "equals",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    ""
+                  ]
+                }
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "end"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      }
+    },
+    "end": {
+      "cases": [],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      },
+      "end": {
+        "decision": "allow",
+        "reason": [
+          "command -v command-path lookup auto-allowed"
+        ],
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      }
+    }
+  }
+}
