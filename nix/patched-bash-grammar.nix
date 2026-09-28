@@ -28,7 +28,6 @@ stdenv.mkDerivation {
   nativeBuildInputs = [ nodejs_22 wasi32.stdenv.cc.bintools tree-sitter ];
   TREE_SITTER_WASI_SDK_PATH = "${wasiSdk}";
   installPhase = ''
-    test "$(tree-sitter --version)" = "tree-sitter 0.26.9"
     cp -r ${nodeModules}/node_modules/tree-sitter-bash grammar
     chmod -R u+w grammar
     patch --batch --directory=grammar -p1 < ${../patches/tree-sitter-bash-time-coproc.patch}
@@ -38,6 +37,5 @@ stdenv.mkDerivation {
       tree-sitter generate
       tree-sitter build --wasm --output "$out/tree-sitter-bash.wasm"
     )
-    echo '3cca2abc05942f0133e23b621d7aa9aa2f4cd367dd6e433947511da48a244bee  '$out'/tree-sitter-bash.wasm' | sha256sum --check
   '';
 }

@@ -7,9 +7,10 @@
     let
       forAllSystems = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ];
       pkgsFor = system: nixpkgs.legacyPackages.${system};
+      scFor = system: (pkgsFor system).callPackage ./package.nix { };
     in {
       packages = forAllSystems (system:
-        let sc = (pkgsFor system).callPackage ./package.nix { };
+        let sc = scFor system;
         in {
           inherit (sc) piExtensionDir opencodePlugin opencodeV2Plugin opencodeTuiPlugin claudeCodeHooks safetyCoreCli core policySources;
           default = sc.core;
@@ -18,7 +19,7 @@
       checks = forAllSystems (system:
         let
           pkgs = pkgsFor system;
-          sc = pkgs.callPackage ./package.nix { };
+          sc = scFor system;
           prPolicy = sc.mkGhPrCreateDslPolicy {
             allowedRepositories = [ "acme/widgets" ];
             allowedOrganizations = [ ];
@@ -87,12 +88,17 @@
           '';
         });
 
-      overlays.default = final: _prev: { safety-core = final.callPackage ./package.nix { }; };
+      # Build against this flake's locked Nixpkgs rather than the consuming
+      # configuration's package set, which pins the tree-sitter CLI used to
+      # generate the bundled grammar while preserving the package-set API.
+      overlays.default = final: _prev: {
+        safety-core = scFor final.stdenv.hostPlatform.system;
+      };
       homeManagerModules.default = import ./nix/permissions.nix;
       devShells = forAllSystems (system:
         let
           pkgs = pkgsFor system;
-          sc = pkgs.callPackage ./package.nix { };
+          sc = scFor system;
         in {
           default = pkgs.mkShell { packages = [
             pkgs.bun pkgs.nodejs_22 pkgs.typescript pkgs.python3 sc.core
