@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package safety_core.redact.v1;
+
+// The version is selected in the stable handshake, not repeated on each call.
+message RedactRequest {
+  optional string text = 1;
+}
+
+message RedactResponse {
+  oneof result {
+    string text = 1;
+    ErrorCode error = 2;
+  }
+
+  enum ErrorCode {
+    ERROR_CODE_UNSPECIFIED = 0;
+    INVALID_REQUEST = 1;
+    PROCESSING_FAILED = 2;
+  }
+}

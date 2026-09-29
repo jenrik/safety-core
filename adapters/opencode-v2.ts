@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { redactOpenCodeToolResult } from "../src/redact/opencode.js";
 
 import {
   type BashPolicyEvaluation,
@@ -91,7 +92,7 @@ type OpenCodeV2Command = {
 
 export type OpenCodeV2PolicyRuntime = {
   before(event: OpenCodeV2ToolEvent): Promise<void>;
-  after(event: OpenCodeV2ToolEvent): void;
+  after(event: OpenCodeV2ToolEvent, output?: unknown): Promise<void>;
   evaluatePermission(event: OpenCodeV2PermissionEvent): Promise<void>;
   reload(): Promise<void>;
   sessionDeleted(sessionID: string): void;
@@ -185,9 +186,16 @@ export async function createOpenCodeV2PolicyRuntime(
       }
       preflights.complete(token, result);
     },
-    after(event) {
+    async after(event, output) {
       if (normalizeOpenCodeV2ToolName(event.tool) === "bash")
         preflights.finish({ sessionID: event.sessionID, callID: event.id }, event.input);
+      if (output !== undefined)
+        await redactOpenCodeToolResult(output as {
+          title: string;
+          output: string;
+          metadata: unknown;
+          attachments?: unknown;
+        }, runtime.current()?.config.redact);
     },
     async evaluatePermission(event) {
       if (event.action !== "shell" && event.action !== "bash") return;
@@ -262,13 +270,13 @@ export async function createOpenCodeV2Plugin(
         id: String(input.callID ?? ""),
         input: output.args,
       }),
-    "tool.execute.after": async (input: Record<string, unknown>) =>
+    "tool.execute.after": async (input: Record<string, unknown>, output: unknown) =>
       policy.after({
         tool: String(input.tool ?? ""),
         sessionID: String(input.sessionID ?? ""),
         id: String(input.callID ?? ""),
         input: input.args,
-      }),
+      }, output),
     "permission.ask": async (input: Record<string, unknown>, output: { status: "allow" | "ask" | "deny" }) => {
       const event: OpenCodeV2PermissionEvent = {
         action: String(input.type ?? ""),

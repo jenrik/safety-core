@@ -99,6 +99,7 @@ export async function loadPolicyRuntimeManifest(manifest: PolicyRuntimeManifest)
     projectPolicies: Object.freeze({ mode: "disabled", allowedRoots: Object.freeze([]) }),
     bashAnalysis: manifest.limits,
     pi: Object.freeze({ autoApprove: false, showFullCommand: true }),
+    redact: Object.freeze({ opencode: Object.freeze({ enabled: false }) }),
   });
   return Object.freeze({
     config,

@@ -37,6 +37,13 @@ export interface PiAdapterConfig {
   readonly judgeModel?: string;
 }
 
+export interface RedactConfig {
+  readonly opencode: Readonly<{
+    enabled: boolean;
+    socketPath?: string;
+  }>;
+}
+
 export interface GlobalPolicyConfig {
   readonly path: string;
   readonly configuration: PolicyConfigurationSource;
@@ -45,6 +52,7 @@ export interface GlobalPolicyConfig {
   readonly projectPolicies: ProjectPoliciesConfig;
   readonly bashAnalysis: BashAnalysisConfig;
   readonly pi: PiAdapterConfig;
+  readonly redact: RedactConfig;
 }
 
 export interface ResolvedPolicySource {
@@ -141,13 +149,14 @@ function readJson(path: string): { readonly bytes: Buffer; readonly value: unkno
 
 function parseGlobalConfig(value: unknown, path: string, configuration: PolicyConfigurationSource): GlobalPolicyConfig {
   const record = requireRecord(value, path, "configuration must be an object");
-  requireOnlyKeys(record, new Set(["version", "policies", "projectPolicies", "bashAnalysis", "pi"]), path);
+  requireOnlyKeys(record, new Set(["version", "policies", "projectPolicies", "bashAnalysis", "pi", "redact"]), path);
   if (record.version !== 1) throw new PolicyStartupError(path, "version must be 1");
   const policies = parsePolicies(record.policies, path);
   requireGlobalSourceExtensions(policies, path);
   const projectPolicies = parseProjectPolicies(record.projectPolicies, path);
   const bashAnalysis = parseBashAnalysis(record.bashAnalysis, path);
   const pi = parsePiAdapter(record.pi, path);
+  const redact = parseRedact(record.redact, path);
 
   return Object.freeze({
     path,
@@ -157,7 +166,24 @@ function parseGlobalConfig(value: unknown, path: string, configuration: PolicyCo
     projectPolicies,
     bashAnalysis,
     pi,
+    redact,
   });
+}
+
+function parseRedact(value: unknown, path: string): RedactConfig {
+  if (value === undefined) return Object.freeze({ opencode: Object.freeze({ enabled: false }) });
+  const record = requireRecord(value, path, "redact must be an object");
+  requireOnlyKeys(record, new Set(["opencode"]), path);
+  const opencode = requireRecord(record.opencode, path, "redact.opencode must be an object");
+  requireOnlyKeys(opencode, new Set(["enabled", "socketPath"]), path);
+  if (typeof opencode.enabled !== "boolean") throw new PolicyStartupError(path, "redact.opencode.enabled must be a boolean");
+  const rawSocketPath = opencode.socketPath;
+  if (opencode.enabled && (typeof rawSocketPath !== "string" || !isAbsolute(rawSocketPath) || Buffer.byteLength(rawSocketPath) > 100)) {
+    throw new PolicyStartupError(path, "redact.opencode.socketPath must be an absolute Unix socket path of at most 100 bytes");
+  }
+  if (!opencode.enabled && rawSocketPath !== undefined) throw new PolicyStartupError(path, "redact.opencode.socketPath requires enabled=true");
+  const socketPath = typeof rawSocketPath === "string" ? rawSocketPath : undefined;
+  return Object.freeze({ opencode: Object.freeze({ enabled: opencode.enabled, ...(socketPath === undefined ? {} : { socketPath }) }) });
 }
 
 function parsePiAdapter(value: unknown, path: string): PiAdapterConfig {

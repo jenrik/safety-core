@@ -6,6 +6,7 @@ __pycache__/
 .venv/
 .pytest_cache/
 .hypothesis/
+*.egg-info/
 .direnv/
 packages/*/dist/
 packages/*/node_modules/
