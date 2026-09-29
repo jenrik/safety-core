@@ -9,9 +9,11 @@
   ],
   "scripts": {
     "build:native-packages": "bun scripts/build-native-node-packages.ts",
+    "generate:redact-proto": "bun scripts/generate-redact-proto.ts",
     "test": "bun run build:native-packages && bun test"
   },
   "dependencies": {
+    "@bufbuild/protobuf": "2.16.0",
     "@safety-core/core": "file:packages/core",
     "@safety-core/claude-code": "file:packages/claude-code",
     "@safety-core/opencode-v1": "file:packages/opencode-v1",
@@ -20,6 +22,7 @@
     "tree-sitter-bash": "0.25.1"
   },
   "devDependencies": {
+    "@bufbuild/protoc-gen-es": "2.16.0",
     "tree-sitter-cli": "0.26.11"
   }
 }

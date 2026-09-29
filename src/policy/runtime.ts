@@ -85,6 +85,8 @@ export async function loadPolicyRuntimeManifest(manifest: PolicyRuntimeManifest)
     policies: Object.freeze(manifest.sources.filter((source) => source.scope === "global").map((source) => source.canonicalPath)),
     projectPolicies: Object.freeze({ mode: "disabled", allowedRoots: Object.freeze([]) }),
     bashAnalysis: manifest.limits,
+    pi: Object.freeze({ autoApprove: false }),
+    redact: Object.freeze({ opencode: Object.freeze({ enabled: false }) }),
   });
   return Object.freeze({
     config,

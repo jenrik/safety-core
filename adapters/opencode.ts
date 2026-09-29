@@ -1,4 +1,5 @@
 import type { Plugin, PluginInput } from "@opencode-ai/plugin";
+import { redactOpenCodeToolResult } from "../src/redact/opencode.js";
 
 // This adapter targets only the OpenCode v1 plugin API. Keep OpenCode v2
 // compatibility in adapters/opencode-v2.ts so either API can evolve independently.
@@ -142,11 +143,13 @@ export async function createOpenCodePlugin(
         await client.permission.reply({ directory, requestID: event.properties.id, reply: "reject", message: blockReason(result) });
       }
     },
-    "tool.execute.after": async (input, _output) => {
-      if (input.tool !== "bash") return;
-      const source = String((input.args as Record<string, unknown>).command ?? "");
-      const key = cacheKey(input as Record<string, unknown>, source);
-      if (key) results.delete(key);
+    "tool.execute.after": async (input, output) => {
+      if (input.tool === "bash") {
+        const source = String((input.args as Record<string, unknown>).command ?? "");
+        const key = cacheKey(input as Record<string, unknown>, source);
+        if (key) results.delete(key);
+      }
+      await redactOpenCodeToolResult(output, runtime.current()?.config.redact);
     },
   } satisfies Plugin;
 }

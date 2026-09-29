@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package safety_core.redact.handshake;
+
+// This small bootstrap schema and the 4-byte big-endian frame length are stable
+// across versions. No versioned request is decoded before ServerHello succeeds.
+message ClientHello {
+  string protocol_id = 1;  // Must equal "safety-core-redact".
+  repeated uint32 supported_versions = 2;
+}
+
+message ServerHello {
+  uint32 selected_version = 1;
+  Failure failure = 2;
+
+  enum Failure {
+    FAILURE_UNSPECIFIED = 0;
+    NO_COMMON_VERSION = 1;
+    INVALID_HANDSHAKE = 2;
+  }
+}

@@ -1,59 +1,105 @@
-"""One newline-delimited JSON request per Unix-domain-socket connection."""
+"""Version-negotiated, length-prefixed protobuf over a Unix-domain socket."""
 
 import argparse
-import json
 import os
 import signal
 import socketserver
 import stat
 from pathlib import Path
+from typing import BinaryIO
 
+from google.protobuf.message import DecodeError
+
+from .gen import handshake_pb2, redact_v1_pb2
 from .pipeline import RedactionPipeline
 
 MAX_REQUEST_BYTES = 1024 * 1024
-PROTOCOL_VERSION = 1
+MAX_HANDSHAKE_BYTES = 4096
+SUPPORTED_VERSIONS = frozenset({1})
+PROTOCOL_ID = "safety-core-redact"
 
 
-def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    result: dict[str, object] = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError("duplicate key")
-        result[key] = value
-    return result
+def read_frame(stream: BinaryIO, limit: int) -> bytes | None:
+    """Read a whole frame; EOF is legal only between messages."""
+    header = stream.read(4)
+    if not header:
+        return None
+    if len(header) != 4:
+        raise ValueError("incomplete frame")
+    length = int.from_bytes(header, "big")
+    if length > limit:
+        raise ValueError("frame too large")
+    body = stream.read(length)
+    if len(body) != length:
+        raise ValueError("incomplete frame")
+    return body
 
 
-def process_request(raw: bytes, pipeline: RedactionPipeline) -> dict[str, object]:
-    """Validate before calling Presidio; never put raw input in error responses."""
+def write_frame(stream: BinaryIO, message: bytes) -> None:
+    stream.write(len(message).to_bytes(4, "big") + message)
+    stream.flush()
+
+
+def negotiate(raw: bytes) -> handshake_pb2.ServerHello:
+    """Keep this bootstrap independent of every versioned redaction schema."""
+    hello = handshake_pb2.ClientHello()
     try:
-        request = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object)
-    except (UnicodeError, ValueError):
-        return {"version": PROTOCOL_VERSION, "error": "invalid_request"}
-    if (
-        not isinstance(request, dict)
-        or set(request) != {"version", "text"}
-        or type(request["version"]) is not int
-        or request["version"] != PROTOCOL_VERSION
-        or not isinstance(request["text"], str)
-    ):
-        return {"version": PROTOCOL_VERSION, "error": "invalid_request"}
+        hello.ParseFromString(raw)
+    except DecodeError:
+        return handshake_pb2.ServerHello(failure=handshake_pb2.ServerHello.INVALID_HANDSHAKE)
+    if hello.protocol_id != PROTOCOL_ID:
+        return handshake_pb2.ServerHello(failure=handshake_pb2.ServerHello.INVALID_HANDSHAKE)
+    common = SUPPORTED_VERSIONS.intersection(hello.supported_versions)
+    if not common:
+        return handshake_pb2.ServerHello(failure=handshake_pb2.ServerHello.NO_COMMON_VERSION)
+    return handshake_pb2.ServerHello(selected_version=max(common))
+
+
+def process_request(raw: bytes, pipeline: RedactionPipeline) -> redact_v1_pb2.RedactResponse:
+    """Only called after v1 negotiation; no input is reflected in errors."""
+    request = redact_v1_pb2.RedactRequest()
     try:
-        return {"version": PROTOCOL_VERSION, "text": pipeline.redact(request["text"])}
+        request.ParseFromString(raw)
+    except DecodeError:
+        return redact_v1_pb2.RedactResponse(error=redact_v1_pb2.RedactResponse.INVALID_REQUEST)
+    if not request.HasField("text"):
+        return redact_v1_pb2.RedactResponse(error=redact_v1_pb2.RedactResponse.INVALID_REQUEST)
+    try:
+        return redact_v1_pb2.RedactResponse(text=pipeline.redact(request.text))
     except Exception:
         # Presidio errors may include the supplied text; keep them off the wire and logs.
-        return {"version": PROTOCOL_VERSION, "error": "processing_failed"}
+        return redact_v1_pb2.RedactResponse(error=redact_v1_pb2.RedactResponse.PROCESSING_FAILED)
 
 
 class RedactionHandler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
         self.request.settimeout(5)
         try:
-            raw = self.rfile.readline(MAX_REQUEST_BYTES + 1)
-            if not raw or len(raw) > MAX_REQUEST_BYTES or not raw.endswith(b"\n"):
-                response = {"version": PROTOCOL_VERSION, "error": "invalid_request"}
+            try:
+                raw = read_frame(self.rfile, MAX_HANDSHAKE_BYTES)
+            except ValueError:
+                hello = handshake_pb2.ServerHello(failure=handshake_pb2.ServerHello.INVALID_HANDSHAKE)
             else:
+                if raw is None:
+                    return
+                hello = negotiate(raw)
+            write_frame(self.wfile, hello.SerializeToString())
+            if hello.selected_version == 0:
+                return
+            # Dispatch on the selected version, not on a per-request field.
+            if hello.selected_version != 1:
+                return
+            while True:
+                try:
+                    raw = read_frame(self.rfile, MAX_REQUEST_BYTES)
+                except ValueError:
+                    error = redact_v1_pb2.RedactResponse(error=redact_v1_pb2.RedactResponse.INVALID_REQUEST)
+                    write_frame(self.wfile, error.SerializeToString())
+                    return
+                if raw is None:
+                    return
                 response = process_request(raw, self.server.pipeline)  # type: ignore[attr-defined]
-            self.wfile.write((json.dumps(response, ensure_ascii=True) + "\n").encode("ascii"))
+                write_frame(self.wfile, response.SerializeToString())
         except (OSError, TimeoutError):
             # A disconnected or stalled client must not expose its request in a traceback.
             pass

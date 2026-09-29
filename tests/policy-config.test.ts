@@ -94,8 +94,27 @@ describe("authoritative global policy configuration", () => {
     const loaded = loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home });
     expect(loaded.bashAnalysis).toEqual({ maxFunctionDepth: 7, maxNestedScriptDepth: 6, maxSteps: 5, maxWorkItems: 4 });
     expect(loaded.pi).toEqual({ autoApprove: false });
+    expect(loaded.redact).toEqual({ opencode: { enabled: false } });
     expect(Object.isFrozen(loaded)).toBeTrue();
     expect(Object.isFrozen(loaded.bashAnalysis)).toBeTrue();
+  });
+
+  test("redaction configuration requires a short absolute socket only when enabled", () => {
+    const home = fixtureDirectory();
+    writeGlobalConfig(home, { ...globalConfig(), redact: { opencode: { enabled: true, socketPath: "/run/user/1000/redact.sock" } } });
+    expect(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }).redact)
+      .toEqual({ opencode: { enabled: true, socketPath: "/run/user/1000/redact.sock" } });
+    for (const redact of [
+      true,
+      { opencode: { enabled: true } },
+      { opencode: { enabled: true, socketPath: "relative.sock" } },
+      { opencode: { enabled: true, socketPath: "/" + "a".repeat(101) } },
+      { opencode: { enabled: false, socketPath: "/tmp/redact.sock" } },
+      { opencode: { enabled: true, socketPath: "/tmp/redact.sock", extra: 1 } },
+    ]) {
+      writeGlobalConfig(home, { ...globalConfig(), redact });
+      expect(() => loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), JSON.stringify(redact)).toThrow(PolicyStartupError);
+    }
   });
 
   test("parses Pi defaults and rejects malformed Pi adapter configuration", () => {

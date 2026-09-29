@@ -1,11 +1,11 @@
 import type { Plugin, PluginInput } from "@opencode-ai/plugin";
+import { redactOpenCodeToolResult } from "../src/redact/opencode.js";
 
 import {
   SECRET_BLOCK_MESSAGE,
   checkWebfetchUrl,
-  discoverWasmDir,
   evaluateLoadedPolicies,
-  initBashParser,
+  initBundledBashParser,
   isSecretPath,
   loadPolicyRuntime,
   nodeExecutableFilesystem,
@@ -36,7 +36,7 @@ export async function createOpenCodeV2Plugin(
   client?: PluginInput["client"],
   directory?: string,
 ) {
-  await initBashParser(discoverWasmDir(import.meta.url));
+  await initBundledBashParser();
   const cwd = directory ?? process.cwd();
   const runtime = createPolicyRuntimeReloader(
     dependencies.loadRuntime ?? loadPolicyRuntime,
@@ -139,11 +139,13 @@ export async function createOpenCodeV2Plugin(
         await client.permission.reply({ directory, requestID: event.properties.id, reply: "reject", message: blockReason(result) });
       }
     },
-    "tool.execute.after": async (input, _output) => {
-      if (input.tool !== "bash") return;
-      const source = String((input.args as Record<string, unknown>).command ?? "");
-      const key = cacheKey(input as Record<string, unknown>, source);
-      if (key) results.delete(key);
+    "tool.execute.after": async (input, output) => {
+      if (input.tool === "bash") {
+        const source = String((input.args as Record<string, unknown>).command ?? "");
+        const key = cacheKey(input as Record<string, unknown>, source);
+        if (key) results.delete(key);
+      }
+      await redactOpenCodeToolResult(output, runtime.current()?.config.redact);
     },
   } satisfies Plugin;
 }

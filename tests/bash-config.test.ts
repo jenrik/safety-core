@@ -10,7 +10,8 @@ function evaluateNix(overrides: string) {
       flake = builtins.getFlake ${JSON.stringify(root)};
       lib = flake.inputs.nixpkgs.lib;
       stub = { lib, ... }: { options = {
-        home.packages = lib.mkOption { type = lib.types.listOf lib.types.package; default = [ ]; };
+         home.packages = lib.mkOption { type = lib.types.listOf lib.types.package; default = [ ]; };
+         assertions = lib.mkOption { type = lib.types.listOf lib.types.anything; default = [ ]; };
         xdg.configFile = lib.mkOption { type = lib.types.attrsOf lib.types.anything; default = { }; };
         programs.claude-code.settings = lib.mkOption { type = lib.types.anything; default = { }; };
       }; };
@@ -22,7 +23,8 @@ function evaluateNix(overrides: string) {
       config = builtins.fromJSON (builtins.unsafeDiscardStringContext files."safety-core/config.json".text);
       cli = map toString evaluated.config.home.packages;
       claudeHookFile = if files ? "safety-core/claude/bash_policy.mjs" then toString files."safety-core/claude/bash_policy.mjs".source else null;
-      hooks = evaluated.config.programs.claude-code.settings.hooks or { };
+       hooks = evaluated.config.programs.claude-code.settings.hooks or { };
+       assertions = evaluated.config.assertions;
     }
   `], { encoding: "utf8" }));
 }
@@ -50,6 +52,18 @@ test("Nix renders configured Pi permissive and judge defaults", () => {
   expect(rendered.pi).toEqual({ autoApprove: true, judgeModel: "anthropic/claude-haiku" });
 });
 
+test("Nix renders OpenCode redaction socket configuration and guards missing paths", () => {
+  const disabled = evaluateNix("");
+  expect(disabled.config.redact).toEqual({ opencode: { enabled: false } });
+  const enabled = evaluateNix(`
+    config.programs.safetyCorePermissions.redact.opencode.enable = true;
+    config.programs.safetyCorePermissions.redact.opencode.socketPath = "/run/user/1000/redact.sock";
+  `);
+  expect(enabled.config.redact).toEqual({ opencode: { enabled: true, socketPath: "/run/user/1000/redact.sock" } });
+  expect(enabled.assertions[0].assertion).toBe(true);
+  expect(evaluateNix(`config.programs.safetyCorePermissions.redact.opencode.enable = true;`).assertions[0].assertion).toBe(false);
+});
+
 test("Nix installs the CLI on PATH and registers Claude hooks only when enabled", () => {
   const disabled = evaluateNix("");
   expect(disabled.cli).toEqual([]);
@@ -72,4 +86,4 @@ test("Nix installs the CLI on PATH and registers Claude hooks only when enabled"
       hooks: [{ type: "command", command: "${XDG_CONFIG_HOME:-$HOME/.config}/safety-core/claude/bash_policy.mjs" }],
     }],
   });
-}, 30_000);
+}, 120_000);

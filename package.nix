@@ -43,7 +43,7 @@ let
     version = "0.0.0";
     src = ./nix/npm-deps;
     nodejs = nodejs_22;
-    npmDepsHash = "sha256-vkdDnjq0AECm7lj/jsrGsaARqsw2PnuduJ7R88HmUc4=";
+    npmDepsHash = "sha256-L/GsCie/HcXBCwtQUbtLDTkJECydB+e2MqNAG6J1ql4=";
     dontNpmBuild = true;
     # tree-sitter-bash ships native-binding install scripts we don't need.
     npmFlags = [ "--ignore-scripts" ];
@@ -51,6 +51,8 @@ let
       mkdir -p $out/node_modules
       cp -r node_modules/web-tree-sitter $out/node_modules/
       cp -r node_modules/tree-sitter-bash $out/node_modules/
+      mkdir -p $out/node_modules/@bufbuild
+      cp -r node_modules/@bufbuild/protobuf $out/node_modules/@bufbuild/
     '';
   };
 
