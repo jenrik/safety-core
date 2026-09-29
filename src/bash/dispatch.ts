@@ -8,6 +8,7 @@ import { unknownCommandHandler } from "./handlers/unknown.js";
 import { analyzeSecretRedirectInvocation } from "./policies/secrets.js";
 import { basename } from "../shell.js";
 import { projectExecutionGapEvent, projectInvocationEvent } from "../policy/events.js";
+import { isBashBuiltin } from "./resolution.js";
 
 export interface InvocationCursor {
   readonly invocation: NormalizedCommand;
@@ -149,6 +150,7 @@ export function dispatchCommand(
     processEffect: request.processEffect,
     cwd: request.cwd,
     executableFilesystem: request.executableFilesystem,
+    executionTarget: request.executionTarget,
   });
   request.recordPolicyEvent?.(event);
   const redirect = analyzeSecretRedirectInvocation(request.command);
@@ -174,7 +176,10 @@ export function dispatchCommand(
     continueWithInvocation: request.continueWithInvocation,
     continueWithOpaque: request.continueWithOpaque,
   });
-  const resolved = registry.resolve(handlerName(executable.value));
+  // An external wrapper cannot invoke a Bash builtin merely by spelling its name.
+  const resolved = request.executionTarget === "external-path" && isBashBuiltin(handlerName(executable.value))
+    ? freeze({ name: unknownStructuralHandler.name, structural: null, observers: Object.freeze([]) })
+    : registry.resolve(handlerName(executable.value));
   const outcomes: Outcome[] = [];
   if (resolved.structural) {
     const structural = resolved.structural.handle(cursor, context);
@@ -201,6 +206,20 @@ export function dispatchCommand(
   const combined = observe(resolved.observers, cursor, policyContext, outcomes);
   if (outcomes.length === 0) combined.push(unknownStructuralHandler.handle(cursor, context) as Outcome);
   return strongestOutcome(combined);
+}
+
+/** A shell function owns its body; observers may classify its call but must not dispatch the name as an external command. */
+export function observeShellFunctionCommand(
+  command: NormalizedCommand,
+  span: SourceSpan,
+  provenance: BashDispatchRequest["provenance"],
+  inPipeline: boolean,
+  registry: CommandRegistry = defaultRegistry,
+): Outcome {
+  if (command.executable?.kind !== "known") return indeterminate(span);
+  const cursor: InvocationCursor = freeze({ invocation: command, index: 0, options: freeze({}) });
+  const context: PolicyDispatchContext = freeze({ environment: command.environment, span, inPipeline, provenance });
+  return strongestOutcome(observe(registry.resolve(command.executable.value).observers, cursor, context, []));
 }
 
 /** Match only an exact final executable component, preserving path-qualified command behavior. */

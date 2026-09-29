@@ -10,14 +10,14 @@ function parseCommand(arguments_: readonly ResolvedWord[], context: StructuralDi
   while (index < arguments_.length) {
     const argument = known(arguments_[index]!, context);
     if (typeof argument !== "string") return argument;
-    if (argument === "--") return childInvocationFrom(arguments_, index + 1, context, undefined, "none");
+    if (argument === "--") return childInvocationFrom(arguments_, index + 1, context, undefined, "none", "shell-no-functions");
     if (argument === "-p") {
       index++;
       continue;
     }
     if (argument === "-v" || argument === "-V") return safe();
     if (argument.startsWith("-")) return indeterminate(context.span);
-    return childInvocationFrom(arguments_, index, context, undefined, "none");
+    return childInvocationFrom(arguments_, index, context, undefined, "none", "shell-no-functions");
   }
   return indeterminate(context.span);
 }

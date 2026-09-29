@@ -3,6 +3,7 @@ import type { NormalizedRedirect, ResolvedWord } from "../bash/expand.js";
 import type { BindingValue } from "../bash/environment.js";
 import type { BashExecutionProvenance, ProcessEffect } from "../bash/walker.js";
 import type { ExecutableIdentity } from "./executable.js";
+import type { BashExecutionTargetKind } from "../bash/resolution.js";
 
 export type PolicyDiagnosticPart =
   | { readonly kind: "literal"; readonly value: string }
@@ -49,6 +50,8 @@ export interface InvocationView {
   readonly kind: "invocation";
   /** Null for redirect-only commands and redirects owned by compound statements. */
   readonly executable: ResolvedWord | null;
+  /** Result of the immediate launcher's command lookup, not execution-route provenance. */
+  readonly executionTarget: BashExecutionTargetKind;
   /** Filesystem-qualified identity; unresolved path facts remain explicit. */
   readonly executableIdentity: ExecutableIdentity;
   readonly argv: readonly ResolvedWord[];

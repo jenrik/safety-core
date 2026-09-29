@@ -57,6 +57,7 @@ function invocation(): InvocationView {
   return {
     kind: "invocation",
     executable: { kind: "known", value: "tool" },
+    executionTarget: "external-path",
     executableIdentity: { qualification: "incomplete", spelling: "tool", basename: "tool", chain: [], failure: { kind: "not-found" } },
     argv: [],
     environment: {},

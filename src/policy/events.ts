@@ -3,8 +3,9 @@ import { lookupBinding, modeledBindings, type Environment } from "../bash/enviro
 import type { BashExecutionProvenance, ProcessEffect } from "../bash/walker.js";
 import type { SourceSpan } from "../bash/cst.js";
 import type { BashPolicyEvent, ExecutionGapView, InvocationView } from "./types.js";
-import { resolveExecutableIdentity, unresolvedExecutableIdentity } from "./executable.js";
+import { nonExternalExecutableIdentity, resolveExecutableIdentity, unresolvedExecutableIdentity } from "./executable.js";
 import { unavailableExecutableFilesystem, type ExecutableFilesystem } from "./filesystem.js";
+import type { BashExecutionTargetKind } from "../bash/resolution.js";
 
 export interface BashPolicyEventContext {
   readonly environment: Environment;
@@ -14,6 +15,7 @@ export interface BashPolicyEventContext {
   readonly processEffect: ProcessEffect;
   readonly cwd?: string;
   readonly executableFilesystem?: ExecutableFilesystem;
+  readonly executionTarget?: BashExecutionTargetKind;
 }
 
 /** Project the walker model into a complete, immutable policy-facing event. */
@@ -24,8 +26,11 @@ export function projectInvocationEvent(command: NormalizedCommand, context: Bash
   return Object.freeze({
     kind: "invocation",
     executable: command.executable,
+    executionTarget: context.executionTarget ?? "unresolved",
     executableIdentity: command.executable?.kind === "known"
-      ? resolveExecutableIdentity(command.executable.value, environment.values, context.cwd ?? "/", context.executableFilesystem ?? unavailableExecutableFilesystem)
+      ? context.executionTarget === "builtin" || context.executionTarget === "shell-function" || context.executionTarget === "unresolved"
+        ? nonExternalExecutableIdentity(command.executable.value)
+        : resolveExecutableIdentity(command.executable.value, environment.values, context.cwd ?? "/", context.executableFilesystem ?? unavailableExecutableFilesystem)
       : unresolvedExecutableIdentity(),
     argv: Object.freeze([...command.argv]),
     environment: immutableBindings(environment.values),

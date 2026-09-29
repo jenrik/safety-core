@@ -164,7 +164,19 @@ describe("policy environment manifest", () => {
     for (let index = 0; index < 256; index++) {
       const canary = `inherited-value-${index}-!$%`;
       const snapshot = completePolicyInitialEnvironment({ CANARY_INHERITED: canary, EMPTY: "" });
-      expect(snapshot, `seed ${index}`).toEqual({ kind: "verified", values: { CANARY_INHERITED: canary, EMPTY: "" } });
+      expect(snapshot, `seed ${index}`).toEqual({ kind: "verified", values: { CANARY_INHERITED: canary, EMPTY: "", [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT" } });
+    }
+  });
+
+  test("property: both snapshots preserve exported function values and derive the same lookup fact", () => {
+    for (let index = 0; index < 128; index++) {
+      const name = `tool_${index}`;
+      const key = `BASH_FUNC_${name}%%`;
+      const body = `() { printf '%s' 'value-${index}'; }`;
+      for (const snapshot of [policyInitialEnvironment({ [key]: body }), completePolicyInitialEnvironment({ [key]: body })]) {
+        expect(snapshot.values[key], key).toBe(body);
+        expect(snapshot.values[`__SAFETY_CORE_BASH_FUNCTION_${name}`], key).toBe("__SAFETY_CORE_PRESENT");
+      }
     }
   });
 });

@@ -14,6 +14,12 @@ export interface PolicyEnvironmentRoute {
 export const GH_INHERITED_PAGER_FACT = "__SAFETY_CORE_INHERITED_GH_PAGER";
 export const BASH_FUNCTIONS_CAPTURED_FACT = "__SAFETY_CORE_BASH_FUNCTIONS_CAPTURED";
 const PRESENT_REDACTED_VALUE = "__SAFETY_CORE_PRESENT";
+const EXPORTED_BASH_FUNCTION = /^BASH_FUNC_(.+)%%$/;
+
+/** The environment transports exported functions as ordinary name/value pairs. */
+export function exportedBashFunctionName(name: string): string | undefined {
+  return EXPORTED_BASH_FUNCTION.exec(name)?.[1];
+}
 
 export const POLICY_ENVIRONMENT_ROUTES: readonly PolicyEnvironmentRoute[] = Object.freeze([
   excludedSecret("GH_TOKEN"),
@@ -94,18 +100,19 @@ export const GH_API_DEFER_ENVIRONMENT_NAMES: readonly string[] = Object.freeze([
 ]);
 
 /**
- * Capture only reviewed behavior facts. Authentication tokens and all unknown
- * process variables are omitted, credential-capable configuration payloads are
- * reduced to presence facts, and callers never serialize captured values.
+ * Capture reviewed behavior facts and exported Bash definitions. Authentication
+ * tokens and other unknown process variables are omitted; function values are
+ * retained because they are both policy-visible environment data and Bash code.
  */
 export function policyInitialEnvironment(environment: Readonly<Record<string, string | undefined>>): BashInitialEnvironment {
   const captured = new Set(POLICY_ENVIRONMENT_ROUTES.filter((route) => route.capture).map((route) => route.name));
   const values: Record<string, string> = { [BASH_FUNCTIONS_CAPTURED_FACT]: PRESENT_REDACTED_VALUE };
   for (const [name, value] of Object.entries(environment)) {
     if (value === undefined) continue;
-    const bashFunction = /^BASH_FUNC_(.+)%%$/.exec(name);
+    const bashFunction = exportedBashFunctionName(name);
     if (bashFunction) {
-      values[inheritedBashFunctionFact(bashFunction[1]!)] = PRESENT_REDACTED_VALUE;
+      values[name] = value;
+      values[inheritedBashFunctionFact(bashFunction)] = PRESENT_REDACTED_VALUE;
       continue;
     }
     if (name === "PAGER") {
@@ -127,7 +134,12 @@ export function policyInitialEnvironment(environment: Readonly<Record<string, st
  * The verified form retains every inherited value and proves omitted names unset.
  */
 export function completePolicyInitialEnvironment(environment: Readonly<Record<string, string | undefined>>): BashInitialEnvironment {
-  const values = Object.fromEntries(Object.entries(environment).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  const values: Record<string, string> = Object.fromEntries(Object.entries(environment).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  values[BASH_FUNCTIONS_CAPTURED_FACT] = PRESENT_REDACTED_VALUE;
+  for (const name of Object.keys(values)) {
+    const functionName = exportedBashFunctionName(name);
+    if (functionName) values[inheritedBashFunctionFact(functionName)] = PRESENT_REDACTED_VALUE;
+  }
   return Object.freeze({ kind: "verified", values: Object.freeze(values) });
 }
 

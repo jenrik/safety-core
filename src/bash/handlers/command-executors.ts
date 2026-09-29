@@ -114,6 +114,7 @@ function watchChild(arguments_: readonly ResolvedWord[], index: number, direct: 
       route: "shell-command",
       sourceDerivedFromBinding: child.some(isBindingResolvedWord),
       processEffect: "spawn-repeated",
+      newShell: "other",
     });
   return dynamic(context, result);
 }
@@ -131,6 +132,7 @@ function continueExecutorChild(arguments_: readonly ResolvedWord[], index: numbe
   return context.continueWithInvocation(child, undefined, {
     route: "transparent-wrapper",
     processEffect: "spawn-and-wait",
+    lookupDomain: "external-path",
   });
 }
 

@@ -49,7 +49,7 @@ export function evaluatePolicyEvents(
   let hasExecutionGap = false;
 
   for (const [eventIndex, event] of events.entries()) {
-    if (event.kind === "execution-gap") hasExecutionGap = true;
+    if (event.kind === "execution-gap" || event.kind === "invocation" && event.executionTarget === "unresolved") hasExecutionGap = true;
     for (const policy of validatedPolicies) {
       if (!policySelectsEvent(policy, event)) continue;
       const traced = isTraceablePolicy(policy) ? policy.evaluateWithTrace(event) : undefined;

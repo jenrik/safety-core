@@ -8,6 +8,7 @@ import type { BashFunction, BashProgram } from "../src/bash/cst.ts";
 import { dispatchCommand, preflightCommand } from "../src/bash/dispatch.ts";
 import type { NormalizedCommand, ResolvedWord } from "../src/bash/expand.ts";
 import { fromInitialEnvironment, lookupBinding } from "../src/bash/environment.ts";
+import { BASH_FUNCTIONS_CAPTURED_FACT } from "../src/bash/policy-environment.ts";
 import { safe } from "../src/bash/outcome.ts";
 import { runSteps } from "../src/bash/runner.ts";
 import { walkProgram } from "../src/bash/walker.ts";
@@ -221,12 +222,12 @@ describe("stateful Bash statement walker", () => {
     for (const depth of [1, 8, 32, 65]) {
       const source = `${"command ".repeat(depth)}leaf`;
       const exact = depth + 2;
-      const completed = analyzeWith(source, (request) => dispatchCommand(request as never), fromInitialEnvironment({}, {
+      const completed = analyzeWith(source, (request) => dispatchCommand(request as never), fromInitialEnvironment({ [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT" }, {
         nestedScriptDepth: 0,
         steps: exact,
         workItems: exact,
       }));
-      const exhausted = analyzeWith(source, (request) => dispatchCommand(request as never), fromInitialEnvironment({}, {
+      const exhausted = analyzeWith(source, (request) => dispatchCommand(request as never), fromInitialEnvironment({ [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT" }, {
         nestedScriptDepth: 0,
         steps: exact - 1,
         workItems: exact,
@@ -649,7 +650,7 @@ describe("stateful Bash statement walker", () => {
 function analyze(
   source: string,
   limits: Parameters<typeof runSteps>[1] = {},
-  environment = fromInitialEnvironment(),
+  environment = fromInitialEnvironment({ [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT" }),
 ) {
   return analyzeWith(source, (request) => {
     const invocation = request.command;
@@ -676,7 +677,7 @@ interface DispatchRequestLike {
 function analyzeWith(
   source: string,
   dispatch: (request: DispatchRequestLike) => unknown,
-  environment = fromInitialEnvironment(),
+  environment = fromInitialEnvironment({ [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT" }),
   limits: Parameters<typeof runSteps>[1] = {},
 ) {
   const program = parseBashProgram(source);

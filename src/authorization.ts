@@ -1,4 +1,4 @@
-import { createCommandRegistry, dispatchCommand, ignorePolicy, preflightCommand, type PolicyObserver } from "./bash/dispatch.js";
+import { createCommandRegistry, dispatchCommand, ignorePolicy, observeShellFunctionCommand, preflightCommand, type PolicyObserver } from "./bash/dispatch.js";
 import { fromFilteredInitialEnvironment, fromInitialEnvironment, fromVerifiedInitialEnvironment } from "./bash/environment.js";
 import { failure, type AuthorizationVerdict, type PolicyEvidence } from "./bash/outcome.js";
 import { DEFAULT_BASH_ANALYSIS_LIMITS, runSteps, type BashAnalysisLimits } from "./bash/runner.js";
@@ -82,6 +82,7 @@ export function analyzeBashAuthorization(options: Omit<BashPolicyAnalysisOptions
     environment: initialEnvironment(options.initialEnvironment, limits),
     dispatchCommand: (request) => dispatchCommand(request, registry),
     preflightCommand: (request) => preflightCommand(request, registry),
+    observeShellFunction: (command, span, provenance, inPipeline) => observeShellFunctionCommand(command, span, provenance, inPipeline, registry),
   }, parsed.kind === "parse-failure" ? failure(parsed.span) : undefined), limits);
   const policies = Object.freeze([...(completed.outcome.policies ?? [])]);
   return Object.freeze({ verdict: completed.verdict, outcome: completed.outcome, evidence: Object.freeze([...completed.evidence]), policy: policies[0] ?? null, policies });

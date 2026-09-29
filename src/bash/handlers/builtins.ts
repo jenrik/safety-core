@@ -18,6 +18,8 @@ import { scanOptions, type OptionGrammar } from "../options.js";
 import {
   invalidateShellFunction,
   invalidateShellFunctions,
+  exportShellFunction,
+  unexportShellFunction,
   removeShellFunction,
   taintShellState,
   withShellEnvironment,
@@ -50,6 +52,9 @@ export function transitionBuiltin(
     case "local":
       return withEnvironmentTransition(state, assignDeclaration(command, state.environment, true, false, false));
     case "export":
+      if (command.argv.some((argument) => argument.kind === "known" && /^-[^-]*f/.test(argument.value))) {
+        return exportFunctions(command, state, span);
+      }
       return withEnvironmentTransition(state, assignDeclaration(command, state.environment, false, true, false));
     case "readonly":
       return withEnvironmentTransition(state, assignDeclaration(command, state.environment, false, false, true));
@@ -73,6 +78,25 @@ export function transitionBuiltin(
     default:
       return unhandled(state);
   }
+}
+
+function exportFunctions(command: NormalizedCommand, initial: BashShellState, span: { readonly start: number; readonly end: number }): BuiltinTransition {
+  let state = initial;
+  let remove = false;
+  for (const argument of command.argv) {
+    if (argument.kind === "known" && /^-[fn]+$/.test(argument.value)) {
+      remove ||= argument.value.includes("n");
+      continue;
+    }
+    if (argument.kind === "known" && argument.value === "--") continue;
+    if (argument.kind !== "known" || !isName(argument.value)
+      || !state.functionCandidates.has(argument.value) || state.missingFunctions.has(argument.value)) {
+      return freeze({ handled: true, state: taintShellState(state, { kind: "unsupported-function-export", span }),
+        writes: freezeArray([]), outcome: indeterminate(span), returned: false });
+    }
+    state = remove ? unexportShellFunction(state, argument.value) : exportShellFunction(state, argument.value);
+  }
+  return freeze({ handled: true, state, writes: freezeArray([]), returned: false });
 }
 
 interface EnvironmentTransition {

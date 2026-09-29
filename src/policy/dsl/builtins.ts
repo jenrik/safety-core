@@ -76,6 +76,7 @@ export const BUILTINS_V1: Readonly<Record<string, BuiltinDefinition>> = Object.f
   hasRedirect: builtin([], "bool", "O(1)", "Whether an invocation has any redirection."),
   atEndOfArguments: builtin([], "bool", "O(1)", "Whether the machine has consumed every invocation argument."),
   isDirectExecutable: builtin(["string"], "bool", "O(n)", "Whether the selected executable is exactly the supplied unqualified literal."),
+  executionTargetIs: builtin(["string"], "bool", "O(1)", "Whether Bash or an external launcher resolves this invocation to the specified target kind."),
   hasInheritedExecutableFunction: builtin(["string"], "bool", "O(n)", "Whether an imported Bash function may replace an executable."),
   environmentAnyUnsafe: builtin(["string-set"], "bool", "O(ns)", "Whether a finite environment route is unknown or has a non-empty known value."),
   longOptionPrefixesAny: builtin(["stringish", "string-set"], "bool", "O(ns)", "Whether a long option is a prefix of an audited finite option table."),

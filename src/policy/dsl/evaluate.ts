@@ -400,6 +400,7 @@ function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeCo
     case "atEndOfArguments": return context.word === undefined;
     case "isDirectExecutable": return context.event.kind === "invocation" && context.event.executable?.kind === "known"
       && context.event.executable.value === strings[0];
+    case "executionTargetIs": return context.event.kind === "invocation" && context.event.executionTarget === strings[0];
     case "hasInheritedExecutableFunction": return inheritedExecutableFunction(context.event, strings[0]);
     case "environmentAnyUnsafe": return Array.isArray(args[0]) && args[0].some((name) => environmentIsUnsafe(context.event, name));
     case "longOptionPrefixesAny": return !isUnknown(strings[0]) && typeof strings[0] === "string" && strings[0].startsWith("--")
@@ -478,6 +479,7 @@ function requiresKnownOperands(name: string): boolean {
 function nonStringOperandBuiltin(name: string): boolean { return name === "inStringSet" || name === "wordInAsciiCaseInsensitiveSet" || name === "pathComponent" || name === "pathAfterComponents" || name === "splitComponent" || name === "parseBoundedInt" || name === "boundedIntAtMost" || name === "anySafeGlob" || name === "urlHost" || name === "urlPath" || name === "urlHostEquals" || name === "repositoryEquals" || name === "repositoryHasExplicitHost" || name === "repositoryMatches" || name === "repositoryMatchesOrganization" || name === "environmentAnyUnsafe" || name === "assignmentsAreSubset" || name === "longOptionPrefixesAny" || name === "inputBlockedDomain"; }
 function inheritedExecutableFunction(event: BashPolicyEvent, executable: string | typeof UNKNOWN): RuntimeValue {
   if (isUnknown(executable) || event.kind !== "invocation") return UNKNOWN;
+  if (event.executionTarget === "builtin" || event.executionTarget === "external-path") return false;
   const inherited = environmentLookup(event, `__SAFETY_CORE_BASH_FUNCTION_${executable}`);
   if (isBinding(inherited) && inherited.kind !== "unset") return true;
   const captured = environmentLookup(event, "__SAFETY_CORE_BASH_FUNCTIONS_CAPTURED");

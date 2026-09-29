@@ -212,6 +212,7 @@ input reference and preserves unknown handling for the evaluator.
 | `atEndOfArguments` | `() -> bool` | `O(1)` | EOF-only terminal guard |
 | `isDirectExecutable` | `(string) -> bool` | `O(n)` | exact unqualified executable |
 | `hasInheritedExecutableFunction` | `(string) -> bool` | `O(n)` | imported function shadowing |
+| `executionTargetIs` | `(string) -> bool` | `O(1)` | resolved target: `builtin`, `shell-function`, `external-path`, or `unresolved` |
 | `environmentAnyUnsafe` | `(string-set) -> bool` | `O(ns)` | finite unsafe environment routes |
 | `longOptionPrefixesAny` | `(stringish, string-set) -> bool` | `O(ns)` | audited long-option prefix table |
 | `hasProvenanceRoute` | `(string) -> bool` | `O(p)` | shell-wrapper routes |
@@ -220,6 +221,22 @@ input reference and preserves unknown handling for the evaluator.
 | `inputIsBindingResolved` | `(stringish) -> bool` | `O(1)` | binding-derived input provenance |
 | `inputBlockedDomain` | `(stringish) -> string` | `O(1)` | unresolved-input blocked-domain metadata |
 | `domainToken` | `(stringish, string) -> bool` | `O(nm)` | ASCII domain mention with hostname boundaries |
+
+Policy events retain `BASH_FUNC_name%%` as an ordinary, exact environment
+binding. The walker also imports valid exported Bash definitions into shell
+state and analyzes calls to them like locally defined functions. An unrecognized
+or malformed imported definition emits a request-wide execution gap: a policy
+cannot automatically allow that Bash source, but a concrete denial still wins.
+If shell code redefines or exports a function, its exact Bash-generated
+environment serialization is modeled as unknown; the known definition remains
+available for analysis when a subsequent Bash child inherits that export.
+
+`executionTargetIs` tests the immediate command lookup, independently of
+`hasProvenanceRoute`. For example, an ordinary `helm` invocation can resolve to
+a shell function, while the child of `strace helm` is looked up as an external
+executable even if `BASH_FUNC_helm%%` is present. `command helm` skips shell
+functions but can resolve a builtin; `builtin helm` accepts only builtins.
+`unresolved` targets cannot contribute to automatic authorization.
 
 `linearRegex` has a handwritten restricted grammar: an optional leading `^`,
 literal bytes, `.`, non-empty terminated character classes, only escapes of

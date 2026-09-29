@@ -2,7 +2,7 @@ import { expect, mock, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadPolicyRuntime, type BashPolicyEvaluation, type LoadedPolicyRuntime } from "../src/index.ts";
+import { completePolicyInitialEnvironment, evaluateLoadedPolicies, initBundledBashParser, loadPolicyRuntime, type BashPolicyEvaluation, type LoadedPolicyRuntime, type ValidatedBashPolicy } from "../src/index.ts";
 
 const renderedSettings: Array<{ items: any[]; onChange: (id: string, value: string) => unknown }> = [];
 mock.module("@earendil-works/pi-coding-agent", () => ({
@@ -29,6 +29,49 @@ const limits = { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, ma
 const runtime = { config: { bashAnalysis: limits, pi: { autoApprove: false } }, policySet: { policies: [], sources: [] }, limits } as unknown as LoadedPolicyRuntime;
 const deny: BashPolicyEvaluation = { decision: "deny", analysis: { complete: true }, events: [], traces: [{ source: { canonicalPath: "/p" }, layer: "guard", event: {} as never, decision: { kind: "deny", reason: [{ kind: "literal", value: "generic denial" }] } }] };
 const defer: BashPolicyEvaluation = { decision: "defer", analysis: { complete: false }, events: [], traces: [] };
+
+test("production adapters distinguish absent, valid, and malformed inherited Bash functions", async () => {
+  await initBundledBashParser();
+  const { createOpenCodePlugin } = await import("../adapters/opencode.ts");
+  const { createOpenCodeV2Plugin } = await import("../adapters/opencode-v2.ts");
+  const { evaluateClaudeBashPolicy } = await import("../adapters/claude-code/_bash_policy.ts");
+  const { createPiExtension } = await import("../adapters/pi.ts");
+  const permission: ValidatedBashPolicy = {
+    source: { canonicalPath: "/policies/helm" }, layer: "permission", select: [],
+    evaluate: (event) => event.kind === "invocation" && event.executionTarget === "external-path"
+      && event.executable?.kind === "known" && event.executable.value === "helm"
+      && event.argv[0]?.kind === "known" && event.argv[0].value === "list"
+      ? { kind: "allow", reason: [{ kind: "literal", value: "read-only helm" }] }
+      : { kind: "ignore" },
+  };
+  const loaded = { ...runtime, policySet: { policies: [permission], sources: [] } } as LoadedPolicyRuntime;
+  const [v1, v2] = await Promise.all([createOpenCodePlugin({ runtime: loaded }), createOpenCodeV2Plugin({ runtime: loaded })]);
+  const handlers = new Map<string, Function>();
+  createPiExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerTool() {}, registerCommand() {}, appendEntry() {} } as never, { runtime: Promise.resolve(loaded) });
+  const previous = process.env["BASH_FUNC_helm%%"];
+  try {
+    for (const [body, allowed] of [[undefined, true], ["() { gh unsafe; }", false], ["invalid body", false]] as const) {
+      if (body === undefined) delete process.env["BASH_FUNC_helm%%"];
+      else process.env["BASH_FUNC_helm%%"] = body;
+      expect(evaluateLoadedPolicies(loaded, "helm list", completePolicyInitialEnvironment(process.env)).decision, body ?? "absent")
+        .toBe(allowed ? "allow" : "defer");
+      for (const plugin of [v1, v2]) {
+        const output = { status: "ask" };
+        await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "helm list" }, output);
+        expect(output.status, body ?? "absent").toBe(allowed ? "allow" : "ask");
+      }
+      const claude = evaluateClaudeBashPolicy({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "helm list" } }, { runtime: loaded });
+      expect(claude?.kind, body ?? "absent").toBe(allowed ? "allow" : undefined);
+      const pi = await handlers.get("tool_call")!({ toolName: "bash", toolCallId: "helm", input: { command: "helm list" } }, {
+        cwd: process.cwd(), hasUI: true, signal: undefined, ui: { confirm: async () => false, notify() {} },
+      });
+      expect(pi, body ?? "absent").toEqual(allowed ? undefined : { block: true, reason: "Command requires policy approval" });
+    }
+  } finally {
+    if (previous === undefined) delete process.env["BASH_FUNC_helm%%"];
+    else process.env["BASH_FUNC_helm%%"] = previous;
+  }
+});
 
 test("Pi blocks generic denial and prompts only generic defer", async () => {
   const { createPiExtension } = await import("../adapters/pi.ts");

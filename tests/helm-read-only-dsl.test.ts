@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { compilePolicyDocument } from "../src/policy/dsl/compile.ts";
 import { createDslPolicy } from "../src/policy/dsl/evaluate.ts";
 import { parsePolicyDocument } from "../src/policy/dsl/validate.ts";
+import { analyzeBashWithPolicies, completePolicyInitialEnvironment, initBundledBashParser } from "../src/index.ts";
 
 const path = new URL("../policies/dsl/helm-read-only.policy.json", import.meta.url);
 const policy = createDslPolicy(compilePolicyDocument(parsePolicyDocument(readFileSync(path, "utf8"))), path.pathname);
@@ -26,6 +27,18 @@ function permutations<T>(values: readonly T[]): T[][] {
 }
 
 describe("helm read-only DSL policy", () => {
+  test("a PATH-launched child of strace is eligible even when Bash has an imported helm function", async () => {
+    await initBundledBashParser();
+    const result = analyzeBashWithPolicies({
+      source: "strace -f helm list",
+      initialEnvironment: completePolicyInitialEnvironment({ "BASH_FUNC_helm%%": "() { gh unsafe; }" }),
+      policies: [policy],
+    });
+    const child = result.events.find((event) => event.kind === "invocation" && event.executable?.kind === "known" && event.executable.value === "helm");
+    expect(child).toMatchObject({ kind: "invocation", executionTarget: "external-path" });
+    if (!child) throw new Error("missing Helm child");
+    expect(policy.evaluate(child).kind).toBe("allow");
+  });
   test("permits the reviewed Helm 4.3.0 command paths and aliases", () => {
     for (const args of [
       ["--help"], ["help", "upgrade"], ["env"], ["version", "--short"], ["completion", "zsh"],

@@ -35,6 +35,7 @@ function handleShellArguments(
     return typeof inherited === "boolean" ? dynamicExecutableIndeterminate(context.span) : inherited;
   }
   if (parsed.terminal?.id === "informational") return indeterminate(context.span);
+  const privileged = name === "bash" && parsed.options.some((option) => option.spelling === "-p");
   const initOptions = parsed.options.filter((option) => option.id === "init-command");
   const initCommands = initOptions.flatMap((option) => option.value?.kind === "known" ? [option.value.value] : []);
   for (const option of parsed.options) {
@@ -43,7 +44,7 @@ function handleShellArguments(
     if (option.value?.kind !== "known") return dynamicExecutableIndeterminate(context.span);
     if (isSecretPath(option.value.value)) return secretScriptDeny(name, option.value.value, context);
   }
-  const inheritedStartup = shellStartupEnvironmentRoute(name, cursor, context, parsed.options);
+  const inheritedStartup = privileged ? false : shellStartupEnvironmentRoute(name, cursor, context, parsed.options);
   if (typeof inheritedStartup !== "boolean") return inheritedStartup;
   startup.detected ||= inheritedStartup;
   if (shellInvocationMayReadStartup(name, parsed.options)) startup.detected = true;
@@ -58,12 +59,13 @@ function handleShellArguments(
       positionalEnvironment(arguments_, parsed.operandIndex, context),
       isBindingResolvedWord(parsed.terminal.attached ? original : script),
       context,
+      privileged,
     );
   }
   const operand = arguments_[parsed.operandIndex];
   if (operand?.kind === "known" && isSecretPath(operand.value)) return secretScriptDeny(name, operand.value, context);
   return initCommands.length > 0
-    ? shellCommandTarget(name, initCommands.join(";\n"), undefined, false, context)
+    ? shellCommandTarget(name, initCommands.join(";\n"), undefined, false, context, privileged)
     : dynamicExecutableIndeterminate(context.span);
 }
 
@@ -107,6 +109,7 @@ function shellCommandTarget(
   environment: Parameters<CommandHandler["handle"]>[1]["environment"] | undefined,
   sourceDerivedFromBinding: boolean,
   context: Parameters<CommandHandler["handle"]>[1],
+  privileged = false,
 ): BashDispatchResult {
   if (name === "fish") {
     return unsupportedFishSource(context);
@@ -116,6 +119,7 @@ function shellCommandTarget(
       route: "shell-command",
       sourceDerivedFromBinding,
       processEffect: "spawn-and-wait",
+      newShell: name === "bash" && !privileged ? "bash" : "other",
     });
   return taintWrapperResult(result, context);
 }

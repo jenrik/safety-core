@@ -13,6 +13,7 @@ function event(argv: readonly ({ readonly kind: "known"; readonly value: string 
   return {
     kind: "invocation",
     executable: { kind: "known", value: "tool" },
+    executionTarget: "external-path",
     executableIdentity: { qualification: "incomplete", spelling: "tool", basename: "tool", chain: [], failure: { kind: "not-found" } },
     argv,
     environment: {},
@@ -58,6 +59,16 @@ const base = (): Record<string, any> => ({
 });
 
 describe("DCRM evaluation", () => {
+  test("executionTargetIs checks resolved Bash lookup independently of spelling and provenance", () => {
+    const document = base();
+    document.states.command.cases = [{ when: { call: "executionTargetIs", args: ["external-path"] },
+      action: { decision: "allow", reason: ["external target"] } }];
+    const candidate = policy(document);
+    for (const target of ["builtin", "shell-function", "external-path", "unresolved"] as const) {
+      const decision = candidate.evaluate({ ...event([]), executionTarget: target, provenance: { route: ["direct", "transparent-wrapper"] } });
+      expect(decision.kind, target).toBe(target === "external-path" ? "allow" : "ignore");
+    }
+  });
   test("honors first-match order, guards against pre-state, and applies updates simultaneously", () => {
     const document = base();
     document.states.command.cases.unshift({ when: true, action: { consume: "word", next: "tail", set: { seen: true, count: 1 } } });

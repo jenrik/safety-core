@@ -3,6 +3,7 @@ import type { ResolvedWord } from "../expand.js";
 import { indeterminate, strongestOutcome, type Outcome } from "../outcome.js";
 import type { BashDispatchResult } from "../walker.js";
 import type { ProcessEffect } from "../walker.js";
+import type { BashLookupDomain } from "../resolution.js";
 import { resolveLongOption as resolveDeclaredLongOption } from "../options.js";
 
 export type WrapperParser = (arguments_: readonly ResolvedWord[], context: StructuralDispatchContext) => BashDispatchResult;
@@ -79,6 +80,7 @@ export function childInvocationFrom(
   context: StructuralDispatchContext,
   environment: StructuralDispatchContext["environment"] | undefined,
   processEffect: ProcessEffect,
+  lookupDomain: BashLookupDomain = "external-path",
 ): BashDispatchResult {
   const child = arguments_.slice(index);
   if (child.length === 0 || child[0]?.kind !== "known") return indeterminate(context.span);
@@ -86,6 +88,7 @@ export function childInvocationFrom(
     route: "transparent-wrapper",
     processEffect,
     isolate: processEffect !== "none",
+    lookupDomain,
   });
 }
 

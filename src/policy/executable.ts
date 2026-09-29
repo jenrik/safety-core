@@ -6,6 +6,7 @@ import type {
 } from "./filesystem.js";
 
 export type ExecutableIdentityFailure =
+  | { readonly kind: "not-external" }
   | { readonly kind: "path-unavailable" }
   | { readonly kind: "path-candidate-incomplete"; readonly path: string; readonly failure: ExecutableFilesystemFailure }
   | { readonly kind: "filesystem"; readonly path: string; readonly failure: ExecutableFilesystemFailure }
@@ -82,6 +83,11 @@ export function resolveExecutableIdentity(
 /** Build an identity for a dynamic executable without manufacturing a spelling. */
 export function unresolvedExecutableIdentity(): ExecutableIdentity {
   return Object.freeze({ qualification: "unknown", reason: "unresolved-spelling" });
+}
+
+/** A shell target has a spelling but no selected filesystem executable. */
+export function nonExternalExecutableIdentity(spelling: string): ExecutableIdentity {
+  return incomplete(spelling, pathBasename(spelling), [], { kind: "not-external" });
 }
 
 /** Exact, case-sensitive matching for the four supported executable selector forms. */
