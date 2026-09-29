@@ -103,6 +103,13 @@
           default = pkgs.mkShell { packages = [
             pkgs.bun pkgs.nodejs_22 pkgs.typescript pkgs.python3 sc.core
           ]; };
+          redact = pkgs.mkShell {
+            packages = [ pkgs.python312 pkgs.uv ];
+            # uv-installed spaCy/NumPy wheels need these shared libraries on NixOS.
+            shellHook = ''
+              export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib pkgs.zlib ]}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+            '';
+          };
         });
     };
 }

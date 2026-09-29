@@ -3,6 +3,9 @@ result
 __marimo__/
 __pycache__/
 *.pyc
+.venv/
+.pytest_cache/
+.hypothesis/
 .direnv/
 packages/*/dist/
 packages/*/node_modules/
