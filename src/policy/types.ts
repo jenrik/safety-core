@@ -104,6 +104,8 @@ export interface DslPolicyTraceStep {
   readonly state: string;
   readonly argvIndex: number;
   readonly clusterByteIndex: number;
+  /** -1 at an argv boundary, otherwise the next unread UTF-8 byte offset. */
+  readonly wordByteOffset?: number;
   readonly source: string;
   readonly origin: string;
   readonly action: "transition" | "option" | "terminal";

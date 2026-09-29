@@ -55,7 +55,10 @@ and [executable identity limitations](./executable-identity-limitations.md).
 The full grammar and builtin table are in [policy-dsl.md](./policy-dsl.md).
 DCRM is a JSON-only deterministic consuming register machine. Every object has
 an exact schema, duplicate JSON keys are rejected, and `language` is exactly
-`safety-core/bash-policy-v1`. A source names a `guard` or `permission` layer,
+`safety-core/bash-policy-v1` or `safety-core/bash-policy-v2`. V1 sources keep
+their original grammar; v2 adds byte-by-byte inspection within an argument,
+an explicit rest-of-word skip, and location-backed input spans. A source names
+a `guard` or `permission` layer,
 exact selectors, fixed registers/options/folds/fragments, a start state, and
 closed state definitions. A guard can deny, defer, or ignore; it cannot allow.
 `allow` and `deny` require a finite reason template. `ignore` means the source
@@ -76,6 +79,14 @@ positions without treating unknown flags as harmless. An accepted grammar
 should use `atEndOfArguments()` before allowing it; unconsumed words then defer
 instead of accidentally matching a prefix.
 
+For an endpoint grammar in v2, use `atEndOfWord()` before consuming the
+inspected argument when its entire spelling matters. `restOfWord` deliberately
+discards an unchecked suffix; use it only when the remaining characters truly
+do not affect the permission decision. Capture a component with fixed
+`location` markers and `span` rather than constructing a new string. Byte
+inspection is lexical: percent escapes and URL normalization are not decoded
+by these transitions, so an authorizing route must constrain them explicitly.
+
 Diagnostics are finite source data. Reason/suggestion templates contain only
 literals and typed finite expressions; audit values have a closed, bounded
 shape. Captures are a deliberately narrow diagnostic-template prototype, not a
@@ -85,12 +96,14 @@ redesigned or explicitly expanded before accepting broader template features.
 
 ## Why DCRM terminates
 
-Registers have fixed finite domains, fragments are acyclic compile-time
+Registers have fixed-size domains or immutable input references, fragments are acyclic compile-time
 expansions, folds scan only one fixed engine collection once, builtin functions
-are total, and transition targets are static. Each authored nonterminal
-consumes one argv word; each compiler-created option-cluster transition consumes
-one byte. The decreasing measure is remaining argv boundaries plus active
-cluster bytes. Source, state, expression, expansion, and output budgets are
+are total, and transition targets are static. Each v1 authored nonterminal
+consumes one argv word; v2 also permits consuming one byte or the rest of the
+current argument. Option-cluster microsteps consume bytes. The decreasing
+measure is unread argv bytes plus one boundary per remaining argument. Locations
+and spans are fixed-size references and do not copy or accumulate input.
+Source, state, expression, expansion, and output budgets are
 validated before compilation, so valid policies terminate without runtime fuel.
 The Bash analyzer still has explicit finite analysis limits; exhaustion or
 incomplete values must defer, never authorize.

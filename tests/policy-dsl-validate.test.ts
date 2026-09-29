@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
-import { POLICY_LANGUAGE_V1, parsePolicyDocument, validatePolicyDocument } from "../src/policy/dsl/validate.ts";
+import { POLICY_LANGUAGE_V1, POLICY_LANGUAGE_V2, parsePolicyDocument, validatePolicyDocument } from "../src/policy/dsl/validate.ts";
 import { compilePolicyDocument } from "../src/policy/dsl/compile.ts";
-import { BUILTINS_V1 } from "../src/policy/dsl/builtins.ts";
+import { BUILTINS_V1, BUILTINS_V2 } from "../src/policy/dsl/builtins.ts";
 
 const policy = (): Record<string, unknown> => ({
   language: POLICY_LANGUAGE_V1,
@@ -83,7 +83,7 @@ describe("DCRM JSON policy validation", () => {
   });
 
   test("rejects exact-version and unknown-key violations", () => {
-    invalid((document) => { document.language = "safety-core/bash-policy-v2"; });
+    invalid((document) => { document.language = "safety-core/bash-policy-v3"; });
     invalid((document) => { document.unrecognized = true; });
     invalid((document) => { document.states.command.unrecognized = true; });
     invalid((document) => { document.states.command.cases[0].action.unrecognized = true; });
@@ -184,11 +184,12 @@ describe("DCRM JSON policy validation", () => {
     expect(Object.isFrozen(BUILTINS_V1)).toBeTrue();
   });
 
-  test("documents every closed builtin and the v1 progress proof", () => {
+  test("documents both closed catalogues and the cursor progress proof", () => {
     const documentation = readFileSync(new URL("../docs/policy-dsl.md", import.meta.url), "utf8");
-    for (const name of Object.keys(BUILTINS_V1)) expect(documentation).toContain(`\`${name}\``);
+    for (const name of Object.keys(BUILTINS_V2)) expect(documentation).toContain(`\`${name}\``);
     expect(documentation).toContain(POLICY_LANGUAGE_V1);
-    expect(documentation).toContain("remaining argv token boundaries plus bytes");
+    expect(documentation).toContain(POLICY_LANGUAGE_V2);
+    expect(documentation).toContain("strictly decreases a finite natural number");
   });
 
   test("property: generated valid and invalid machines are classified deterministically", () => {

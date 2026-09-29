@@ -9,6 +9,7 @@ export type BuiltinValueType =
   | "tuple"
   | "json"
   | "environment-value"
+  | "location"
   | "url"
   | "repository";
 
@@ -90,6 +91,12 @@ export const BUILTINS_V1: Readonly<Record<string, BuiltinDefinition>> = Object.f
   domainToken: builtin(["stringish", "string"], "bool", "O(nm)", "ASCII case-insensitive domain token match with hostname-boundary semantics."),
 });
 
-export function builtinDefinition(name: string): BuiltinDefinition | undefined {
-  return BUILTINS_V1[name];
+export const BUILTINS_V2: Readonly<Record<string, BuiltinDefinition>> = Object.freeze({
+  ...BUILTINS_V1,
+  atEndOfWord: builtin([], "bool", "O(1)", "Whether the intra-word cursor is at the end of its known argument."),
+  span: builtin(["location", "location"], "input-ref", "O(1)", "Half-open immutable input slice between locations in the same argument."),
+});
+
+export function builtinDefinition(name: string, language: "safety-core/bash-policy-v1" | "safety-core/bash-policy-v2" = "safety-core/bash-policy-v1"): BuiltinDefinition | undefined {
+  return (language === "safety-core/bash-policy-v2" ? BUILTINS_V2 : BUILTINS_V1)[name];
 }

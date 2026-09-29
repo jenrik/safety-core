@@ -1,21 +1,25 @@
-# DCRM policy language v1
+# DCRM policy languages v1 and v2
 
-`safety-core/bash-policy-v1` is a JSON-only deterministic consuming register
+`safety-core/bash-policy-v1` and its additive successor
+`safety-core/bash-policy-v2` are JSON-only deterministic consuming register
 machine (DCRM). It classifies one immutable policy event. It cannot call host
 code, mutate the event, access files/processes/network/clock/modules, allocate
-dynamic collections, retain state across events, recurse, rewind input, or
+policy-defined dynamic collections, retain state across events, recurse, rewind input, or
 compute a jump target.
 
 The loader for JSON sources is introduced separately. This document specifies
 the source document accepted by `parsePolicyDocument`,
-`validatePolicyDocument`, and `compilePolicyDocument`.
+`validatePolicyDocument`, and `compilePolicyDocument`. Existing v1 documents
+retain their exact grammar and builtin catalogue. The intra-word facilities
+below are available only to v2 documents.
 
 ## Document
 
 Every object is closed: an unknown member is an error. The language value is
-exactly `safety-core/bash-policy-v1`; compatible prefixes and later versions
-are not accepted. JSON text is scanned for duplicate object keys before it is
-decoded, so a later declaration cannot silently replace an earlier one.
+exactly one of the two version strings above; compatible prefixes and other
+versions are not accepted. JSON text is scanned for duplicate object keys
+before it is decoded, so a later declaration cannot silently replace an
+earlier one.
 
 ```text
 Policy := {
@@ -24,7 +28,7 @@ Policy := {
 layer := "guard" | "permission"
 State := { fragments?, cases, default, end }
 Case := { when, action }
-Transition := { consume: "word", next, set?, fold? }
+Transition := { consume: "word" | "byte" | "restOfWord", next, set?, fold? }
 Terminal := { decision, reason?, suggestion?, audit?, capture?, fold? }
 ```
 
@@ -59,10 +63,14 @@ matches; rich matching belongs in a machine expression.
 ## Registers and expressions
 
 Registers are fixed declarations. `bool`, `enum`, `count`, `inputRef`, and a
-fixed `tuple` are the complete v1 domains. `count` has a positive literal
-`max` and an in-range literal `initial`; enum values are a unique finite string
+fixed `tuple` are the complete v1 domains; v2 additionally has `location`.
+`count` has a positive literal `max` and an in-range literal `initial`;
+enum values are a unique finite string
 set. `inputRef` starts as `null` and holds a reference into immutable supplied
-input rather than copying a string. Tuples have a fixed non-nested shape.
+input rather than copying a string. A v2 `location` starts as `null` and holds
+an immutable argument identity and an offset within that argument; it is not
+an integer, and cannot index arbitrary input. Tuples have a fixed non-nested
+shape.
 
 `set` assigns expressions simultaneously from the pre-transition state. Its
 keys must be declared registers and every expression must be statically
@@ -73,7 +81,11 @@ calls `{ "call": name, "args": [...] }`; and Boolean `{ "all": [...] }`,
 `{ "any": [...] }`, and `{ "not": expression }` nodes. Conditions and fold
 predicates must have Boolean type. Known input references include `word`,
 `option.value`, `event`, `event.executable`, `event.kind`, `event.gap.reason`,
-`fold.item`, declared registers, and cached `fold.<name>` results. `event` is
+`fold.item`, declared registers, and cached `fold.<name>` results. v2 also
+provides `byte` (the current unsigned byte represented as one U+00xx character)
+and `cursor` (a `location` on the current *known* argument). Those two names
+are reserved for input references in v2; v1 registers with those names retain
+their original meaning. `event` is
 available to audit values as the complete immutable policy event.
 
 Terminal templates are arrays of literal strings and finite expressions. A terminal
@@ -130,7 +142,77 @@ resume state; the evaluator therefore distinguishes separate, attached-short,
 equals-long, and cluster values without reconstructing the declaration. Cluster
 parsing sets `clusterByteProgress` and consumes bytes from the current finite
 word inside that action; v1 does not create a standalone synthetic cluster
-state.
+state. In v2, option recognition is confined to word boundaries. Once an
+authored `byte` transition enters a word, only authored cases run until that
+word is consumed; an option cannot interrupt a partially inspected argument.
+While an option cluster is active, `byte` and `cursor` are unknown to authored
+cases and authored transitions cannot consume part of that cluster.
+
+## v2 intra-word transitions and spans
+
+The machine cursor is `(argv index, offset)`. `offset = boundary` means no byte
+of this argument has been consumed by authored byte transitions; otherwise it
+is an integer from 1 through the UTF-8 byte length of the **known** current
+argument. The `word` reference remains the complete current argv argument in
+either mode. `byte` refers to the byte at offset 0 at a boundary, or at the
+current offset in intra-word mode; it is unknown at the end of a word, for an
+unknown argument, or at argv EOF. The evaluator does not normalize Unicode,
+percent escapes, path separators, or URLs. Policies must explicitly constrain
+such syntax before granting permission.
+
+An authored `consume: "byte"` requires a known current argument and an
+available byte. It advances the offset by exactly one without advancing argv.
+`consume: "word"` at a boundary consumes the whole argument, as in v1; in
+intra-word mode it is valid only at the exact end of that argument. This
+prevents an ordinary word transition from accidentally accepting an unchecked
+suffix. `consume: "restOfWord"` is valid only in intra-word mode: it
+deliberately discards the remaining bytes of that argument and advances argv.
+An invalid transition is an indeterminate `defer`, never a permit. The
+`atEndOfWord()` predicate is true only at the intra-word end of a known
+argument. It differs from `atEndOfArguments()`, which is true only at argv EOF.
+An empty argument can still be matched and consumed as a whole word, but has
+no byte to consume. Terminal actions may occur at any cursor position;
+`allow` before word-end means the author has deliberately classified the
+entire invocation without checking the remaining bytes.
+
+An abbreviated v2 example showing a span from the start to the end of an
+argument (the `start` state consumes the command word first):
+
+```json
+{
+  "registers": {
+    "begin": { "type": "location", "initial": null },
+    "piece": { "type": "inputRef", "initial": null }
+  },
+  "states": {
+    "argument": {
+      "cases": [{ "when": true, "action": { "consume": "byte", "next": "scan", "set": { "begin": { "ref": "cursor" } } } }],
+      "default": { "decision": "defer" }, "end": { "decision": "defer" }
+    },
+    "scan": {
+      "cases": [
+        { "when": { "call": "atEndOfWord", "args": [] }, "action": { "consume": "word", "next": "done", "set": { "piece": { "call": "span", "args": [{ "ref": "begin" }, { "ref": "cursor" }] } } } },
+        { "when": true, "action": { "consume": "byte", "next": "scan" } }
+      ],
+      "default": { "decision": "defer" }, "end": { "decision": "defer" }
+    },
+    "done": { "cases": [], "default": { "decision": "defer" }, "end": { "decision": "allow", "reason": ["argument: ", { "ref": "piece" }] } }
+  }
+}
+```
+
+`cursor` evaluates to a location before the chosen transition consumes input.
+Register updates are simultaneous from the pre-transition state. `span(begin,end)`
+returns an `inputRef` into the original immutable argument covering the
+half-open byte range `[begin,end)`. It is unknown for unset locations,
+different arguments, reversed or out-of-bounds endpoints, or an unknown source
+word. There is no substring copy stored in a register. The span can be compared
+with existing stringish predicates or rendered in a terminal reason/capture.
+Materializing a span that cuts through a UTF-8 sequence is unknown rather than
+silently inserting replacement characters; such a span cannot prove a match.
+Locations from earlier arguments remain valid while that same immutable event
+is evaluated. Positions are never writable through arithmetic, string
+construction, or dynamic indexing.
 
 ## Fragments and folds
 
@@ -158,12 +240,14 @@ Their predicates are Boolean and cannot reference a fold result. A transition
 can list declared fold names, which are cached and run at most once per event;
 it cannot define a scan. Nested folds and dynamic collections are rejected.
 
-## Closed v1 builtins
+## Closed builtins
 
 All builtins are total and only inspect supplied values. `n`, `m`, `s`, `r`,
 `a`, and `p` respectively denote operand, pattern, set, redirect, assignment,
 and provenance-route sizes. `stringish` accepts a known string or immutable
 input reference and preserves unknown handling for the evaluator.
+
+The table below is the unchanged v1 catalogue (also available in v2).
 
 | Builtin | Signature | Bound | Use |
 | --- | --- | --- | --- |
@@ -222,6 +306,13 @@ input reference and preserves unknown handling for the evaluator.
 | `inputBlockedDomain` | `(stringish) -> string` | `O(1)` | unresolved-input blocked-domain metadata |
 | `domainToken` | `(stringish, string) -> bool` | `O(nm)` | ASCII domain mention with hostname boundaries |
 
+Only v2 adds the following total builtins:
+
+| Builtin | Signature | Bound | Use |
+| --- | --- | --- | --- |
+| `atEndOfWord` | `() -> bool` | `O(1)` | exact intra-word end |
+| `span` | `(location, location) -> input-ref` | `O(1)` | immutable half-open slice reference |
+
 Policy events retain `BASH_FUNC_name%%` as an ordinary, exact environment
 binding. The walker also imports valid exported Bash definitions into shell
 state and analyzes calls to them like locally defined functions. An unrecognized
@@ -249,7 +340,7 @@ available.
 
 ## Validation limits and progress proof
 
-v1 limits source JSON to 256 KiB; states to 512; registers to 64; folds to 32;
+Both versions limit source JSON to 256 KiB; states to 512; registers to 64; folds to 32;
 options to 64; selectors to 256; option names to 16; fragments to 64; cases
 per state to 128; and source/compiled transitions, expanded cases, and
 templates to 4,096. Expression nodes are limited to 32,768, literal bytes to
@@ -268,13 +359,33 @@ identity comparisons and every entry read from validator-internal enum tables;
 the scaling property proves that table reads remain confined to one
 canonicalization pass rather than growing with assignments.
 
-Every authored nonterminal has `consume: "word"`, which consumes one forward
-argv boundary. Every compiler-created cluster transition consumes one forward
-byte. Thus every nonterminal transition strictly decreases the finite measure
-of remaining argv token boundaries plus bytes in an active cluster. EOF and
-unmatched input always terminate. Combined with acyclic compile-time fragments,
-fixed registers, single-run non-nested folds, static transition targets, and
-total builtins, a valid program terminates without runtime fuel.
+For v1, every authored nonterminal consumes one word; for v2 it consumes a
+word, one byte, or the remainder of a word. Option-cluster microsteps consume
+one byte. Let `A` be the sum of UTF-8 argument byte lengths plus one boundary
+unit per argument. Assign every cursor the number of unread bytes plus unread
+boundary units: at an argument boundary all its bytes and its boundary are
+unread, and in intra-word mode only the bytes after the offset and that
+boundary are unread. Every valid `byte` transition decreases this measure by
+one. A `word` or `restOfWord` transition removes the current boundary and any
+unread bytes; an option consumes at least a byte or a word. No transition may
+rewind or switch to another argument without consuming the current boundary.
+Therefore every nonterminal strictly decreases a finite natural number, even
+on an empty argument. At EOF or unmatched input evaluation terminates. Invalid
+transitions defer. Combined with acyclic fragments, fixed registers, single-run
+non-nested folds, static transition targets, and total builtins, every valid
+policy terminates without runtime fuel.
+
+Each location is a pair of bounded coordinates into immutable input. `span`
+creates a reference, not a string or a collection. With `P` compiled policy
+size and `B` total immutable input/context size, working storage stays
+`O(P+B)`; rendering a bounded template can materialize `O(PB)` output.
+There are at most `O(B)` consuming steps; at each step `O(P)` cases may each
+inspect an `O(B)` value, yielding the existing conservative `O(PB²)` time
+bound. Byte and cursor reads are constant-time within a cached encoding of the
+current word. Location registers cannot implement a stack or accumulate text.
+The validator and compiler count byte/rest transitions under the same fixed
+source and expanded transition limits as word transitions.
 `atEndOfArguments()` is an explicit EOF predicate for terminal actions. Use it when an accepted grammar must reject unrecognized option words before allowing the completed command.
 
-The v1 validator permits at most 512 states. This accommodates the checked-in, pinned GitHub CLI command trie while preserving a fixed resource bound.
+The 512-state cap accommodates the checked-in, pinned GitHub CLI command trie
+while preserving a fixed resource bound.

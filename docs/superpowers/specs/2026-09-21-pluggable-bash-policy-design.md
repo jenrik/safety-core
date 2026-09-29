@@ -825,6 +825,21 @@ latency budgets without claiming an unsupported linear worst case.
 Total memory, including fully materialized output, is finite and bounded by
 \(O(PB)\); evaluator working memory excluding returned output is \(O(P+B)\).
 
+### Additive intra-word extension (language v2)
+
+The v1 proof above remains the contract for v1 sources. The normative v2
+grammar, cursor/option interaction, location and span semantics, and proof are
+in [the policy language specification](../../policy-dsl.md#v2-intra-word-transitions-and-spans).
+V2 gives authored transitions the same strictly forward byte progress already
+used internally by option clusters, adds an explicit consume-rest-of-word
+operation, and stores fixed-size `(argument, byte offset)` locations rather
+than constructed strings. The progress measure counts every unread argument
+byte and argument boundary, so every nonterminal decreases it; bounded source
+size, one-pass input and fixed registers preserve the v1 polynomial time and
+`O(P+B)` evaluator working-space bounds. No runtime stack, rewind, unbounded
+register, or implicit URL/percent decoding is introduced. The v1 builtin
+catalogue and authored transition syntax remain version-pinned.
+
 ## JSON policy example
 
 This abbreviated policy illustrates position-independent namespace parsing:

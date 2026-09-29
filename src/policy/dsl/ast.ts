@@ -1,18 +1,20 @@
 import type { BuiltinValueType } from "./builtins.js";
 
 export const POLICY_LANGUAGE_V1 = "safety-core/bash-policy-v1";
+export const POLICY_LANGUAGE_V2 = "safety-core/bash-policy-v2";
 
 export type PolicyLayer = "guard" | "permission";
 export type PolicyDecisionKind = "allow" | "deny" | "defer" | "ignore";
-export type RegisterType = "bool" | "enum" | "count" | "inputRef" | "tuple";
+export type RegisterType = "bool" | "enum" | "count" | "inputRef" | "location" | "tuple";
 export type ExpressionType = BuiltinValueType | "unknown";
 
 export interface BoolRegister { readonly type: "bool"; readonly initial: boolean; }
 export interface EnumRegister { readonly type: "enum"; readonly values: readonly string[]; readonly initial: string; }
 export interface CountRegister { readonly type: "count"; readonly max: number; readonly initial: number; }
 export interface InputRefRegister { readonly type: "inputRef"; readonly initial: null; }
+export interface LocationRegister { readonly type: "location"; readonly initial: null; }
 export interface TupleRegister { readonly type: "tuple"; readonly items: readonly RegisterDeclaration[]; readonly initial: readonly unknown[]; }
-export type RegisterDeclaration = BoolRegister | EnumRegister | CountRegister | InputRefRegister | TupleRegister;
+export type RegisterDeclaration = BoolRegister | EnumRegister | CountRegister | InputRefRegister | LocationRegister | TupleRegister;
 
 export type Expression =
   | string
@@ -31,7 +33,7 @@ export type AuditValue = string | number | boolean | null | { readonly ref: stri
 
 export interface TransitionAction {
   readonly kind: "transition";
-  readonly consume: "word";
+  readonly consume: "word" | "byte" | "restOfWord";
   readonly next: string;
   readonly set: Readonly<Record<string, Expression>>;
   readonly fold: readonly string[];
@@ -101,7 +103,7 @@ export interface ValidationMetrics {
 }
 
 export interface PolicyDocument {
-  readonly language: typeof POLICY_LANGUAGE_V1;
+  readonly language: typeof POLICY_LANGUAGE_V1 | typeof POLICY_LANGUAGE_V2;
   readonly layer: PolicyLayer;
   readonly select: readonly Selector[];
   readonly registers: Readonly<Record<string, RegisterDeclaration>>;

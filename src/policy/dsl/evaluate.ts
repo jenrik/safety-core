@@ -2,6 +2,7 @@ import type { BindingValue } from "../../bash/environment.js";
 import { isBindingResolvedWord } from "../../bash/word-provenance.js";
 import type { ResolvedWord } from "../../bash/expand.js";
 import type { BashPolicyEvent, BashPolicySelector, DslPolicyTraceStep, LoadedBashPolicy, PolicyDecision, PolicyDiagnosticPart, PolicySourceIdentity } from "../types.js";
+import { POLICY_LANGUAGE_V2 } from "./ast.js";
 import type { AuditValue, Expression, FoldDeclaration, RegisterDeclaration, TerminalAction } from "./ast.js";
 import type { CompiledCase, CompiledOptionAction, CompiledPolicyProgram } from "./compile.js";
 
@@ -17,9 +18,11 @@ export interface DslLoadedBashPolicy extends LoadedBashPolicy {
 }
 
 type InputReference = { readonly word: ResolvedWord; readonly start?: number; readonly end?: number };
+type InputLocation = { readonly word: ResolvedWord; readonly argvIndex: number; readonly offset: number };
 type RuntimeValue = unknown | InputReference | typeof UNKNOWN;
 const UNKNOWN = Symbol("dsl-unknown");
 const NORMAL_WORD = -1;
+const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
 /** Create a pure, one-event DCRM policy. Every call starts from its fixed initial configuration. */
 export function createDslPolicy(program: CompiledPolicyProgram, source: string | PolicySourceIdentity): DslLoadedBashPolicy {
@@ -42,6 +45,9 @@ function evaluateProgram(program: CompiledPolicyProgram, event: BashPolicyEvent)
   let state = program.start;
   let argvIndex = 0;
   let clusterByteIndex = NORMAL_WORD;
+  let wordByteOffset = NORMAL_WORD;
+  const byteBuffers = new Map<ResolvedWord, Buffer>();
+  const cursor = () => ({ argvIndex, wordByteOffset, clusterByteIndex, byteBuffers, v2: program.language === POLICY_LANGUAGE_V2 });
   let registers: Readonly<Record<string, RuntimeValue>> = initialRegisters(program.registers);
   const foldCache = new Map<string, RuntimeValue>();
   const steps: DslMachineStep[] = [];
@@ -53,30 +59,31 @@ function evaluateProgram(program: CompiledPolicyProgram, event: BashPolicyEvent)
     if (!stateProgram) throw new TypeError(`compiled DCRM state is missing: ${state}`);
     if (!activeWord) {
       // EOF still permits terminal event predicates such as redirect guards.
-      // Transitions are excluded because validation requires them to consume a word.
+      // Transitions are excluded because all authored transitions require remaining input.
       for (const entry of stateProgram.cases) {
         if (entry.action.kind !== "terminal") continue;
-        const context = runtimeContext(event, undefined, undefined, registers, foldCache);
+        const context = runtimeContext(event, undefined, undefined, registers, foldCache, undefined, {}, cursor());
         computeFolds(program, entry.action.fold, event, registers, foldCache);
         if (evaluateExpression(entry.when, context) !== true) continue;
         const decision = terminalDecision(entry.action, context);
-        steps.push(step(state, argvIndex, clusterByteIndex, entry.source, entry.origin, "terminal", [], undefined, decision.kind));
+        steps.push(step(state, argvIndex, clusterByteIndex, entry.source, entry.origin, "terminal", [], undefined, decision.kind, wordByteOffset));
         return frozenEvaluation(decision, steps);
       }
       computeFolds(program, stateProgram.end.fold, event, registers, foldCache);
-      const decision = terminalDecision(stateProgram.end, runtimeContext(event, undefined, undefined, registers, foldCache));
-      steps.push(step(state, argvIndex, clusterByteIndex, `$.states.${state}.end`, `state:${state}`, "terminal", [], undefined, decision.kind));
+      const decision = terminalDecision(stateProgram.end, runtimeContext(event, undefined, undefined, registers, foldCache, undefined, {}, cursor()));
+      steps.push(step(state, argvIndex, clusterByteIndex, `$.states.${state}.end`, `state:${state}`, "terminal", [], undefined, decision.kind, wordByteOffset));
       return frozenEvaluation(decision, steps);
     }
 
-    const malformedOption = stateProgram.cases.some((entry) => entry.action.kind === "option"
+    const malformedOption = wordByteOffset === NORMAL_WORD && stateProgram.cases.some((entry) => entry.action.kind === "option"
       && matchOption(entry.action, activeWord, clusterByteIndex, argv[argvIndex + 1]) === undefined
       && optionSpellingMatches(entry.action, activeWord, clusterByteIndex));
     let matched = false;
     for (const entry of stateProgram.cases) {
       if (malformedOption && entry.action.kind !== "option") continue;
+      if (wordByteOffset !== NORMAL_WORD && entry.action.kind === "option") continue;
       const option = entry.action.kind === "option" ? matchOption(entry.action, activeWord, clusterByteIndex, argv[argvIndex + 1]) : undefined;
-      const context = runtimeContext(event, activeWord, option?.value, registers, foldCache);
+      const context = runtimeContext(event, activeWord, option?.value, registers, foldCache, undefined, {}, cursor());
       if (entry.action.kind === "terminal") computeFolds(program, entry.action.fold, event, registers, foldCache);
       const guard = isOptionPredicate(entry.when)
         ? option !== undefined
@@ -86,28 +93,36 @@ function evaluateProgram(program: CompiledPolicyProgram, event: BashPolicyEvent)
       matched = true;
       if (entry.action.kind === "terminal") {
         const decision = terminalDecision(entry.action, context);
-        steps.push(step(state, argvIndex, clusterByteIndex, entry.source, entry.origin, "terminal", [], undefined, decision.kind));
+        steps.push(step(state, argvIndex, clusterByteIndex, entry.source, entry.origin, "terminal", [], undefined, decision.kind, wordByteOffset));
         return frozenEvaluation(decision, steps);
       }
 
       const action = entry.action;
+      if (action.kind === "transition" && !validTransition(action.consume, activeWord, clusterByteIndex, wordByteOffset, byteBuffers, program.language === POLICY_LANGUAGE_V2)) {
+        const decision = Object.freeze({ kind: "defer" as const });
+        steps.push(step(state, argvIndex, clusterByteIndex, entry.source, entry.origin, "terminal", [], undefined, decision.kind, wordByteOffset));
+        return frozenEvaluation(decision, steps);
+      }
       const folds = computeFolds(program, action.fold, event, registers, foldCache);
-      const updated = simultaneousUpdates(action.set, runtimeContext(event, activeWord, option?.value, registers, foldCache));
+      const updated = simultaneousUpdates(action.set, runtimeContext(event, activeWord, option?.value, registers, foldCache, undefined, {}, cursor()));
       registers = Object.freeze({ ...registers, ...updated });
       const progress = action.kind === "option"
         ? consumeOption(action, option!, activeWord, argvIndex, clusterByteIndex, argv)
-        : { argvIndex: argvIndex + 1, clusterByteIndex: NORMAL_WORD };
-      steps.push(step(state, argvIndex, clusterByteIndex, entry.source, entry.origin, action.kind, folds, action.next));
+        : action.consume === "byte"
+          ? { argvIndex, clusterByteIndex: NORMAL_WORD, wordByteOffset: (wordByteOffset === NORMAL_WORD ? 0 : wordByteOffset) + 1 }
+          : { argvIndex: argvIndex + 1, clusterByteIndex: NORMAL_WORD, wordByteOffset: NORMAL_WORD };
+      steps.push(step(state, argvIndex, clusterByteIndex, entry.source, entry.origin, action.kind, folds, action.next, undefined, wordByteOffset));
       state = action.next;
       argvIndex = progress.argvIndex;
       clusterByteIndex = progress.clusterByteIndex;
+      wordByteOffset = "wordByteOffset" in progress ? progress.wordByteOffset : NORMAL_WORD;
       break;
     }
     if (matched) continue;
 
     computeFolds(program, stateProgram.default.fold, event, registers, foldCache);
-    const decision = terminalDecision(stateProgram.default, runtimeContext(event, activeWord, undefined, registers, foldCache));
-    steps.push(step(state, argvIndex, clusterByteIndex, `$.states.${state}.default`, `state:${state}`, "terminal", [], undefined, decision.kind));
+    const decision = terminalDecision(stateProgram.default, runtimeContext(event, activeWord, undefined, registers, foldCache, undefined, {}, cursor()));
+    steps.push(step(state, argvIndex, clusterByteIndex, `$.states.${state}.default`, `state:${state}`, "terminal", [], undefined, decision.kind, wordByteOffset));
     return frozenEvaluation(decision, steps);
   }
 }
@@ -151,10 +166,11 @@ interface RuntimeContext {
   readonly folds: ReadonlyMap<string, RuntimeValue>;
   readonly foldItem?: RuntimeValue;
   readonly captures: Readonly<Record<string, RuntimeValue>>;
+  readonly cursor?: { readonly argvIndex: number; readonly wordByteOffset: number; readonly clusterByteIndex: number; readonly byteBuffers: Map<ResolvedWord, Buffer>; readonly v2: boolean };
 }
 
-function runtimeContext(event: BashPolicyEvent, word: ResolvedWord | undefined, optionValue: InputReference | null | undefined, registers: Readonly<Record<string, RuntimeValue>>, folds: ReadonlyMap<string, RuntimeValue>, foldItem?: RuntimeValue, captures: Readonly<Record<string, RuntimeValue>> = {}): RuntimeContext {
-  return { event, word, optionValue, registers, folds, foldItem, captures };
+function runtimeContext(event: BashPolicyEvent, word: ResolvedWord | undefined, optionValue: InputReference | null | undefined, registers: Readonly<Record<string, RuntimeValue>>, folds: ReadonlyMap<string, RuntimeValue>, foldItem?: RuntimeValue, captures: Readonly<Record<string, RuntimeValue>> = {}, cursor?: RuntimeContext["cursor"]): RuntimeContext {
+  return { event, word, optionValue, registers, folds, foldItem, captures, cursor };
 }
 
 function evaluateExpression(expression: Expression, context: RuntimeContext): RuntimeValue {
@@ -185,6 +201,17 @@ function evaluateExpression(expression: Expression, context: RuntimeContext): Ru
 }
 
 function reference(name: string, context: RuntimeContext): RuntimeValue {
+  if (name === "byte" && context.cursor?.v2) {
+    if (!context.word || !isKnown(context.word) || !context.cursor || context.cursor.clusterByteIndex !== NORMAL_WORD) return UNKNOWN;
+    const bytes = encodedWord(context.word, context.cursor.byteBuffers);
+    const offset = context.cursor.wordByteOffset === NORMAL_WORD ? 0 : context.cursor.wordByteOffset;
+    return offset < bytes.length ? String.fromCharCode(bytes[offset]!) : UNKNOWN;
+  }
+  if (name === "cursor" && context.cursor?.v2) {
+    if (!context.word || !isKnown(context.word) || !context.cursor || context.cursor.clusterByteIndex !== NORMAL_WORD) return UNKNOWN;
+    encodedWord(context.word, context.cursor.byteBuffers);
+    return Object.freeze({ word: context.word, argvIndex: context.cursor.argvIndex, offset: context.cursor.wordByteOffset === NORMAL_WORD ? 0 : context.cursor.wordByteOffset });
+  }
   if (name === "word") return context.word === undefined ? UNKNOWN : inputReference(context.word);
   if (name === "option.value") return context.optionValue === undefined ? UNKNOWN : context.optionValue;
   if (name === "fold.item") return context.foldItem ?? UNKNOWN;
@@ -299,6 +326,24 @@ function separateOptionValue(action: CompiledOptionAction, next: ResolvedWord | 
   return next !== undefined && !looksLikeOption(next) ? { consumes: "separate", value: inputReference(next) } : { consumes: "word", value: null };
 }
 
+function encodedWord(word: ResolvedWord, buffers: Map<ResolvedWord, Buffer>): Buffer {
+  let bytes = buffers.get(word);
+  if (!bytes) {
+    bytes = Buffer.from(word.kind === "known" ? word.value : "", "utf8");
+    buffers.set(word, bytes);
+  }
+  return bytes;
+}
+
+function validTransition(consume: "word" | "byte" | "restOfWord", word: ResolvedWord, clusterByteIndex: number, offset: number, buffers: Map<ResolvedWord, Buffer>, v2: boolean): boolean {
+  if (consume === "word" && offset === NORMAL_WORD) return !v2 || clusterByteIndex === NORMAL_WORD;
+  if (clusterByteIndex !== NORMAL_WORD || !isKnown(word)) return false;
+  const length = encodedWord(word, buffers).length;
+  if (consume === "byte") return (offset === NORMAL_WORD ? 0 : offset) < length;
+  if (consume === "restOfWord") return offset !== NORMAL_WORD;
+  return offset === length;
+}
+
 function optionSpellingMatches(action: CompiledOptionAction, word: ResolvedWord, clusterByteIndex: number): boolean {
   if (!isKnown(word)) return false;
   if (clusterByteIndex >= 0) return word.value.startsWith("-") && !word.value.startsWith("--")
@@ -397,6 +442,16 @@ function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeCo
     case "assignmentsAreSubset": return context.event.kind === "invocation" && Array.isArray(args[0])
       && Object.keys(context.event.assignments).every((name) => args[0].includes(name));
     case "hasRedirect": return context.event.kind === "invocation" && context.event.redirects.length > 0;
+    case "atEndOfWord": return context.word?.kind === "known" && context.cursor !== undefined && context.cursor.wordByteOffset !== NORMAL_WORD
+      && context.cursor.wordByteOffset === encodedWord(context.word, context.cursor.byteBuffers).length;
+    case "span": {
+      const begin = args[0];
+      const end = args[1];
+      if (!isLocation(begin) || !isLocation(end) || !context.cursor || begin.word !== end.word || begin.argvIndex !== end.argvIndex
+        || !isKnown(begin.word) || begin.offset > end.offset || begin.offset < 0
+        || end.offset > (context.cursor.byteBuffers.get(begin.word)?.length ?? -1)) return UNKNOWN;
+      return inputReference(begin.word, begin.offset, end.offset);
+    }
     case "atEndOfArguments": return context.word === undefined;
     case "isDirectExecutable": return context.event.kind === "invocation" && context.event.executable?.kind === "known"
       && context.event.executable.value === strings[0];
@@ -426,7 +481,8 @@ function stringValue(value: RuntimeValue): string | typeof UNKNOWN {
   if (isInputReference(value)) {
     if (!isKnown(value.word)) return UNKNOWN;
     if (value.start === undefined || value.end === undefined) return value.word.value;
-    return Buffer.from(value.word.value).subarray(value.start, value.end).toString();
+    try { return utf8Decoder.decode(Buffer.from(value.word.value).subarray(value.start, value.end)); }
+    catch { return UNKNOWN; }
   }
   return typeof value === "string" ? value : UNKNOWN;
 }
@@ -476,7 +532,11 @@ function normalizeEndpoint(value: string): string { return `/${value.split("/").
 function requiresKnownOperands(name: string): boolean {
   return !["environmentIsPresent", "environmentIsKnown", "environmentIsUnknown", "environmentValueEquals", "missingEnvironmentMayBePresent", "isInPipeline", "hasAnyAssignment", "hasRedirect"].includes(name);
 }
-function nonStringOperandBuiltin(name: string): boolean { return name === "inStringSet" || name === "wordInAsciiCaseInsensitiveSet" || name === "pathComponent" || name === "pathAfterComponents" || name === "splitComponent" || name === "parseBoundedInt" || name === "boundedIntAtMost" || name === "anySafeGlob" || name === "urlHost" || name === "urlPath" || name === "urlHostEquals" || name === "repositoryEquals" || name === "repositoryHasExplicitHost" || name === "repositoryMatches" || name === "repositoryMatchesOrganization" || name === "environmentAnyUnsafe" || name === "assignmentsAreSubset" || name === "longOptionPrefixesAny" || name === "inputBlockedDomain"; }
+function nonStringOperandBuiltin(name: string): boolean { return name === "atEndOfWord" || name === "span" || name === "inStringSet" || name === "wordInAsciiCaseInsensitiveSet" || name === "pathComponent" || name === "pathAfterComponents" || name === "splitComponent" || name === "parseBoundedInt" || name === "boundedIntAtMost" || name === "anySafeGlob" || name === "urlHost" || name === "urlPath" || name === "urlHostEquals" || name === "repositoryEquals" || name === "repositoryHasExplicitHost" || name === "repositoryMatches" || name === "repositoryMatchesOrganization" || name === "environmentAnyUnsafe" || name === "assignmentsAreSubset" || name === "longOptionPrefixesAny" || name === "inputBlockedDomain"; }
+function isLocation(value: unknown): value is InputLocation {
+  return typeof value === "object" && value !== null && "word" in value && "argvIndex" in value && "offset" in value
+    && Number.isSafeInteger((value as InputLocation).argvIndex) && Number.isSafeInteger((value as InputLocation).offset);
+}
 function inheritedExecutableFunction(event: BashPolicyEvent, executable: string | typeof UNKNOWN): RuntimeValue {
   if (isUnknown(executable) || event.kind !== "invocation") return UNKNOWN;
   if (event.executionTarget === "builtin" || event.executionTarget === "external-path") return false;
@@ -498,5 +558,5 @@ function matchesLinearRegex(value: string, pattern: string): boolean {
   try { return new RegExp(pattern).test(value); } catch { return false; }
 }
 function isOptionPredicate(value: CompiledCase["when"]): value is { readonly kind: "option" } { return typeof value === "object" && value !== null && "kind" in value && value.kind === "option"; }
-function step(state: string, argvIndex: number, clusterByteIndex: number, source: string, origin: string, action: DslMachineStep["action"], folds: readonly string[], nextState?: string, decision?: PolicyDecision["kind"]): DslMachineStep { return Object.freeze({ state, argvIndex, clusterByteIndex, source, origin, action, folds: Object.freeze([...folds]), ...(nextState === undefined ? {} : { nextState }), ...(decision === undefined ? {} : { decision }) }); }
+function step(state: string, argvIndex: number, clusterByteIndex: number, source: string, origin: string, action: DslMachineStep["action"], folds: readonly string[], nextState?: string, decision?: PolicyDecision["kind"], wordByteOffset: number = NORMAL_WORD): DslMachineStep { return Object.freeze({ state, argvIndex, clusterByteIndex, wordByteOffset, source, origin, action, folds: Object.freeze([...folds]), ...(nextState === undefined ? {} : { nextState }), ...(decision === undefined ? {} : { decision }) }); }
 function frozenEvaluation(decision: PolicyDecision, steps: readonly DslMachineStep[]): DslEvaluation { return Object.freeze({ decision, steps: Object.freeze([...steps]) }); }

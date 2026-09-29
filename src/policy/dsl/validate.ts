@@ -1,5 +1,6 @@
 import {
   POLICY_LANGUAGE_V1,
+  POLICY_LANGUAGE_V2,
   type Action,
   type AuditValue,
   type Expression,
@@ -17,7 +18,7 @@ import {
 } from "./ast.js";
 import { builtinDefinition, type BuiltinValueType } from "./builtins.js";
 
-export { POLICY_LANGUAGE_V1 } from "./ast.js";
+export { POLICY_LANGUAGE_V1, POLICY_LANGUAGE_V2 } from "./ast.js";
 
 export const POLICY_DOCUMENT_LIMITS = Object.freeze({
   bytes: 256 * 1024,
@@ -82,25 +83,28 @@ export function validatePolicyDocument(value: unknown, instrumentation: Validati
   const context: ParseContext = { metrics: { nodes: 0, validationWork: 0, enumDomainChecks: 0, enumDomainComparisons: 0, selectors: 0, states: 0, transitions: 0, compiledCases: 0, literals: 0, templateParts: 0, regexBytes: 0 }, instrumentation };
   const root = record(value, "$");
   exactKeys(root, ["language", "layer", "select", "registers", "folds", "options", "fragments", "start", "states"], ["registers", "folds", "options", "fragments"], "$");
-  if (root.language !== POLICY_LANGUAGE_V1) fail("$.language", `language must be exactly ${POLICY_LANGUAGE_V1}`);
+  if (root.language !== POLICY_LANGUAGE_V1 && root.language !== POLICY_LANGUAGE_V2) fail("$.language", `language must be ${POLICY_LANGUAGE_V1} or ${POLICY_LANGUAGE_V2}`);
+  const language: PolicyDocument["language"] = root.language;
   if (root.layer !== "guard" && root.layer !== "permission") fail("$.layer", "layer must be guard or permission");
 
   const selectValues = array(root.select, "$.select", POLICY_DOCUMENT_LIMITS.selectors);
   const select = selectValues.map((entry, index) => parseSelector(entry, `$.select[${index}]`));
   context.metrics.selectors = select.length;
   if (select.length === 0) fail("$.select", "select must contain at least one selector");
-  const registers = parseNamed(root.registers ?? {}, "$.registers", POLICY_DOCUMENT_LIMITS.registers, parseRegister);
+  const registers = parseNamed(root.registers ?? {}, "$.registers", POLICY_DOCUMENT_LIMITS.registers, (entry, pointer) => parseRegister(entry, pointer, language));
+  if (language === POLICY_LANGUAGE_V2 && (hasOwn(registers, "byte") || hasOwn(registers, "cursor"))) fail("$.registers", "byte and cursor are reserved v2 input references");
   const enumDomainRegisters = observeEnumDomainTables(registers, context.instrumentation);
   const folds = parseNamed(root.folds ?? {}, "$.folds", POLICY_DOCUMENT_LIMITS.folds, parseFold);
   const options = parseNamed(root.options ?? {}, "$.options", POLICY_DOCUMENT_LIMITS.options, parseOption);
-  const fragments = parseNamed(root.fragments ?? {}, "$.fragments", POLICY_DOCUMENT_LIMITS.fragments, parseFragment);
-  const states = parseNamed(root.states, "$.states", POLICY_DOCUMENT_LIMITS.states, parseState);
+  const fragments = parseNamed(root.fragments ?? {}, "$.fragments", POLICY_DOCUMENT_LIMITS.fragments, (entry, pointer) => parseFragment(entry, pointer, language));
+  const states = parseNamed(root.states, "$.states", POLICY_DOCUMENT_LIMITS.states, (entry, pointer) => parseState(entry, pointer, language));
   context.metrics.states = Object.keys(states).length;
   if (context.metrics.states === 0) fail("$.states", "at least one state is required");
   if (typeof root.start !== "string" || !hasOwn(states, root.start)) fail("$.start", "start must name a declared state");
 
   const names = {
     states: new Set(Object.keys(states)),
+    language,
     registers: new Map(Object.entries(registers).map(([name, declaration]) => [name, registerType(declaration)])),
     registerDeclarations: enumDomainRegisters,
     folds: new Map(Object.entries(folds).map(([name, declaration]) => [name, foldResultType(declaration)])),
@@ -117,7 +121,7 @@ export function validatePolicyDocument(value: unknown, instrumentation: Validati
   assertMetrics(context.metrics, "$");
 
   return deepFreeze({
-    language: POLICY_LANGUAGE_V1,
+    language,
     layer: root.layer,
     select,
     registers,
@@ -154,7 +158,7 @@ function parseSelector(value: unknown, pointer: string): Selector {
   return { executable: { projection: executable.projection as Selector extends { readonly executable: infer E } ? E extends { readonly projection: infer P } ? P : never : never, equals: executable.equals } };
 }
 
-function parseRegister(value: unknown, pointer: string): RegisterDeclaration {
+function parseRegister(value: unknown, pointer: string, language: PolicyDocument["language"]): RegisterDeclaration {
   const candidate = record(value, pointer);
   if (candidate.type === "bool") {
     exactKeys(candidate, ["type", "initial"], [], pointer);
@@ -179,15 +183,20 @@ function parseRegister(value: unknown, pointer: string): RegisterDeclaration {
     if (candidate.initial !== null) fail(`${pointer}.initial`, "inputRef initial must be null");
     return { type: "inputRef", initial: null };
   }
+  if (candidate.type === "location" && language === POLICY_LANGUAGE_V2) {
+    exactKeys(candidate, ["type", "initial"], [], pointer);
+    if (candidate.initial !== null) fail(`${pointer}.initial`, "location initial must be null");
+    return { type: "location", initial: null };
+  }
   if (candidate.type === "tuple") {
     exactKeys(candidate, ["type", "items", "initial"], [], pointer);
-    const items = array(candidate.items, `${pointer}.items`, POLICY_DOCUMENT_LIMITS.registers).map((item, index) => parseRegister(item, `${pointer}.items[${index}]`));
+    const items = array(candidate.items, `${pointer}.items`, POLICY_DOCUMENT_LIMITS.registers).map((item, index) => parseRegister(item, `${pointer}.items[${index}]`, language));
     const initial = array(candidate.initial, `${pointer}.initial`, POLICY_DOCUMENT_LIMITS.registers);
     if (items.length === 0 || items.length !== initial.length) fail(pointer, "tuple items and initial must have the same non-zero length");
     for (const [index, item] of items.entries()) validateLiteralForRegister(initial[index], item, `${pointer}.initial[${index}]`);
     return { type: "tuple", items, initial };
   }
-  fail(`${pointer}.type`, "register type must be bool, enum, count, inputRef, or tuple");
+  fail(`${pointer}.type`, "register type must be bool, enum, count, inputRef, location (v2), or tuple");
 }
 
 function parseFold(value: unknown, pointer: string): FoldDeclaration {
@@ -228,34 +237,34 @@ function parseOption(value: unknown, pointer: string): OptionDeclaration {
   return { names, value: candidate.value as OptionDeclaration["value"], forms: forms as OptionDeclaration["forms"], availableIn, set };
 }
 
-function parseFragment(value: unknown, pointer: string): FragmentDeclaration {
+function parseFragment(value: unknown, pointer: string, language: PolicyDocument["language"]): FragmentDeclaration {
   const candidate = record(value, pointer);
   exactKeys(candidate, ["uses", "cases"], ["uses"], pointer);
   const uses = candidate.uses === undefined ? [] : strings(candidate.uses, `${pointer}.uses`, POLICY_DOCUMENT_LIMITS.fragments);
   if (new Set(uses).size !== uses.length) fail(`${pointer}.uses`, "fragment uses must be unique");
-  return { uses, cases: array(candidate.cases, `${pointer}.cases`, POLICY_DOCUMENT_LIMITS.expandedCases).map((entry, index) => parseCase(entry, `${pointer}.cases[${index}]`)) };
+  return { uses, cases: array(candidate.cases, `${pointer}.cases`, POLICY_DOCUMENT_LIMITS.expandedCases).map((entry, index) => parseCase(entry, `${pointer}.cases[${index}]`, language)) };
 }
 
-function parseState(value: unknown, pointer: string): StateDeclaration {
+function parseState(value: unknown, pointer: string, language: PolicyDocument["language"]): StateDeclaration {
   const candidate = record(value, pointer);
   exactKeys(candidate, ["fragments", "cases", "default", "end"], ["fragments"], pointer);
   const fragments = candidate.fragments === undefined ? [] : strings(candidate.fragments, `${pointer}.fragments`, POLICY_DOCUMENT_LIMITS.fragments);
   if (new Set(fragments).size !== fragments.length) fail(`${pointer}.fragments`, "state fragments must be unique");
-  const cases = array(candidate.cases, `${pointer}.cases`, POLICY_DOCUMENT_LIMITS.casesPerState).map((entry, index) => parseCase(entry, `${pointer}.cases[${index}]`));
-  const defaultAction = parseAction(candidate.default, `${pointer}.default`);
-  const endAction = parseAction(candidate.end, `${pointer}.end`);
+  const cases = array(candidate.cases, `${pointer}.cases`, POLICY_DOCUMENT_LIMITS.casesPerState).map((entry, index) => parseCase(entry, `${pointer}.cases[${index}]`, language));
+  const defaultAction = parseAction(candidate.default, `${pointer}.default`, language);
+  const endAction = parseAction(candidate.end, `${pointer}.end`, language);
   if (defaultAction.kind !== "terminal") fail(`${pointer}.default`, "default must be a terminal action");
   if (endAction.kind !== "terminal") fail(`${pointer}.end`, "end must be a terminal action");
   return { fragments, cases, default: defaultAction, end: endAction };
 }
 
-function parseCase(value: unknown, pointer: string): PolicyCase {
+function parseCase(value: unknown, pointer: string, language: PolicyDocument["language"]): PolicyCase {
   const candidate = record(value, pointer);
   exactKeys(candidate, ["when", "action"], [], pointer);
-  return { when: parseExpression(candidate.when, `${pointer}.when`), action: parseAction(candidate.action, `${pointer}.action`) };
+  return { when: parseExpression(candidate.when, `${pointer}.when`), action: parseAction(candidate.action, `${pointer}.action`, language) };
 }
 
-function parseAction(value: unknown, pointer: string): Action {
+function parseAction(value: unknown, pointer: string, language: PolicyDocument["language"]): Action {
   const candidate = record(value, pointer);
   if (hasOwn(candidate, "decision")) {
     exactKeys(candidate, ["decision", "reason", "suggestion", "audit", "capture", "fold"], ["reason", "suggestion", "audit", "capture", "fold"], pointer);
@@ -278,11 +287,11 @@ function parseAction(value: unknown, pointer: string): Action {
     };
   }
   exactKeys(candidate, ["consume", "next", "set", "fold"], ["set", "fold"], pointer);
-  if (candidate.consume !== "word") fail(`${pointer}.consume`, "nonterminal transitions must consume exactly one forward word");
+  if (candidate.consume !== "word" && (language !== POLICY_LANGUAGE_V2 || !isOneOf(candidate.consume, ["byte", "restOfWord"]))) fail(`${pointer}.consume`, "nonterminal transitions must consume a word (or a byte/restOfWord in v2)");
   if (typeof candidate.next !== "string") fail(`${pointer}.next`, "transition next must be a static state name");
   const fold = candidate.fold === undefined ? [] : strings(candidate.fold, `${pointer}.fold`);
   if (new Set(fold).size !== fold.length) fail(`${pointer}.fold`, "transition folds must be unique static names");
-  return { kind: "transition", consume: "word", next: candidate.next, set: parseExpressionRecord(candidate.set ?? {}, `${pointer}.set`), fold };
+  return { kind: "transition", consume: candidate.consume, next: candidate.next, set: parseExpressionRecord(candidate.set ?? {}, `${pointer}.set`), fold };
 }
 
 function parseExpression(value: unknown, pointer: string): Expression {
@@ -467,7 +476,7 @@ function validateCase(policyCase: PolicyCase, layer: string, names: Names, point
 
 function validateTransition(action: Extract<Action, { readonly kind: "transition" }>, names: Names, pointer: string): void {
   if (!names.states.has(action.next)) fail(`${pointer}.next`, `unknown state ${action.next}`);
-  if (action.consume !== "word") fail(`${pointer}.consume`, "compiled transition cannot be non-consuming");
+  if (names.language === POLICY_LANGUAGE_V1 && action.consume !== "word") fail(`${pointer}.consume`, "v1 transition must consume a word");
   for (const fold of action.fold) if (!names.folds.has(fold)) fail(`${pointer}.fold`, `unknown fold ${fold}`);
   validateAssignments(action.set, names, `${pointer}.set`);
 }
@@ -504,7 +513,7 @@ function validateAssignments(assignments: Readonly<Record<string, Expression>>, 
     if (!target) fail(`${pointer}.${name}`, `unknown register ${name}`);
     const declaration = names.registerDeclarations![name]!;
     const source = expressionType(expression, names, `${pointer}.${name}`);
-    if (!assignable(source, target)) fail(`${pointer}.${name}`, `cannot assign ${source} to ${target}`);
+    if (!assignable(source, target) && !(target === "location" && expression === null)) fail(`${pointer}.${name}`, `cannot assign ${source} to ${target}`);
     if (declaration.type === "enum" && typeof expression === "string") {
       if (!declaration.values.includes(expression)) fail(`${pointer}.${name}`, "enum assignment must be a declared value");
     } else if (declaration.type === "enum" && !sameEnumDomain(expression, name, names.enumDomains, names.metrics, names.instrumentation)) {
@@ -519,6 +528,7 @@ function validateAssignments(assignments: Readonly<Record<string, Expression>>, 
 
 interface Names {
   readonly states: Set<string>;
+  readonly language: PolicyDocument["language"];
   readonly registers: Map<string, ExpressionType>;
   readonly registerDeclarations: Readonly<Record<string, RegisterDeclaration>>;
   readonly folds: Map<string, ExpressionType>;
@@ -617,8 +627,8 @@ function expressionType(expression: Expression, names: Names, pointer: string, i
     return "bool";
   }
   const call = object as { readonly call: string; readonly args: readonly Expression[] };
-  const builtin = builtinDefinition(call.call);
-  if (!builtin) fail(`${pointer}.call`, `unknown v1 builtin ${call.call}`);
+  const builtin = builtinDefinition(call.call, names.language);
+  if (!builtin) fail(`${pointer}.call`, `unknown ${names.language} builtin ${call.call}`);
   if (builtin.args.length !== call.args.length) fail(`${pointer}.args`, `${call.call} expects ${builtin.args.length} arguments`);
   for (const [index, expected] of builtin.args.entries()) {
     const actual = expressionType(call.args[index]!, names, `${pointer}.args[${index}]`, inFold);
@@ -629,6 +639,8 @@ function expressionType(expression: Expression, names: Names, pointer: string, i
 }
 
 function referenceType(reference: string, names: Names, pointer: string, inFold: boolean): ExpressionType {
+  if (names.language === POLICY_LANGUAGE_V2 && reference === "byte") return "stringish";
+  if (names.language === POLICY_LANGUAGE_V2 && reference === "cursor") return "location";
   if (reference === "word" || reference === "option.value" || reference === "event.executable" || reference === "event.redirect.input.target" || reference === "fold.item") return "stringish";
   if (reference === "event") return "json";
   if (reference === "event.kind" || reference === "event.gap.reason") return "string";
@@ -701,7 +713,7 @@ function validateRegexEscape(pattern: string, index: number, pointer: string): n
 }
 
 function registerType(declaration: RegisterDeclaration): ExpressionType {
-  return declaration.type === "bool" ? "bool" : declaration.type === "count" ? "count" : declaration.type === "enum" ? "string" : declaration.type === "inputRef" ? "input-ref" : "tuple";
+  return declaration.type === "bool" ? "bool" : declaration.type === "count" ? "count" : declaration.type === "enum" ? "string" : declaration.type === "inputRef" ? "input-ref" : declaration.type === "location" ? "location" : "tuple";
 }
 
 function foldResultType(fold: FoldDeclaration): ExpressionType {
@@ -848,6 +860,7 @@ function validateLiteralForRegister(value: unknown, declaration: RegisterDeclara
   if (declaration.type === "enum" && (typeof value !== "string" || !declaration.values.includes(value))) fail(pointer, "tuple enum initial must be declared");
   if (declaration.type === "count" && (!nonNegativeInteger(value) || value > declaration.max)) fail(pointer, "tuple count initial must be bounded");
   if (declaration.type === "inputRef" && value !== null) fail(pointer, "tuple inputRef initial must be null");
+  if (declaration.type === "location" && value !== null) fail(pointer, "tuple location initial must be null");
   if (declaration.type === "tuple") fail(pointer, "nested tuples are not supported");
 }
 

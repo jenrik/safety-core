@@ -9,7 +9,7 @@ import { POLICY_DOCUMENT_LIMITS } from "./validate.js";
 
 export interface CompiledTransitionAction {
   readonly kind: "transition";
-  readonly consume: "word";
+  readonly consume: "word" | "byte" | "restOfWord";
   readonly progress: 1;
   readonly next: string;
   readonly set: Readonly<Record<string, Expression>>;
@@ -154,7 +154,7 @@ function lowerCase(policyCase: PolicyCase, origin: CompiledCase["origin"], sourc
     when: policyCase.when,
     action: policyCase.action.kind === "terminal"
       ? policyCase.action
-      : Object.freeze({ kind: "transition", consume: "word", progress: 1, next: policyCase.action.next, set: policyCase.action.set, fold: policyCase.action.fold }),
+      : Object.freeze({ kind: "transition", consume: policyCase.action.consume, progress: 1, next: policyCase.action.next, set: policyCase.action.set, fold: policyCase.action.fold }),
     origin,
     source,
   });
@@ -260,7 +260,7 @@ function assertCompiledProgress(program: CompiledPolicyProgram): void {
   for (const [stateName, state] of Object.entries(program.states)) {
     if (state.default.kind !== "terminal" || state.end.kind !== "terminal") throw new TypeError(`compiled state ${stateName} lacks terminal default/end behavior`);
     for (const [index, entry] of state.cases.entries()) {
-      if (entry.action.kind === "transition" && entry.action.progress !== 1) throw new TypeError(`compiled transition ${stateName}.cases[${index}] does not consume a word`);
+      if (entry.action.kind === "transition" && entry.action.progress !== 1) throw new TypeError(`compiled transition ${stateName}.cases[${index}] does not consume input`);
       if (entry.action.kind === "option" && entry.action.minProgress !== 1) throw new TypeError(`compiled option ${stateName}.cases[${index}] does not consume input`);
       if (entry.action.kind === "option" && entry.action.forms.includes("cluster") && !entry.action.clusterByteProgress) {
         throw new TypeError(`compiled cluster option ${stateName}.cases[${index}] does not consume a byte`);
