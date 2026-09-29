@@ -40,3 +40,19 @@ gaps, or mark the analysis incomplete until it has independent coverage. Add
 source-level regressions and properties for standalone output redirects and
 local-function bodies before treating a zero-event or partially eventless
 analysis as automatically safe.
+
+## Here-string redirections are not projected as redirects
+
+The Bash analyzer can model an invocation with a here-string redirection as an
+otherwise ordinary invocation with an empty `redirects` collection. For
+example, a policy that rejects redirects with `hasRedirect()` can still allow
+`jf rt ping <<<"payload"` when no other policy event requires a prompt.
+
+Consequently, a policy's redirect check applies only to redirects represented
+in its event. It does not prove that the Bash source contains no input
+redirection or expansion routed through a here-string.
+
+The core must model here-strings as input redirects or emit an execution gap
+that prevents automatic authorization. Add parser, walker, and packaged-CLI
+regression coverage before treating here-string-free source as proved by an
+empty redirect collection.

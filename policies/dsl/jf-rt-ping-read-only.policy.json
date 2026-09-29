@@ -1,0 +1,82 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "permission",
+  "select": [{ "executable": { "projection": "basename", "equals": "jf" } }],
+  "registers": {
+    "formatValid": { "type": "bool", "initial": true }
+  },
+  "folds": {},
+  "options": {
+    "format": {
+      "names": ["--format"],
+      "value": "required",
+      "forms": ["separate", "equalsLong"],
+      "availableIn": ["ping"],
+      "set": {
+        "formatValid": {
+          "all": [
+            { "ref": "formatValid" },
+            { "call": "inStringSet", "args": [{ "ref": "option.value" }, ["json", "table"]] }
+          ]
+        }
+      }
+    }
+  },
+  "fragments": {
+    "allowAtEnd": {
+      "cases": [{
+        "when": {
+          "all": [
+            { "call": "atEndOfArguments", "args": [] },
+            { "call": "isDirectExecutable", "args": ["jf"] },
+            { "not": { "call": "hasAnyAssignment", "args": [] } },
+            { "not": { "call": "hasRedirect", "args": [] } },
+            { "not": { "call": "hasInheritedExecutableFunction", "args": ["jf"] } },
+            {
+              "not": {
+                "call": "environmentAnyUnsafe",
+                "args": [[
+                  "JFROG_CLI_COMMAND_SUMMARY_OUTPUT_DIR",
+                  "JFROG_CLI_ENCRYPTION_KEY",
+                  "JFROG_CLI_HOME_DIR",
+                  "JFROG_CLI_SERVER_ID"
+                ]]
+              }
+            },
+            { "ref": "formatValid" }
+          ]
+        },
+        "action": {
+          "decision": "allow",
+          "reason": ["jf rt ping auto-allowed by the read-only profile"],
+          "audit": { "invocation": { "ref": "event" } }
+        }
+      }]
+    }
+  },
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [{
+        "when": { "call": "equals", "args": [{ "ref": "word" }, "rt"] },
+        "action": { "consume": "word", "next": "rt" }
+      }],
+      "default": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } },
+      "end": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+    },
+    "rt": {
+      "cases": [{
+        "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["ping", "p"]] },
+        "action": { "consume": "word", "next": "ping" }
+      }],
+      "default": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } },
+      "end": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+    },
+    "ping": {
+      "fragments": ["allowAtEnd"],
+      "cases": [],
+      "default": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } },
+      "end": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+    }
+  }
+}
