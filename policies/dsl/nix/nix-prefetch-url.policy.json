@@ -1,0 +1,155 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "permission",
+  "select": [
+    {
+      "executable": {
+        "projection": "basename",
+        "equals": "nix-prefetch-url"
+      }
+    }
+  ],
+  "registers": {
+    "hashTypeValid": {
+      "type": "bool",
+      "initial": true
+    }
+  },
+  "folds": {},
+  "options": {
+    "hashType": {
+      "names": ["--type"],
+      "value": "required",
+      "forms": ["separate"],
+      "availableIn": ["start", "url", "hash"],
+      "set": {
+        "hashTypeValid": {
+          "all": [
+            { "ref": "hashTypeValid" },
+            {
+              "call": "inStringSet",
+              "args": [
+                { "ref": "option.value" },
+                ["blake3", "md5", "sha1", "sha256", "sha512"]
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "printPath": {
+      "names": ["--print-path"],
+      "value": "absent",
+      "forms": [],
+      "availableIn": ["start", "url", "hash"],
+      "set": {}
+    },
+    "unpack": {
+      "names": ["--unpack"],
+      "value": "absent",
+      "forms": [],
+      "availableIn": ["start", "url", "hash"],
+      "set": {}
+    },
+    "executable": {
+      "names": ["--executable"],
+      "value": "absent",
+      "forms": [],
+      "availableIn": ["start", "url", "hash"],
+      "set": {}
+    },
+    "name": {
+      "names": ["--name"],
+      "value": "required",
+      "forms": ["separate"],
+      "availableIn": ["start", "url", "hash"],
+      "set": {}
+    }
+  },
+  "fragments": {
+    "allowAtEnd": {
+      "cases": [
+        {
+          "when": {
+            "all": [
+              { "call": "atEndOfArguments", "args": [] },
+              { "call": "isDirectExecutable", "args": ["nix-prefetch-url"] },
+              { "not": { "call": "hasAnyAssignment", "args": [] } },
+              { "not": { "call": "hasRedirect", "args": [] } },
+              { "not": { "call": "isInPipeline", "args": [] } },
+              { "not": { "call": "hasInheritedExecutableFunction", "args": ["nix-prefetch-url"] } },
+              {
+                "not": {
+                  "call": "environmentAnyUnsafe",
+                  "args": [["NIX_CONFIG", "NIX_CONF_DIR", "NIX_REMOTE", "NIX_USER_CONF_FILES"]]
+                }
+              },
+              { "ref": "hashTypeValid" }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": ["nix-prefetch-url remote fetch auto-allowed by the read-only profile"],
+            "audit": { "invocation": { "ref": "event" } }
+          }
+        }
+      ]
+    }
+  },
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [
+        {
+          "when": {
+            "all": [
+              {
+                "any": [
+                  { "call": "startsWith", "args": [{ "call": "asciiLower", "args": [{ "ref": "word" }] }, "https://"] },
+                  { "call": "startsWith", "args": [{ "call": "asciiLower", "args": [{ "ref": "word" }] }, "http://"] },
+                  { "call": "startsWith", "args": [{ "call": "asciiLower", "args": [{ "ref": "word" }] }, "ftp://"] },
+                  { "call": "startsWith", "args": [{ "call": "asciiLower", "args": [{ "ref": "word" }] }, "ftps://"] },
+                  { "call": "startsWith", "args": [{ "call": "asciiLower", "args": [{ "ref": "word" }] }, "mirror://"] }
+                ]
+              },
+              {
+                "not": {
+                  "call": "equals",
+                  "args": [
+                    { "call": "urlHost", "args": [{ "call": "parseUrl", "args": [{ "ref": "word" }] }] },
+                    ""
+                  ]
+                }
+              },
+              { "not": { "call": "includes", "args": [{ "ref": "word" }, "@"] } },
+              { "not": { "call": "includes", "args": [{ "ref": "word" }, "?"] } },
+              { "not": { "call": "includes", "args": [{ "ref": "word" }, "#"] } }
+            ]
+          },
+          "action": { "consume": "word", "next": "url" }
+        }
+      ],
+      "default": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } },
+      "end": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+    },
+    "url": {
+      "fragments": ["allowAtEnd"],
+      "cases": [
+        {
+          "when": {
+            "not": { "call": "startsWith", "args": [{ "ref": "word" }, "-"] }
+          },
+          "action": { "consume": "word", "next": "hash" }
+        }
+      ],
+      "default": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } },
+      "end": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+    },
+    "hash": {
+      "fragments": ["allowAtEnd"],
+      "cases": [],
+      "default": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } },
+      "end": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+    }
+  }
+}

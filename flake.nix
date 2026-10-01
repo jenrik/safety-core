@@ -60,7 +60,7 @@
               projectPolicies = { mode = "all"; };
               bashAnalysis = { maxFunctionDepth = 8; maxNestedScriptDepth = 8; maxSteps = 100; maxWorkItems = 100; };
             }}' > config/safety-core/config.json
-            test "$(SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core validate | grep -Ec '^[0-9a-f]{64}  /nix/store/')" -eq 28
+            test "$(SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core validate | grep -Ec '^[0-9a-f]{64}  /nix/store/')" -eq 29
             SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core explain --json -- 'git --version' | grep -q '"decision": "allow"'
             SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core explain --json -- 'cat credentials.json' | grep -q '"decision": "deny"'
             SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core explain --json -- 'echo uncovered' | grep -q '"decision": "defer"'

@@ -32,6 +32,7 @@ in {
       "${policySources}/strict-nix.policy.json"
       "${policySources}/strict-nix-env.policy.json"
       "${policySources}/strict-nix-store.policy.json"
+      "${policySources}/nix/nix-prefetch-url.policy.json"
       "${policySources}/strict-npm.policy.json"
       "${policySources}/strict-oc.policy.json"
       "${policySources}/strict-pip.policy.json"

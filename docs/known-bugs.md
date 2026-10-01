@@ -36,3 +36,24 @@ The core must model here-strings as input redirects or emit an execution gap
 that prevents automatic authorization. Add parser, walker, and packaged-CLI
 regression coverage before treating here-string-free source as proved by an
 empty redirect collection.
+
+## Compound-command context can be omitted from nested invocation events
+
+The Bash analyzer can model an invocation nested in a brace group, subshell, or
+command substitution without projecting the enclosing redirect or assignment
+context onto that invocation. For example, a policy that rejects redirects and
+assignments on its invocation event can still allow:
+
+```sh
+{ nix-prefetch-url https://example.test/source; } > output
+( nix-prefetch-url https://example.test/source ) > output
+out=$(nix-prefetch-url https://example.test/source)
+```
+
+The nested `nix-prefetch-url` event currently has an empty `redirects`
+collection and `assignments` object, despite the source-level output redirect
+or command-substitution assignment. Consequently, a policy check over only the
+modeled invocation cannot prove that the complete Bash source lacks these
+effects. The core must propagate enclosing contexts to nested events or emit an
+execution gap that forces `defer`; until then, policies that rely on this proof
+must explicitly declare the limitation out of scope.
