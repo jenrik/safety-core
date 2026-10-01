@@ -19,6 +19,7 @@ import { isGhPrCreateCommand } from "./bash/handlers/gh-command-line.js";
 import { genericReadOnlyHandlers, strictReadOnlyHandlers } from "./bash/handlers/read-only.js";
 import { STRICT_BASH_PROFILE_EXECUTABLES, type BashProfileSnapshot, type StrictBashProfile } from "./legacy-config.js";
 import type { GhPrCreatePolicy } from "./bash/policies/gh-pr-create.js";
+import { redirectIsUnmodeled, shellFileAccesses, type HarnessFileAccessRequest, type HarnessFilePermissionCheck } from "./policy/file-permissions.js";
 
 export type BashInitialEnvironment =
   | { readonly kind: "unavailable" }
@@ -38,6 +39,9 @@ export interface BashPolicyAnalysisOptions {
 export interface BashPolicyEvaluation extends PolicyEvaluation {
   readonly events: readonly BashPolicyEvent[];
   readonly analysis: BashPolicyAnalysis;
+  readonly commandDecision?: PolicyEvaluation["decision"];
+  readonly fileAccesses?: readonly HarnessFileAccessRequest[];
+  readonly filePermissionChecks?: readonly HarnessFilePermissionCheck[];
 }
 
 export interface BashAuthorizationAnalysis {
@@ -195,16 +199,28 @@ export function analyzeBashWithPolicies(options: BashPolicyAnalysisOptions): Bas
     environment,
     dispatchCommand: (request) => dispatchCommand(request, registry),
     preflightCommand: (request) => preflightCommand(request, registry),
-    recordPolicyEvent: (event) => events.push(event),
-    cwd: options.cwd ?? "/",
+    recordPolicyEvent: (event) => {
+      events.push(event);
+      if (event.kind === "invocation" && (event.ownRedirects ?? event.redirects).some(redirectIsUnmodeled)) {
+        events.push(projectExecutionGapEvent("unsupported-shell-redirect", {
+          environment, span: event.span, provenance: event.provenance,
+          inPipeline: event.inPipeline, processEffect: event.processEffect,
+        }));
+      }
+    },
+    cwd: options.cwd,
     executableFilesystem: options.executableFilesystem ?? unavailableExecutableFilesystem,
   }, parsed.kind === "parse-failure" ? failure(parsed.span) : undefined);
   const completed = runSteps(initial, limits);
   const analysis = Object.freeze({ complete: completed.outcome.kind !== "failure" });
   const evaluated = evaluatePolicyEvents(Object.freeze([...events]), options.policies, analysis);
+  const commandDecision = completed.outcome.kind === "deny" ? "deny" : evaluated.decision;
+  const fileAccesses = shellFileAccesses(events);
   return Object.freeze({
     // Structural walker denials always win, independent of policy coverage.
-    decision: completed.outcome.kind === "deny" ? "deny" : evaluated.decision,
+    decision: commandDecision === "allow" && fileAccesses.length > 0 ? "defer" : commandDecision,
+    commandDecision,
+    fileAccesses,
     traces: evaluated.traces,
     events: Object.freeze([...events]),
     analysis,

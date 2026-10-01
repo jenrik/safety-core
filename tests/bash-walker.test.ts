@@ -355,7 +355,7 @@ describe("stateful Bash statement walker", () => {
     }
   });
 
-  test("walks retained redirect substitutions on function CST statements", () => {
+  test("walks retained function redirect substitutions at call time, not definition time", () => {
     const parsed = parseBashProgram("f(){ outer; }");
     expect(parsed.kind).toBe("program");
     if (parsed.kind !== "program") throw new Error(parsed.reason);
@@ -380,7 +380,10 @@ describe("stateful Bash statement walker", () => {
       }],
     };
 
-    expect(analyzeProgram(program, denyNamedCommand).completed.verdict).toMatchObject({ kind: "deny" });
+    expect(analyzeProgram(program, denyNamedCommand).completed.verdict).toMatchObject({ kind: "allow" });
+    const call = parseBashProgram("f");
+    if (call.kind !== "program") throw new Error(call.reason);
+    expect(analyzeProgram({ ...program, statements: [...program.statements, ...call.statements] }, denyNamedCommand).completed.verdict).toMatchObject({ kind: "deny" });
   });
 
   test("keeps an outer command neutral when a fully walked nested word still has unknown output", () => {

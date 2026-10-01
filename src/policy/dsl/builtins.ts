@@ -95,6 +95,10 @@ export const BUILTINS_V2: Readonly<Record<string, BuiltinDefinition>> = Object.f
   ...BUILTINS_V1,
   atEndOfWord: builtin([], "bool", "O(1)", "Whether the intra-word cursor is at the end of its known argument."),
   span: builtin(["location", "location"], "input-ref", "O(1)", "Half-open immutable input slice between locations in the same argument."),
+  descriptorSourceIs: builtin(["string", "string"], "bool", "O(n)", "Exact effective descriptor source kind, e.g. 0/file or 0/here-string."),
+  descriptorPath: builtin(["string"], "input-ref", "O(n)", "Effective file descriptor path; unknown for non-file inputs."),
+  descriptorContent: builtin(["string"], "input-ref", "O(n)", "Effective here-string bytes, including Bash's trailing newline; unknown for other sources."),
+  descriptorContentIsKnown: builtin(["string"], "bool", "O(n)", "Whether effective inline descriptor input is known."),
 });
 
 export function builtinDefinition(name: string, language: "safety-core/bash-policy-v1" | "safety-core/bash-policy-v2" = "safety-core/bash-policy-v1"): BuiltinDefinition | undefined {

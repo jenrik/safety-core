@@ -69,3 +69,7 @@ export * from "./policy/runtime.js";
 export * from "./policy/reload.js";
 export * from "./policy/session.js";
 export * from "./policy/trace.js";
+export * from "./bash/io.js";
+export * from "./policy/file-permissions.js";
+export * from "./policy/opencode-file-permissions.js";
+export * from "./policy/opencode-preflight.js";

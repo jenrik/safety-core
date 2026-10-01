@@ -51,7 +51,7 @@ export async function replayHistoricalBashEvents(
   if (!before || !permission) throw new Error("OpenCode plugin did not register required Bash hooks");
 
   const results: HistoricalBashPolicyResult[] = [];
-  for (const event of events) results.push(await replayWithPlugin(event, before, permission));
+  for (const [index, event] of events.entries()) results.push(await replayWithPlugin(event, before, permission, plugin["tool.execute.after"], String(index)));
   return Object.freeze(results);
 }
 
@@ -59,18 +59,26 @@ async function replayWithPlugin(
   event: HistoricalBashEvent,
   before: OpenCodePlugin["tool.execute.before"],
   permission: OpenCodePlugin["permission.ask"],
+  after: OpenCodePlugin["tool.execute.after"] | undefined,
+  callID: string,
 ): Promise<HistoricalBashPolicyResult> {
   // The production plugin shares this provider at module scope. Clear it for
   // every event so a concurrently loaded plugin cannot enable live judging.
   setJudgeProvider(null);
+  const identity = { sessionID: "safety-core-offline-replay", callID };
+  const args = { command: event.command };
   try {
-    await before({ tool: "bash" }, { args: { command: event.command } });
+    await before({ tool: "bash", ...identity }, { args });
   } catch (error) {
     return result(event.command, "deny", errorMessage(error));
   }
 
   const output: Record<string, unknown> = { status: event.nativePermission ?? "ask" };
-  await permission({ type: "bash", pattern: event.command }, output);
+  try {
+    await permission({ type: "bash", pattern: event.command, ...identity }, output);
+  } finally {
+    await after?.({ tool: "bash", ...identity, args }, {});
+  }
   const policyDecision = output.status;
   if (policyDecision !== "allow" && policyDecision !== "ask" && policyDecision !== "deny") {
     throw new Error(`OpenCode plugin returned an invalid Bash permission status: ${String(policyDecision)}`);

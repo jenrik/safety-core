@@ -13,8 +13,12 @@ test("OpenCode keeps one immutable loaded policy set across permission callbacks
     evaluatePolicies: (_runtime, source) => result(source === "safe" ? "allow" : "defer"),
   });
   const output = { status: "ask" };
-  await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "safe" }, output);
-  await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "unknown" }, output);
-  expect(loads).toBe(1);
+  const identity = { sessionID: "session", callID: "call" };
+  await (plugin["tool.execute.before"] as Function)({ tool: "bash", ...identity }, { args: { command: "safe" } });
+  await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "safe", ...identity }, output);
   expect(output.status).toBe("allow");
+  await (plugin["tool.execute.before"] as Function)({ tool: "bash", ...identity }, { args: { command: "unknown" } });
+  await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "unknown", ...identity }, output);
+  expect(loads).toBe(1);
+  expect(output.status).toBe("ask");
 });

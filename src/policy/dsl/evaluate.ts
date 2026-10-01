@@ -219,6 +219,7 @@ function reference(name: string, context: RuntimeContext): RuntimeValue {
   if (name === "event") return context.event;
   if (name === "event.gap.reason") return context.event.kind === "execution-gap" ? context.event.reason : UNKNOWN;
   if (name === "event.executable") return context.event.kind === "invocation" && context.event.executable !== null ? inputReference(context.event.executable) : UNKNOWN;
+  if (name === "event.cwd" && context.cursor?.v2) return context.event.kind === "invocation" ? context.event.cwd ?? UNKNOWN : UNKNOWN;
   if (name === "event.redirect.input.target") return context.event.kind === "invocation"
     ? inputRedirectTarget(context.event) : UNKNOWN;
   if (name.startsWith("capture.")) return context.captures[name.slice(8)] ?? UNKNOWN;
@@ -436,12 +437,28 @@ function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeCo
       : args[0].kind === "known" && args[0].value === strings[1];
     case "environmentIsExported": return typeof strings[0] === "string" && context.event.kind === "invocation" && context.event.exportedEnvironment?.[strings[0]] === true;
     case "missingEnvironmentMayBePresent": return context.event.missingBindings === "unknown";
-    case "redirectHasInputPath": return isUnknown(strings[0]) ? UNKNOWN : context.event.kind === "invocation" && context.event.redirects.some((redirect) => redirect.target !== null && stringValue(inputReference(redirect.target)) === strings[0]);
+    case "redirectHasInputPath": return isUnknown(strings[0]) ? UNKNOWN : context.event.kind === "invocation" && context.event.redirects.some((redirect) => (redirect.kind === "input" || redirect.kind === "read-write") && redirect.target !== null && stringValue(inputReference(redirect.target)) === strings[0]);
     case "hasAssignment": return typeof strings[0] === "string" && context.event.kind === "invocation" && Object.hasOwn(context.event.assignments, strings[0]);
     case "hasAnyAssignment": return context.event.kind === "invocation" && Object.keys(context.event.assignments).length > 0;
     case "assignmentsAreSubset": return context.event.kind === "invocation" && Array.isArray(args[0])
       && Object.keys(context.event.assignments).every((name) => args[0].includes(name));
     case "hasRedirect": return context.event.kind === "invocation" && context.event.redirects.length > 0;
+    case "descriptorSourceIs": {
+      const source = descriptorSource(context, strings[0]);
+      return source === undefined ? UNKNOWN : source.kind === strings[1];
+    }
+    case "descriptorPath": {
+      const source = descriptorSource(context, strings[0]);
+      return source?.kind === "file" && source.path ? inputReference(source.path) : UNKNOWN;
+    }
+    case "descriptorContent": {
+      const source = descriptorSource(context, strings[0]);
+      return source?.kind === "here-string" && source.content ? inputReference(source.content) : UNKNOWN;
+    }
+    case "descriptorContentIsKnown": {
+      const source = descriptorSource(context, strings[0]);
+      return source !== undefined && source.kind === "here-string" && source.content?.kind === "known";
+    }
     case "atEndOfWord": return context.word?.kind === "known" && context.cursor !== undefined && context.cursor.wordByteOffset !== NORMAL_WORD
       && context.cursor.wordByteOffset === encodedWord(context.word, context.cursor.byteBuffers).length;
     case "span": {
@@ -468,6 +485,11 @@ function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeCo
     case "domainToken": return isUnknown(strings[0]) || isUnknown(strings[1]) ? UNKNOWN : containsDomainToken(strings[0] as string, strings[1] as string);
     default: throw new TypeError(`unknown compiled DCRM builtin: ${name}`);
   }
+}
+
+function descriptorSource(context: RuntimeContext, descriptor: string | typeof UNKNOWN) {
+  if (typeof descriptor !== "string" || !/^(0|[1-9]\d*)$/.test(descriptor) || context.event.kind !== "invocation") return undefined;
+  return context.event.io?.[descriptor];
 }
 
 function environmentLookup(event: BashPolicyEvent, name: string | typeof UNKNOWN): RuntimeValue {

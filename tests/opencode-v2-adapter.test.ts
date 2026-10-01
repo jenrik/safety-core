@@ -1,8 +1,10 @@
-import { expect, test } from "bun:test";
+import { beforeAll, expect, test } from "bun:test";
 
 import { createOpenCodePlugin } from "../adapters/opencode.ts";
 import { createOpenCodeV2Plugin } from "../adapters/opencode-v2.ts";
-import { OPENCODE_POLICY_RELOAD_COMMAND, type BashPolicyEvaluation, type LoadedPolicyRuntime } from "../src/index.ts";
+import { initBundledBashParser, OPENCODE_POLICY_RELOAD_COMMAND, type BashPolicyEvaluation, type LoadedPolicyRuntime } from "../src/index.ts";
+
+beforeAll(initBundledBashParser);
 
 const limits = { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 };
 const runtime = { config: { bashAnalysis: limits }, policySet: { policies: [], sources: [] }, limits } as unknown as LoadedPolicyRuntime;
@@ -18,7 +20,13 @@ test("OpenCode v2 maps Bash permission outcomes through its dedicated adapter", 
 
   for (const [source, expected] of [["allow", "allow"], ["deny", "deny"], ["defer", "ask"]] as const) {
     const output = { status: "ask" };
-    await (plugin["permission.ask"] as Function)({ type: "bash", pattern: source }, output);
+    const identity = { sessionID: "session", callID: source };
+    if (source === "deny") {
+      await expect((plugin["tool.execute.before"] as Function)({ tool: "bash", ...identity }, { args: { command: source } })).rejects.toThrow();
+      continue;
+    }
+    await (plugin["tool.execute.before"] as Function)({ tool: "bash", ...identity }, { args: { command: source } });
+    await (plugin["permission.ask"] as Function)({ type: "bash", pattern: source, ...identity }, output);
     expect(output.status).toBe(expected);
   }
 });
@@ -35,8 +43,16 @@ test("property: OpenCode v2 preserves v1 permission behavior across 1,024 genera
     const source = ["allow", "deny", "defer"][seed % 3]!;
     const v1Output = { status: "ask" };
     const v2Output = { status: "ask" };
-    await (v1["permission.ask"] as Function)({ type: "bash", pattern: source }, v1Output);
-    await (v2["permission.ask"] as Function)({ type: "bash", pattern: source }, v2Output);
+    const identity = { sessionID: "session", callID: String(seed) };
+    if (source === "deny") {
+      await expect((v1["tool.execute.before"] as Function)({ tool: "bash", ...identity }, { args: { command: source } })).rejects.toThrow();
+      await expect((v2["tool.execute.before"] as Function)({ tool: "bash", ...identity }, { args: { command: source } })).rejects.toThrow();
+      continue;
+    }
+    for (const plugin of [v1, v2]) await (plugin["tool.execute.before"] as Function)({ tool: "bash", ...identity }, { args: { command: source } });
+    await (v1["permission.ask"] as Function)({ type: "bash", pattern: source, ...identity }, v1Output);
+    await (v2["permission.ask"] as Function)({ type: "bash", pattern: source, ...identity }, v2Output);
+    for (const plugin of [v1, v2]) await (plugin["tool.execute.after"] as Function)({ tool: "bash", ...identity }, {});
     expect(v2Output.status, `seed ${seed}`).toBe(v1Output.status);
   }
 });
@@ -58,18 +74,21 @@ test("OpenCode reload action replaces the active runtime and keeps it on reload 
     }, { tui: { showToast: async (toast: unknown) => { toasts.push(toast); } } } as never);
     const event = plugin.event as Function;
 
-    const before = { status: "ask" };
-    await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "id" }, before);
-    expect(before.status).toBe("deny");
+    const identity = { sessionID: "session", callID: "before" };
+    await expect((plugin["tool.execute.before"] as Function)({ tool: "bash", ...identity }, { args: { command: "id" } })).rejects.toThrow();
 
     await event({ event: { type: "tui.command.execute", properties: { command: OPENCODE_POLICY_RELOAD_COMMAND } } });
     const after = { status: "ask" };
-    await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "id" }, after);
+    identity.callID = "after";
+    await (plugin["tool.execute.before"] as Function)({ tool: "bash", ...identity }, { args: { command: "id" } });
+    await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "id", ...identity }, after);
     expect(after.status).toBe("allow");
 
     await event({ event: { type: "tui.command.execute", properties: { command: OPENCODE_POLICY_RELOAD_COMMAND } } });
     const afterFailure = { status: "ask" };
-    await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "id" }, afterFailure);
+    identity.callID = "after-failure";
+    await (plugin["tool.execute.before"] as Function)({ tool: "bash", ...identity }, { args: { command: "id" } });
+    await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "id", ...identity }, afterFailure);
     expect(afterFailure.status).toBe("allow");
     expect(toasts).toEqual([
       { query: { directory: process.cwd() }, body: { title: "Safety policy reload", message: "Safety policies reloaded", variant: "success" } },

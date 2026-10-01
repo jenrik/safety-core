@@ -57,7 +57,9 @@ test("production adapters distinguish absent, valid, and malformed inherited Bas
         .toBe(allowed ? "allow" : "defer");
       for (const plugin of [v1, v2]) {
         const output = { status: "ask" };
-        await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "helm list" }, output);
+        const identity = { sessionID: "session", callID: "helm" };
+        await (plugin["tool.execute.before"] as Function)({ tool: "bash", ...identity }, { args: { command: "helm list" } });
+        await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "helm list", ...identity }, output);
         expect(output.status, body ?? "absent").toBe(allowed ? "allow" : "ask");
       }
       const claude = evaluateClaudeBashPolicy({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "helm list" } }, { runtime: loaded });

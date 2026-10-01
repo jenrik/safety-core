@@ -6,6 +6,7 @@ import type { BashPolicyEvent, ExecutionGapView, InvocationView } from "./types.
 import { nonExternalExecutableIdentity, resolveExecutableIdentity, unresolvedExecutableIdentity } from "./executable.js";
 import { unavailableExecutableFilesystem, type ExecutableFilesystem } from "./filesystem.js";
 import type { BashExecutionTargetKind } from "../bash/resolution.js";
+import { inheritedBashIo, redirectBashIo } from "../bash/io.js";
 
 export interface BashPolicyEventContext {
   readonly environment: Environment;
@@ -36,7 +37,10 @@ export function projectInvocationEvent(command: NormalizedCommand, context: Bash
     environment: immutableBindings(environment.values),
     exportedEnvironment: immutableExports(command.environment, environment.values),
     missingBindings: environment.missingBindings,
-    redirects: Object.freeze([...command.redirects]),
+    redirects: Object.freeze([...(command.inheritedRedirects ?? []), ...command.redirects]),
+    ownRedirects: Object.freeze([...command.redirects]),
+    io: command.io ?? redirectBashIo(inheritedBashIo(), command.redirects, command.cwd ?? context.cwd ?? null),
+    cwd: command.cwd === undefined ? context.cwd ?? null : command.cwd,
     assignments: Object.freeze(assignments),
     span: copySpan(context.span),
     provenance: copyProvenance(context.provenance),

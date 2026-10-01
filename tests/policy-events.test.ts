@@ -31,7 +31,7 @@ describe("Bash generic policy events", () => {
 
     expect(event.environment.CANARY).toEqual({ kind: "known", value: "exact-value" });
     expect(event.argv[0]).toEqual({ kind: "unknown", reason: expect.any(Object) });
-    expect(event.redirects).toEqual([{ kind: "output", target: { kind: "known", value: "response.json" } }]);
+    expect(event.redirects).toMatchObject([{ kind: "output", target: { kind: "known", value: "response.json" }, operator: ">", descriptor: 1 }]);
     expect(event.assignments.CANARY).toEqual({ kind: "known", value: "exact-value" });
     expect(event.provenance).toEqual({ route: ["direct"] });
     expect(event.inPipeline).toBeFalse();

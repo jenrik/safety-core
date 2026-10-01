@@ -4,6 +4,7 @@ import type { BindingValue } from "../bash/environment.js";
 import type { BashExecutionProvenance, ProcessEffect } from "../bash/walker.js";
 import type { ExecutableIdentity } from "./executable.js";
 import type { BashExecutionTargetKind } from "../bash/resolution.js";
+import type { BashIoContext } from "../bash/io.js";
 
 export type PolicyDiagnosticPart =
   | { readonly kind: "literal"; readonly value: string }
@@ -62,6 +63,10 @@ export interface InvocationView {
   /** Whether bindings absent from the modeled map are unknown or proven unset. */
   readonly missingBindings: "unknown" | "unset";
   readonly redirects: readonly NormalizedRedirect[];
+  /** Opens owned by this event, excluding inherited redirect context. */
+  readonly ownRedirects?: readonly NormalizedRedirect[];
+  readonly io?: BashIoContext;
+  readonly cwd?: string | null;
   /** Command-prefix assignments in source order, represented by their effective bindings. */
   readonly assignments: Readonly<Record<string, BindingValue>>;
   readonly span: SourceSpan;

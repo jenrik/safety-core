@@ -1,4 +1,5 @@
 import type { Plugin, PluginInput } from "@opencode-ai/plugin";
+import { resolve } from "node:path";
 
 import {
   SECRET_BLOCK_MESSAGE,
@@ -20,6 +21,13 @@ import {
   type LoadedPolicyRuntime,
   type BashPolicyEvaluation,
   type ExecutableFilesystem,
+  checkBashFilePermissions,
+  createOpenCodeFilePermissions,
+  type HarnessFilePermissions,
+  type OpenCodeFilePermissionContext,
+  type OpenCodePermissionClient,
+  createOpenCodeBashPreflights,
+  openCodeBashPermissionStatus,
 } from "../src/index.js";
 
 type PolicyEvaluator = (runtime: LoadedPolicyRuntime, source: string, context?: { readonly cwd?: string; readonly executableFilesystem?: ExecutableFilesystem }) => BashPolicyEvaluation;
@@ -29,12 +37,14 @@ export interface OpenCodeV2PluginDependencies {
   readonly loadRuntime?: (cwd: string) => Promise<LoadedPolicyRuntime>;
   readonly evaluatePolicies?: PolicyEvaluator;
   readonly executableFilesystem?: ExecutableFilesystem;
+  readonly filePermissions?: (context: OpenCodeFilePermissionContext) => HarnessFilePermissions;
 }
 
 export async function createOpenCodeV2Plugin(
   dependencies: OpenCodeV2PluginDependencies = {},
   client?: PluginInput["client"],
   directory?: string,
+  worktree?: string,
 ) {
   await initBashParser(discoverWasmDir(import.meta.url));
   const cwd = directory ?? process.cwd();
@@ -45,16 +55,21 @@ export async function createOpenCodeV2Plugin(
   await runtime.ensure(cwd);
   const executableFilesystem = dependencies.executableFilesystem ?? nodeExecutableFilesystem;
   const evaluate = dependencies.evaluatePolicies ?? ((loaded, source, context) => evaluateLoadedPolicies(loaded, source, completePolicyInitialEnvironment(process.env), context));
-  const results = new Map<string, BashPolicyEvaluation>();
+  const preflights = createOpenCodeBashPreflights();
   let poisoned: string | undefined;
   setJudgeProvider(buildJudgeProvider());
 
-  const evaluateCommand = (source: string) => evaluate(runtime.current()!, source, { cwd, executableFilesystem });
-  const cacheKey = (value: Record<string, unknown>, source: string) =>
-    typeof value.sessionID === "string" && typeof value.callID === "string" ? `${value.sessionID}\u0000${value.callID}\u0000${source}` : undefined;
+  const evaluateCommand = async (source: string, input: Record<string, unknown> = {}, workdir = cwd) => {
+    const context: OpenCodeFilePermissionContext = { directory: cwd, worktree,
+      sessionID: typeof input.sessionID === "string" ? input.sessionID : undefined,
+      callID: typeof input.callID === "string" ? input.callID : undefined };
+    return checkBashFilePermissions(evaluate(runtime.current()!, source, { cwd: workdir, executableFilesystem }),
+      dependencies.filePermissions?.(context) ?? createOpenCodeFilePermissions(client as unknown as OpenCodePermissionClient, context));
+  };
   const poison = (error: unknown) => {
     const reason = error instanceof Error ? `Safety policy failed: ${error.message}` : "Safety policy failed";
     poisoned = reason;
+    preflights.clear();
     return reason;
   };
 
@@ -70,44 +85,44 @@ export async function createOpenCodeV2Plugin(
       }
       if (input.tool !== "bash") return;
       const source = String(args.command ?? "");
+      const workdir = typeof args.workdir === "string" ? resolve(cwd, args.workdir) : cwd;
       const existingPoison = poisoned;
       if (existingPoison) throw new Error(existingPoison);
+      const token = preflights.begin(input as unknown as Record<string, unknown>, source, workdir, args);
       let result: BashPolicyEvaluation;
       try {
-        result = evaluateCommand(source);
+        result = await evaluateCommand(source, input as unknown as Record<string, unknown>, workdir);
       } catch (error) {
+        preflights.discard(token);
         throw new Error(poison(error));
       }
-      if (result.decision === "deny") throw new Error(blockReason(result));
-      // Deterministic policy denial is resolved before judge invocation.
-      if (shouldInvokeJudge(source)) {
-        const verdict = await invokeJudge(source);
-        if (verdict && !verdict.safe) throw new Error(`Blocked by safety policy: ${verdict.reasoning}`);
+      if (result.decision === "deny") {
+        preflights.discard(token);
+        throw new Error(blockReason(result));
       }
-      const key = cacheKey(input as Record<string, unknown>, source);
-      if (key) results.set(key, result);
+      try {
+        if (shouldInvokeJudge(source)) {
+          const verdict = await invokeJudge(source);
+          if (verdict && !verdict.safe) throw new Error(`Blocked by safety policy: ${verdict.reasoning}`);
+        }
+      } catch (error) {
+        preflights.discard(token);
+        throw error;
+      }
+      preflights.complete(token, result);
     },
     "permission.ask": async (input, output) => {
       if (input.type !== "bash") return;
-      const source = Array.isArray(input.pattern) ? input.pattern.join(" && ") : input.pattern;
-      if (!source) return;
       const existingPoison = poisoned;
       if (existingPoison) {
         output.status = "deny";
         return;
       }
-      let result: BashPolicyEvaluation;
-      try {
-        result = evaluateCommand(source);
-      } catch (error) {
-        poison(error);
-        output.status = "deny";
-        return;
-      }
-      if (result.decision === "allow" || result.decision === "deny") output.status = result.decision;
+      output.status = openCodeBashPermissionStatus(preflights.get(input as unknown as Record<string, unknown>), output.status);
     },
     event: async ({ event }) => {
       if (event.type === "tui.command.execute" && event.properties.command === OPENCODE_POLICY_RELOAD_COMMAND) {
+        preflights.clear();
         try {
           await runtime.reload(cwd);
           poisoned = undefined;
@@ -118,21 +133,25 @@ export async function createOpenCodeV2Plugin(
         }
         return;
       }
+      if (event.type === "message.part.updated" && event.properties.part.type === "tool"
+        && ["completed", "error"].includes(event.properties.part.state.status)) {
+        preflights.finish(event.properties.part as unknown as Record<string, unknown>, event.properties.part.state.input);
+        return;
+      }
+      if (event.type === "session.deleted") {
+        preflights.clearSession(event.properties.info.id);
+        return;
+      }
       if (!client || event.type !== "permission.asked" || event.properties.permission !== "bash") return;
-      const source = event.properties.patterns.join(" && ");
       const existingPoison = poisoned;
       if (existingPoison) {
         await client.permission.reply({ directory, requestID: event.properties.id, reply: "reject", message: existingPoison });
         return;
       }
-      let result: BashPolicyEvaluation;
-      try {
-        result = evaluateCommand(source);
-      } catch (error) {
-        const reason = poison(error);
-        await client.permission.reply({ directory, requestID: event.properties.id, reply: "reject", message: reason });
-        return;
-      }
+      const tool = event.properties.tool;
+      const preflight = preflights.get({ sessionID: event.properties.sessionID, callID: tool?.callID });
+      if (!preflight || preflight.kind !== "complete") return;
+      const result = preflight.evaluation;
       if (result.decision === "allow") {
         await client.permission.reply({ directory, requestID: event.properties.id, reply: "once" });
       } else if (result.decision === "deny") {
@@ -141,16 +160,15 @@ export async function createOpenCodeV2Plugin(
     },
     "tool.execute.after": async (input, _output) => {
       if (input.tool !== "bash") return;
-      const source = String((input.args as Record<string, unknown>).command ?? "");
-      const key = cacheKey(input as Record<string, unknown>, source);
-      if (key) results.delete(key);
+      preflights.finish(input as unknown as Record<string, unknown>, input.args);
     },
   } satisfies Plugin;
 }
 
-export default async (input?: PluginInput) => createOpenCodeV2Plugin({}, input?.client, input?.directory);
+export default async (input?: PluginInput) => createOpenCodeV2Plugin({}, input?.client, input?.directory, input?.worktree);
 
 export function blockReason(result: BashPolicyEvaluation): string {
+  if (result.filePermissionChecks?.some((check) => check.decision === "deny")) return "Blocked by safety policy: harness denied shell redirect file access";
   const denial = result.traces.find((trace) => trace.decision.kind === "deny");
   const reason = denial?.decision.reason?.map((part) => part.kind === "literal" ? part.value : String(part.value)).join("") ?? "Bash policy denied this command";
   return `Blocked by safety policy: ${reason}`;

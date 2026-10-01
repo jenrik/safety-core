@@ -37,6 +37,38 @@ function cli(home: string, args: readonly string[], extraEnv: Record<string, str
 }
 
 describe("safety-core CLI", () => {
+  test("packaged CLI validates and explains the scoped redirect-input fixture", () => {
+    const home = fixture();
+    const policy = join(process.cwd(), "tests/fixtures/redirect-input.policy.json");
+    const config = join(home, "safety-core/config.json");
+    writeFileSync(config, JSON.stringify({ version: 1, policies: [policy], projectPolicies: { mode: "disabled" },
+      bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 } }));
+    const packaged = (args: readonly string[]) => spawnSync("node", [join(process.cwd(), "packages/core/dist/cli.js"), "--config", config, ...args], {
+      encoding: "utf8", env: { PATH: process.env.PATH ?? "" },
+    });
+    const validated = packaged(["validate"]);
+    expect(validated.status).toBe(0);
+    expect(validated.stdout).toMatch(/^[a-f0-9]{64}  \/.*redirect-input\.policy\.json\n$/);
+    for (const [source, expected] of [['redirect-fixture <<<"accepted"', "allow"], ['redirect-fixture <<<"different"', "defer"],
+      ['redirect-fixture <<<"forbidden"', "deny"], ['> output; redirect-fixture <<<"accepted"', "defer"],
+      ["redirect-fixture < /review/trusted.yaml", "defer"]] as const) {
+      const explained = packaged(["explain", "--json", "--", source]);
+      expect(explained.status, source).toBe(0);
+      const trace = JSON.parse(explained.stdout);
+      expect(trace.decision, source).toBe(expected);
+      expect(trace.sources, source).toHaveLength(1);
+      expect(trace.sources[0].canonicalPath, source).toBe(policy);
+      if (source.includes("<<<")) {
+        expect(trace.events.some((event: any) => event.kind === "invocation" && event.redirects.some((redirect: any) => redirect.kind === "here-string")), source).toBeTrue();
+      }
+      if (source.startsWith("> output")) {
+        expect(trace.events[0].executable).toBeNull();
+        expect(trace.fileAccesses).toHaveLength(1);
+        expect(trace.fileAccesses[0].operation).toBe("write");
+      }
+    }
+  }, 30_000);
+
   test("an explicit config path overrides the environment-selected configuration", () => {
     const home = fixture();
     const config = join(home, "safety-core", "config.json");

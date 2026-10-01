@@ -641,6 +641,7 @@ function expressionType(expression: Expression, names: Names, pointer: string, i
 function referenceType(reference: string, names: Names, pointer: string, inFold: boolean): ExpressionType {
   if (names.language === POLICY_LANGUAGE_V2 && reference === "byte") return "stringish";
   if (names.language === POLICY_LANGUAGE_V2 && reference === "cursor") return "location";
+  if (names.language === POLICY_LANGUAGE_V2 && reference === "event.cwd") return "stringish";
   if (reference === "word" || reference === "option.value" || reference === "event.executable" || reference === "event.redirect.input.target" || reference === "fold.item") return "stringish";
   if (reference === "event") return "json";
   if (reference === "event.kind" || reference === "event.gap.reason") return "string";

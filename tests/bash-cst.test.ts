@@ -263,14 +263,13 @@ describe("parseBashProgram", () => {
     const command = program.statements[0]!;
     expect(command).toMatchObject({
       kind: "command",
-      words: [{ text: "echo" }],
+      words: [{ text: "echo" }, { kind: "command-substitution", statements: [{ kind: "command", words: [{ text: "nested-argument" }] }] }],
       redirects: [{ words: [
         { kind: "command-substitution", statements: [{ kind: "command", words: [{ text: "nested-redirect" }] }] },
-        { kind: "command-substitution", statements: [{ kind: "command", words: [{ text: "nested-argument" }] }] },
       ] }],
     });
     if (command.kind !== "command") throw new Error("expected command");
-    expect(command.redirects[0]!.words[0]!.span.start).toBeLessThan(command.redirects[0]!.words[1]!.span.start);
+    expect(command.redirects[0]!.words[0]!.span.start).toBeLessThan(command.words[1]!.span.start);
   });
 
   test("projects descriptor-qualified redirects from destination fields only", () => {

@@ -312,6 +312,56 @@ Only v2 adds the following total builtins:
 | --- | --- | --- | --- |
 | `atEndOfWord` | `() -> bool` | `O(1)` | exact intra-word end |
 | `span` | `(location, location) -> input-ref` | `O(1)` | immutable half-open slice reference |
+| `descriptorSourceIs` | `(string, string) -> bool` | `O(n)` | effective descriptor source kind |
+| `descriptorPath` | `(string) -> input-ref` | `O(n)` | effective file descriptor path |
+| `descriptorContent` | `(string) -> input-ref` | `O(n)` | effective here-string content |
+| `descriptorContentIsKnown` | `(string) -> bool` | `O(n)` | inline input knownness |
+
+### Redirects, descriptors, and harness file permissions
+
+Invocation events retain ordered `redirects`, including inherited redirects,
+and `ownRedirects` for operations opened by that event. The immutable `io` map
+contains effective descriptor bindings after left-to-right redirection. A
+duplication snapshots its source descriptor at that point; later redirects do
+not retroactively change it. Every owned file-open effect is checked separately,
+including destinations superseded by a later redirect. Redirect-only events
+have `executable: null`; they do not need a command permission to cover an
+executable, but their file accesses still need harness authorization and all
+applicable policy denials remain effective.
+
+The v2 descriptor builtins take canonical decimal descriptor strings, such as
+`"0"`, `"1"`, and `"2"`. Source kinds are `inherited`, `file`, `here-string`,
+`pipeline`, `process-substitution`, `closed`, or `unknown`. Missing descriptor
+facts do not prove a source kind. `descriptorPath` returns a raw expanded file
+path; it does not normalize paths or assert command-input trust.
+`descriptorContent` returns expanded here-string input, including Bash's final
+newline. File contents, pipeline output, and command-substitution output are
+not read or executed to discover their value. Unknown input cannot satisfy
+ordinary string predicates. `descriptorContentIsKnown` is false for non-inline
+or unknown input. These operations inspect immutable supplied evidence only;
+they add no loops, transitions, ambient I/O, or dynamic collections.
+
+The v2 `event.cwd` reference supplies the modeled execution directory, or
+unknown. Descriptor file bindings retain the directory at the time they were
+opened, independently of later directory changes. Unproved directory-changing
+builtins make subsequent cwd-dependent file accesses indeterminate.
+
+For example, a v2 policy can require `descriptorSourceIs("0", "file")` and
+compare `descriptorPath("0")` with an operator-configured trusted input path.
+It can separately compare `descriptorContent("0")` with an accepted literal
+payload. A known readable path is not itself proof of command-input trust.
+Here-string payloads never enter the input-path `redirects` fold. Here-documents
+and unsupported descriptor operations currently emit execution gaps.
+
+Policies are pure classifiers. The core emits `fileAccesses` for shell-owned
+reads/writes and exposes `HarnessFilePermissions.check` to adapters. Offline
+analysis defers when required harness checks are unavailable; a command-policy
+allow becomes final only after every file check allows. Harness `ask`, unknown,
+or failed checks retain `defer`; the most restrictive of the total command and
+each file verdict wins (`deny` > `defer` > `allow`). `/dev/null` also requires
+the corresponding file permission; it is not exempt. Pipes and process
+substitutions remain command-analysis concerns, not file authorization requests.
+Paths embedded in argv are outside this interface's current scope.
 
 Policy events retain `BASH_FUNC_name%%` as an ordinary, exact environment
 binding. The walker also imports valid exported Bash definitions into shell

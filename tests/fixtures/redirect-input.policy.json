@@ -1,0 +1,32 @@
+{
+  "language": "safety-core/bash-policy-v2",
+  "layer": "permission",
+  "select": [{ "executable": { "projection": "basename", "equals": "redirect-fixture" } }],
+  "start": "input",
+  "states": {
+    "input": {
+      "cases": [
+        {
+          "when": { "call": "equals", "args": [{ "call": "descriptorContent", "args": ["0"] }, "forbidden\n"] },
+          "action": { "decision": "deny", "reason": ["Forbidden fixture input"] }
+        },
+        {
+          "when": {
+            "any": [
+              { "call": "equals", "args": [{ "call": "descriptorContent", "args": ["0"] }, "accepted\n"] },
+              {
+                "all": [
+                  { "call": "descriptorSourceIs", "args": ["0", "file"] },
+                  { "call": "equals", "args": [{ "call": "descriptorPath", "args": ["0"] }, "/review/trusted.yaml"] }
+                ]
+              }
+            ]
+          },
+          "action": { "decision": "allow", "reason": ["Accepted fixture input; shell file permissions are separate"] }
+        }
+      ],
+      "default": { "decision": "defer" },
+      "end": { "decision": "defer" }
+    }
+  }
+}

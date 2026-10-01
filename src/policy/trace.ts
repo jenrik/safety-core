@@ -8,6 +8,8 @@ export interface ExplainTrace {
   readonly sources: readonly { readonly canonicalPath: string; readonly sha256: string }[];
   readonly events: BashPolicyEvaluation["events"];
   readonly decisions: BashPolicyEvaluation["traces"];
+  readonly fileAccesses?: BashPolicyEvaluation["fileAccesses"];
+  readonly filePermissionChecks?: BashPolicyEvaluation["filePermissionChecks"];
 }
 
 /** Preserve the complete modeled argv and environment for explicit local diagnostics. */
@@ -22,6 +24,8 @@ export function createExplainTrace(runtime: LoadedPolicyRuntime, evaluation: Bas
     }))),
     events: evaluation.events,
     decisions: evaluation.traces,
+    fileAccesses: evaluation.fileAccesses,
+    filePermissionChecks: evaluation.filePermissionChecks,
   });
 }
 

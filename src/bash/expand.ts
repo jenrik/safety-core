@@ -1,6 +1,7 @@
 import { stripQuotes } from "../shell.js";
 import { detectBlockedDomain, isGithubGraphqlEndpoint } from "../github.js";
-import type { BashCommand, BashRedirectKind, BashWord, SourceSpan } from "./cst.js";
+import type { BashCommand, BashRedirect, BashRedirectKind, BashWord, SourceSpan } from "./cst.js";
+import type { BashIoContext } from "./io.js";
 import {
   assignBinding,
   beginCommandOverlay,
@@ -69,6 +70,10 @@ export function symbolicWordShape(word: ResolvedWord): SymbolicWordShape | undef
 export interface NormalizedRedirect {
   readonly kind: BashRedirectKind;
   readonly target: ResolvedWord | null;
+  readonly operator?: string;
+  readonly descriptor?: number | null;
+  readonly content?: ResolvedWord | null;
+  readonly span?: SourceSpan;
 }
 
 /** A simple command with a fully static-or-redacted view of each word. */
@@ -83,6 +88,10 @@ export interface NormalizedCommand {
    * command-local overlay; for assignment-only commands it is persistent.
    */
   readonly assignmentPatch: EnvironmentPatch;
+  /** Effective inherited descriptor bindings, supplied by the walker. */
+  readonly io?: BashIoContext;
+  readonly inheritedRedirects?: readonly NormalizedRedirect[];
+  readonly cwd?: string | null;
 }
 
 /** Build an argv-preserving child invocation without passing through shell syntax. */
@@ -111,7 +120,7 @@ export function expandWord(word: BashWord, environment: Environment): ResolvedWo
   return expandWordInContext(word, environment, "argument");
 }
 
-type WordContext = "assignment" | "executable" | "argument" | "redirect";
+type WordContext = "assignment" | "executable" | "argument" | "redirect" | "here-string";
 
 function expandWordInContext(word: BashWord, environment: Environment, context: WordContext): ResolvedWord {
   switch (word.kind) {
@@ -163,13 +172,7 @@ export function normalizeCommand(
     expandWordInContext(word, environment, "argument"),
     sourceDerivedFromBinding,
   ));
-  const redirects = command.redirects.map((redirect) => freeze({
-    kind: redirect.kind,
-    target: redirect.target ? retainBindingProvenance(
-      expandWordInContext(redirect.target, environment, "redirect"),
-      sourceDerivedFromBinding,
-    ) : null,
-  }));
+  const redirects = command.redirects.map((redirect) => normalizeRedirect(redirect, environment, sourceDerivedFromBinding));
   const patchEnvironment = assignmentEnvironment;
 
   return freeze({
@@ -181,6 +184,21 @@ export function normalizeCommand(
       environment: patchEnvironment,
       writes: readonlySet(writes),
     }),
+  });
+}
+
+export function normalizeRedirect(redirect: BashRedirect, environment: Environment, sourceDerivedFromBinding = false): NormalizedRedirect {
+  const content = redirect.content ? retainBindingProvenance(expandWordInContext(redirect.content, environment, "here-string"), sourceDerivedFromBinding) : null;
+  const target = redirect.target ? retainBindingProvenance(expandWordInContext(redirect.target, environment, "redirect"), sourceDerivedFromBinding) : null;
+  const implicitFile = redirect.kind === "duplicate" && redirect.operator === ">&" && redirect.descriptorExplicit === false
+    && target?.kind === "known" && target.value !== "-" && !/^\d+-?$/.test(target.value);
+  return freeze({
+    kind: implicitFile ? "output" : redirect.kind === "duplicate" && target?.kind === "known" && target.value === "-" ? "close" : redirect.kind,
+    target,
+    ...(redirect.operator === undefined ? {} : { operator: implicitFile ? "&>" : redirect.operator }),
+    ...(redirect.descriptor === undefined ? {} : { descriptor: redirect.descriptor }),
+    ...(redirect.kind === "here-string" ? { content: content?.kind === "known" ? resolvedKnown(`${content.value}\n`, isBindingResolvedWord(content)) : content } : {}),
+    span: redirect.span,
   });
 }
 
@@ -198,7 +216,7 @@ function expandStaticText(text: string, span: SourceSpan, environment: Environme
     }
     if (fragments.at(-1)?.kind !== "unknown") fragments.push(UNKNOWN_FRAGMENT);
     firstUnknown ??= word;
-    unknownMaySplit ||= quote === null && context !== "assignment";
+    unknownMaySplit ||= quote === null && context !== "assignment" && context !== "here-string";
   };
 
   for (let index = 0; index < text.length;) {
@@ -249,7 +267,7 @@ function expandStaticText(text: string, span: SourceSpan, environment: Environme
       index = backtickEnd(text, index + 1);
       continue;
     }
-    if (quote === null && (character === "*" || character === "?" || character === "[")) {
+    if (quote === null && context !== "here-string" && (character === "*" || character === "?" || character === "[")) {
       appendUnknown(unresolved("globbing", span, undefined, detectBlockedDomain(text) ?? undefined, isGithubGraphqlEndpoint(text)));
       index++;
       continue;
@@ -257,7 +275,11 @@ function expandStaticText(text: string, span: SourceSpan, environment: Environme
     if (quote === null && character === "$" && text[index + 1] === "'") {
       const end = ansiCQuoteEnd(text, index + 2);
       if (end < 0) return unresolved("unsupported-dollar-expansion", span);
-      value += stripQuotes(text.slice(index, end + 1));
+      if (context === "here-string") {
+        const decoded = decodeInlineAnsiQuote(text.slice(index + 2, end));
+        if (decoded === undefined) return unresolved("unsupported-dollar-expansion", span);
+        value += decoded;
+      } else value += stripQuotes(text.slice(index, end + 1));
       index = end + 1;
       continue;
     }
@@ -276,7 +298,7 @@ function expandStaticText(text: string, span: SourceSpan, environment: Environme
       index++;
       continue;
     }
-    if (quote === null && character === "{" && text[index + 1] !== "}") {
+    if (quote === null && context !== "here-string" && character === "{" && text[index + 1] !== "}") {
       appendUnknown(unresolved("brace-expansion", span));
       index++;
       continue;
@@ -293,6 +315,31 @@ function expandStaticText(text: string, span: SourceSpan, environment: Environme
     fragments: freeze(fragments),
     fields: unknownMaySplit ? hasLiteral ? "one-or-more" : "zero-or-more" : "one",
   }));
+}
+
+/** A deliberately finite ANSI-C subset; unsupported escapes remain unknown. */
+function decodeInlineAnsiQuote(content: string): string | undefined {
+  let result = "";
+  const escapes: Record<string, string> = { a: "\u0007", b: "\b", e: "\u001b", E: "\u001b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", "\\": "\\", "'": "'", '"': '"', "?": "?" };
+  for (let index = 0; index < content.length; index++) {
+    if (content[index] !== "\\") { result += content[index]; continue; }
+    const next = content[++index];
+    if (next === undefined) return undefined;
+    if (Object.hasOwn(escapes, next)) { result += escapes[next]; continue; }
+    const numeric = /^[0-7]{1,3}/.exec(content.slice(index));
+    const hex = next === "x" ? /^[0-9a-fA-F]{1,2}/.exec(content.slice(index + 1)) : null;
+    if (numeric || hex) {
+      const code = Number.parseInt((numeric ?? hex)![0], numeric ? 8 : 16) & 0xff;
+      if (code === 0) return result;
+      // Non-UTF-8 shell bytes cannot be represented by a JS string proof.
+      if (code > 127) return undefined;
+      result += String.fromCharCode(code);
+      index += numeric ? numeric[0].length - 1 : hex![0].length;
+      continue;
+    }
+    return undefined;
+  }
+  return result;
 }
 
 type VariableExpansion =
@@ -352,7 +399,7 @@ function resolveVariable(
     return { kind: "unknown", value: unresolved("unknown-variable", span, variable), next };
   }
   if (binding.kind !== "known") return { kind: "unknown", value: unresolved("unknown-variable", span, variable), next };
-  if (!quoted && context !== "assignment" && changesUnquotedWordShape(binding.value, environment)) {
+  if (!quoted && context !== "assignment" && context !== "here-string" && changesUnquotedWordShape(binding.value, environment)) {
     return {
       kind: "unknown",
       value: unresolved("unquoted-expansion", span, variable, detectBlockedDomain(binding.value) ?? undefined, isGithubGraphqlEndpoint(binding.value)),

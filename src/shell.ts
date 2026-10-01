@@ -201,7 +201,6 @@ export function discoverWasmDir(moduleUrl: string): string {
 
 // ─── Public types ───────────────────────────────────────────────────────────
 
-type RedirectKind = "input" | "output" | "append";
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
@@ -339,6 +338,8 @@ function projectStatement(node: SyntaxNode): BashStatement {
     case "redirected_statement":
       return projectRedirectedStatement(node);
     case "file_redirect":
+    case "herestring_redirect":
+    case "heredoc_redirect":
       return {
         kind: "command",
         assignments: [],
@@ -413,19 +414,20 @@ function projectList(node: SyntaxNode): BashList {
 }
 
 function projectRedirectedStatement(node: SyntaxNode): BashStatement {
-  const body = node.childForFieldName("body") ?? node.namedChildren.find((child) => child.type !== "file_redirect");
+  const redirects = node.namedChildren.filter(isRedirectNode).map(projectRedirect);
+  const body = node.childForFieldName("body") ?? node.namedChildren.find((child) => !isRedirectNode(child));
   if (!body) {
     return {
       kind: "command",
       assignments: [],
       words: [],
-      redirects: node.childrenForFieldName("redirect").map(projectRedirect),
+      redirects,
       span: span(node),
     };
   }
 
   const statement = projectStatement(body);
-  return withRedirects(statement, node.childrenForFieldName("redirect").map(projectRedirect), span(node));
+  return withRedirects(statement, redirects, span(node));
 }
 
 function projectCommand(
@@ -434,16 +436,17 @@ function projectCommand(
 ): BashCommand {
   const nameNode = node.childForFieldName("name");
   const commandName = nameNode?.namedChildren[0] ?? null;
-  return {
+  const command: BashCommand = {
     kind: "command",
     assignments: node.namedChildren.filter((child) => child.type === "variable_assignment").map(projectAssignment),
     words: [
       ...(commandName ? [projectWord(commandName)] : []),
       ...node.childrenForFieldName("argument").map(projectWord),
     ],
-    redirects,
+    redirects: [],
     span: span(node),
   };
+  return withCommandRedirects(command, [...redirects, ...node.namedChildren.filter(isRedirectNode).map(projectRedirect)], span(node));
 }
 
 function projectAssignment(node: SyntaxNode): BashAssignment {
@@ -457,22 +460,45 @@ function projectAssignment(node: SyntaxNode): BashAssignment {
 }
 
 function projectRedirect(node: SyntaxNode): BashRedirect {
-  const words = node.childrenForFieldName("destination").map(projectWord);
+  const operator = node.children.find((child) => !child.isNamed && /^(?:[<>]|&>)/.test(child.text))?.text ?? "";
+  const descriptorText = node.childForFieldName("descriptor")?.text;
+  const descriptor = descriptorText === undefined ? operator.startsWith("<") ? 0 : 1
+    : /^\d+$/.test(descriptorText) && Number.isSafeInteger(Number(descriptorText)) ? Number(descriptorText) : null;
+  const words = node.type === "herestring_redirect"
+    ? node.namedChildren.filter((child) => child.type !== "file_descriptor").map(projectWord)
+    : node.childrenForFieldName("destination").map(projectWord);
+  const content = node.type === "herestring_redirect" ? words[0] ?? null : null;
+  const kind = node.type === "herestring_redirect" ? "here-string"
+    : node.type === "heredoc_redirect" ? "here-document"
+      : operator === "<&" || operator === ">&"
+        ? words[0]?.text === "-" ? "close" : "duplicate"
+        : operator === "<" ? "input"
+          : operator === "<>" ? "read-write"
+            : operator === ">>" || operator === "&>>" ? "append"
+              : [">", ">|", "&>"].includes(operator) ? "output" : "unsupported";
   return {
-    kind: redirectKind(node) ?? "unsupported",
-    target: words[0] ?? null,
-    words,
+    kind,
+    operator,
+    descriptor,
+    descriptorExplicit: descriptorText !== undefined,
+    target: kind === "here-string" || kind === "here-document" ? null : words[0] ?? null,
+    ...(kind === "here-string" ? { content } : {}),
+    words: node.type === "heredoc_redirect"
+      ? node.namedChildren.filter((child) => child.type === "heredoc_body").map((child) => ({
+        kind: "unsupported-word" as const, text: child.text, reason: "Here-document content is not statically modeled",
+        statements: projectNestedStatements(child), span: span(child),
+      })) : words,
     span: span(node),
   };
 }
 
 function projectFunction(node: SyntaxNode): BashFunction {
-  const name = node.namedChildren.find((child) => child.type === "word");
-  const bodyNode = node.namedChildren.find((child) => child !== name);
+  const name = node.childForFieldName("name") ?? node.namedChildren.find((child) => child.type === "word");
+  const bodyNode = node.childForFieldName("body") ?? node.namedChildren.find((child) => child !== name && !isRedirectNode(child));
   const body = bodyNode
     ? projectStatement(bodyNode)
     : { kind: "unsupported" as const, reason: "Function body is missing", statements: [], span: span(node) };
-  return { kind: "function", name: name?.text ?? "", body, span: span(node) };
+  return { kind: "function", name: name?.text ?? "", body, redirects: node.namedChildren.filter(isRedirectNode).map(projectRedirect), span: span(node) };
 }
 
 function projectUnsetCommand(node: SyntaxNode): BashCommand {
@@ -547,6 +573,8 @@ function projectWord(node: SyntaxNode): BashWord {
       return { kind: "expansion", ...shared, statements: projectNestedStatements(node) };
     case "command_substitution":
       return { kind: "command-substitution", ...shared, statements: node.namedChildren.map(projectStatement) };
+    case "process_substitution":
+      return { kind: "expansion", ...shared, statements: projectNestedStatements(node) };
     case "concatenation":
       return { kind: "concatenation", ...shared, parts: node.namedChildren.map(projectWord) };
     default:
@@ -599,7 +627,7 @@ function isProjectableStatement(node: SyntaxNode): boolean {
 function withRedirects(statement: BashStatement, redirects: readonly BashRedirect[], statementSpan: SourceSpan): BashStatement {
   switch (statement.kind) {
     case "command":
-      return { ...statement, redirects, span: statementSpan };
+      return withCommandRedirects(statement, redirects, statementSpan);
     case "function":
     case "list":
     case "pipeline":
@@ -609,8 +637,20 @@ function withRedirects(statement: BashStatement, redirects: readonly BashRedirec
     case "time":
     case "coproc":
     case "unsupported":
-      return { ...statement, redirects, span: statementSpan };
+      return { ...statement, redirects: [...(statement.redirects ?? []), ...redirects], span: statementSpan };
   }
+}
+
+/** The grammar groups trailing command arguments into file_redirect destinations. */
+function withCommandRedirects(command: BashCommand, redirects: readonly BashRedirect[], statementSpan: SourceSpan): BashCommand {
+  const trailing = redirects.flatMap((redirect) => ["here-string", "here-document"].includes(redirect.kind) ? [] : redirect.words.slice(1));
+  return {
+    ...command,
+    words: [...command.words, ...trailing].sort((left, right) => left.span.start - right.span.start),
+    redirects: [...command.redirects, ...redirects.map((redirect) => ["here-string", "here-document"].includes(redirect.kind)
+      ? redirect : { ...redirect, words: redirect.words.slice(0, 1) })],
+    span: statementSpan,
+  };
 }
 
 function findSyntaxError(node: SyntaxNode): SyntaxNode | null {
@@ -634,11 +674,6 @@ function freeze<T>(value: T): T {
   return value;
 }
 
-/** Infer whether a file_redirect is input, output, or append from its text. */
-function redirectKind(node: SyntaxNode): RedirectKind | null {
-  const text = node.text;
-  if (text.includes("<")) return "input";
-  if (text.includes(">>")) return "append";
-  if (text.includes(">")) return "output";
-  return null;
+function isRedirectNode(node: SyntaxNode): boolean {
+  return ["file_redirect", "herestring_redirect", "heredoc_redirect"].includes(node.type);
 }
