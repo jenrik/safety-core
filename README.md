@@ -57,8 +57,8 @@ denial remains dominant.
 
 The Home Manager module exposes these same fields at
 `programs.safetyCorePermissions`, plus `completePolicySources`, `prCreate`,
-`installCli`, and `installClaudeBashHook`, plus Pi's `autoApprove` and
-`judgeModel` settings. `completePolicySources` references
+`installCli`, and `installClaudeBashHook`, plus Pi's `autoApprove`,
+`showFullCommand`, and `judgeModel` settings. `completePolicySources` references
 the packaged complete DSL source set; `prCreate` renders a complete,
 repository/organization-scoped `gh pr create` DSL source. The flake packages
 the CLI, core/parser assets, DSL source directory, and Claude, OpenCode v1,

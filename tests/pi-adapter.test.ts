@@ -1,5 +1,5 @@
 import { expect, mock, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { completePolicyInitialEnvironment, evaluateLoadedPolicies, initBundledBashParser, loadPolicyRuntime, type BashPolicyEvaluation, type LoadedPolicyRuntime, type ValidatedBashPolicy } from "../src/index.ts";
@@ -26,7 +26,7 @@ mock.module("@earendil-works/pi-tui", () => ({
 mock.module("typebox", () => ({ Type: { Object: (value: unknown) => value, String: () => ({}), Optional: (value: unknown) => value, Number: () => ({}) } }));
 
 const limits = { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 };
-const runtime = { config: { bashAnalysis: limits, pi: { autoApprove: false } }, policySet: { policies: [], sources: [] }, limits } as unknown as LoadedPolicyRuntime;
+const runtime = { config: { bashAnalysis: limits, pi: { autoApprove: false, showFullCommand: true } }, policySet: { policies: [], sources: [] }, limits } as unknown as LoadedPolicyRuntime;
 const deny: BashPolicyEvaluation = { decision: "deny", analysis: { complete: true }, events: [], traces: [{ source: { canonicalPath: "/p" }, layer: "guard", event: {} as never, decision: { kind: "deny", reason: [{ kind: "literal", value: "generic denial" }] } }] };
 const defer: BashPolicyEvaluation = { decision: "defer", analysis: { complete: false }, events: [], traces: [] };
 
@@ -217,17 +217,23 @@ test("Pi settings put judge selection in a submenu and auto-approve only policy 
   };
   await commands.get("safety-core")!.handler("", context);
   const root = renderedSettings[0]!;
-  expect(root.items.map((item) => item.id)).toEqual(["auto-approve", "judge", "reload-policies"]);
-  expect(root.items[1]!.submenu).toBeFunction();
-  const judge = root.items[1]!.submenu("active model", () => {});
+  expect(root.items.map((item) => item.id)).toEqual(["auto-approve", "show-full-command", "judge", "reload-policies"]);
+  expect(root.items[2]!.submenu).toBeFunction();
+  const judge = root.items[2]!.submenu("active model", () => {});
   expect((judge as { items: Array<{ id: string }> }).items.map((item) => item.id)).toEqual(["judge-model"]);
 
   await root.onChange("auto-approve", "enabled");
   expect(entries).toEqual([{
     type: "custom",
     customType: "safety-core-pi-settings",
-    data: { autoApprove: true, judgeModel: null },
+    data: { autoApprove: true, judgeModel: null, showFullCommand: true },
   }]);
+  await root.onChange("show-full-command", "disabled");
+  expect(entries[1]).toEqual({
+    type: "custom",
+    customType: "safety-core-pi-settings",
+    data: { autoApprove: true, judgeModel: null, showFullCommand: false },
+  });
   await expect(handlers.get("tool_call")!({ toolName: "bash", toolCallId: "defer", input: { command: "defer" } }, context)).resolves.toBeUndefined();
   await expect(handlers.get("tool_call")!({ toolName: "bash", toolCallId: "deny", input: { command: "deny" } }, context))
     .resolves.toEqual({ block: true, reason: "generic denial" });
@@ -261,21 +267,153 @@ test("property: Pi session settings use the latest valid branch entry across 1,0
   const { resolvePiSessionSettings } = await import("../adapters/pi.ts");
   for (let seed = 0; seed < 1_024; seed++) {
     const entries: unknown[] = [{ type: "custom", customType: "other", data: { autoApprove: true, judgeModel: "ignored" } }];
-    let expected = { autoApprove: false, judgeModel: "configured/model" };
+    let expected = { autoApprove: false, judgeModel: "configured/model", showFullCommand: true };
     for (let index = 0; index < 1 + (seed % 16); index++) {
       if ((seed + index) % 5 === 0) {
         entries.push({ type: "custom", customType: "safety-core-pi-settings", data: { autoApprove: "invalid", judgeModel: null } });
         continue;
       }
-      expected = { autoApprove: (seed + index) % 2 === 0, judgeModel: (seed + index) % 3 === 0 ? undefined : `provider/model-${seed}-${index}` };
+      if ((seed + index) % 7 === 0) {
+        entries.push({ type: "custom", customType: "safety-core-pi-settings", data: { autoApprove: true, judgeModel: null, showFullCommand: "invalid" } });
+        continue;
+      }
+      expected = {
+        autoApprove: (seed + index) % 2 === 0,
+        judgeModel: (seed + index) % 3 === 0 ? undefined : `provider/model-${seed}-${index}`,
+        showFullCommand: (seed + index) % 2 === 1,
+      };
       entries.push({
         type: "custom",
         customType: "safety-core-pi-settings",
-        data: { autoApprove: expected.autoApprove, judgeModel: expected.judgeModel ?? null },
+        data: { autoApprove: expected.autoApprove, judgeModel: expected.judgeModel ?? null, showFullCommand: expected.showFullCommand },
       });
     }
-    expect(resolvePiSessionSettings(entries, { autoApprove: false, judgeModel: "configured/model" }), `seed ${seed}`).toEqual(expected);
+    expect(resolvePiSessionSettings(entries, { autoApprove: false, judgeModel: "configured/model", showFullCommand: true }), `seed ${seed}`).toEqual(expected);
   }
+});
+
+test("Pi permission prompt shows the full command unless disabled", async () => {
+  const { createPiExtension } = await import("../adapters/pi.ts");
+  const command = "printf '%s\\n' one\ntwo";
+  for (const showFullCommand of [true, false]) {
+    const handlers = new Map<string, Function>();
+    const calls: Array<{ title: string; message: string }> = [];
+    const configured = { ...runtime, config: { ...runtime.config, pi: { autoApprove: false, showFullCommand } } } as LoadedPolicyRuntime;
+    createPiExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerTool() {}, registerCommand() {}, appendEntry() {} } as never, {
+      runtime: Promise.resolve(configured),
+      evaluatePolicies: (_runtime, source) => source === "deny" ? deny : defer,
+    });
+    await handlers.get("session_start")!({}, { cwd: "/workspace", model: undefined, modelRegistry: { getAvailable: () => [], getAll: () => [] }, sessionManager: { getBranch: () => [] } });
+    const result = await handlers.get("tool_call")!({ toolName: "bash", toolCallId: "defer", input: { command } }, {
+      cwd: "/workspace", hasUI: true, signal: undefined,
+      ui: { notify() {}, confirm: async (title: string, message: string) => { calls.push({ title, message }); return false; } },
+    });
+    expect(result).toEqual({ block: true, reason: "Command requires policy approval" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.title).toBe("Safety permission required");
+    if (showFullCommand) {
+      expect(calls[0]!.message).toContain(command);
+      expect(calls[0]!.message).toContain("Allow it once?");
+    } else {
+      expect(calls[0]!.message).toBe("The configured policy could not fully authorize this command. Allow it once?");
+    }
+  }
+});
+
+test("property: Pi prompt embeds the exact command only when display is enabled", async () => {
+  const { permissionPromptMessage } = await import("../adapters/pi.ts");
+  for (let seed = 0; seed < 1_024; seed++) {
+    const command = `printf '%s\\n' line-${seed}\n${"x".repeat(seed % 40)}`;
+    expect(permissionPromptMessage(command, true), `seed ${seed}`).toContain(command);
+    expect(permissionPromptMessage(command, false), `seed ${seed}`)
+      .toBe("The configured policy could not fully authorize this command. Allow it once?");
+  }
+});
+
+test("Pi settings tolerate entries written before the command-display option existed", async () => {
+  const { resolvePiSessionSettings } = await import("../adapters/pi.ts");
+  const entries = [{ type: "custom", customType: "safety-core-pi-settings", data: { autoApprove: true, judgeModel: null } }];
+  expect(resolvePiSessionSettings(entries, { autoApprove: false, showFullCommand: false }))
+    .toEqual({ autoApprove: true, judgeModel: undefined, showFullCommand: false });
+  expect(resolvePiSessionSettings(entries, { autoApprove: false, showFullCommand: true }))
+    .toEqual({ autoApprove: true, judgeModel: undefined, showFullCommand: true });
+});
+
+test("Pi persists showFullCommand to a writable config file without notifying", async () => {
+  const { createPiExtension } = await import("../adapters/pi.ts");
+  const home = mkdtempSync(join(tmpdir(), "safety-core-pi-persist-"));
+  mkdirSync(join(home, "safety-core"), { recursive: true });
+  const configPath = join(home, "safety-core", "config.json");
+  writeFileSync(configPath, JSON.stringify({ version: 1, policies: [], projectPolicies: { mode: "disabled" }, bashAnalysis: limits, pi: { autoApprove: false, showFullCommand: true } }));
+  const configured = { ...runtime, config: { ...runtime.config, path: configPath, pi: { autoApprove: false, showFullCommand: true } } } as LoadedPolicyRuntime;
+  const commands = new Map<string, { handler: Function }>();
+  const entries: unknown[] = [];
+  const notifications: unknown[] = [];
+  renderedSettings.length = 0;
+  createPiExtension({
+    on() {},
+    registerTool() {},
+    registerCommand: (name: string, command: { handler: Function }) => commands.set(name, command),
+    appendEntry: (type: string, data: unknown) => entries.push({ type: "custom", customType: type, data }),
+  } as never, { runtime: Promise.resolve(configured) });
+  const context = {
+    cwd: "/workspace", mode: "tui", hasUI: true, signal: undefined,
+    ui: {
+      custom: async (factory: Function) => factory({ requestRender() {} }, { fg: (_name: string, value: string) => value, bold: (value: string) => value }, {}, () => {}),
+      notify: (message: string, level: string) => notifications.push({ message, level }),
+      confirm: async () => false,
+    },
+    modelRegistry: { getAvailable: () => [], getAll: () => [] },
+    sessionManager: { getBranch: () => entries },
+  };
+  await commands.get("safety-core")!.handler("", context);
+  await renderedSettings[0]!.onChange("show-full-command", "disabled");
+  expect(JSON.parse(readFileSync(configPath, "utf8")).pi.showFullCommand).toBe(false);
+  expect(notifications).toEqual([]);
+});
+
+test("Pi keeps showFullCommand runtime-only when the config file is not writable", async () => {
+  const { createPiExtension } = await import("../adapters/pi.ts");
+  const home = mkdtempSync(join(tmpdir(), "safety-core-pi-readonly-"));
+  const target = join(home, "managed.json");
+  mkdirSync(join(home, "safety-core"), { recursive: true });
+  const configPath = join(home, "safety-core", "config.json");
+  writeFileSync(target, JSON.stringify({ version: 1, policies: [], projectPolicies: { mode: "disabled" }, bashAnalysis: limits, pi: { autoApprove: false, showFullCommand: true } }));
+  symlinkSync(target, configPath);
+  const configured = { ...runtime, config: { ...runtime.config, path: configPath, pi: { autoApprove: false, showFullCommand: true } } } as LoadedPolicyRuntime;
+  const commands = new Map<string, { handler: Function }>();
+  const handlers = new Map<string, Function>();
+  const entries: unknown[] = [];
+  const notifications: unknown[] = [];
+  const prompts: string[] = [];
+  renderedSettings.length = 0;
+  createPiExtension({
+    on: (name: string, handler: Function) => handlers.set(name, handler),
+    registerTool() {},
+    registerCommand: (name: string, command: { handler: Function }) => commands.set(name, command),
+    appendEntry: (type: string, data: unknown) => entries.push({ type: "custom", customType: type, data }),
+  } as never, {
+    runtime: Promise.resolve(configured),
+    evaluatePolicies: (_runtime, source) => source === "deny" ? deny : defer,
+  });
+  const context = {
+    cwd: "/workspace", mode: "tui", hasUI: true, signal: undefined,
+    ui: {
+      custom: async (factory: Function) => factory({ requestRender() {} }, { fg: (_name: string, value: string) => value, bold: (value: string) => value }, {}, () => {}),
+      notify: (message: string, level: string) => notifications.push({ message, level }),
+      confirm: async (_title: string, message: string) => { prompts.push(message); return false; },
+    },
+    modelRegistry: { getAvailable: () => [], getAll: () => [] },
+    sessionManager: { getBranch: () => entries },
+  };
+  await commands.get("safety-core")!.handler("", context);
+  await renderedSettings[0]!.onChange("show-full-command", "disabled");
+
+  expect(JSON.parse(readFileSync(target, "utf8")).pi.showFullCommand).toBe(true);
+  expect(entries.at(-1)).toMatchObject({ data: { showFullCommand: false } });
+  expect(notifications).toEqual([]);
+  await handlers.get("tool_call")!({ toolName: "bash", toolCallId: "defer", input: { command: "printf hello" } }, context);
+  expect(prompts.at(-1)).toBe("The configured policy could not fully authorize this command. Allow it once?");
 });
 
 function environmentPermissionPolicy(): Record<string, unknown> {

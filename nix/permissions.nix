@@ -48,6 +48,11 @@ in {
     };
     pi = {
       autoApprove = mkEnableOption "automatically approve policy-deferred Pi Bash calls";
+      showFullCommand = mkOption {
+        type = types.bool;
+        default = true;
+        description = "Show the full Bash command in the Pi one-time permission prompt.";
+      };
       judgeModel = mkOption {
         type = types.nullOr types.str;
         default = null;
@@ -70,7 +75,10 @@ in {
         allowedRoots = map toString cfg.projectPolicies.allowedRoots;
       } else { mode = cfg.projectPolicies.mode; };
       bashAnalysis = cfg.bashAnalysis;
-      pi = { autoApprove = cfg.pi.autoApprove; } // optionalAttrs (cfg.pi.judgeModel != null) {
+      pi = {
+        autoApprove = cfg.pi.autoApprove;
+        showFullCommand = cfg.pi.showFullCommand;
+      } // optionalAttrs (cfg.pi.judgeModel != null) {
         judgeModel = cfg.pi.judgeModel;
       };
     };

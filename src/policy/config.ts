@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { accessSync, constants, existsSync, lstatSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 
 export class PolicyStartupError extends Error {
@@ -31,6 +31,8 @@ export interface ProjectPoliciesConfig {
 export interface PiAdapterConfig {
   /** Automatically accept policy-deferred Bash calls in the Pi adapter. */
   readonly autoApprove: boolean;
+  /** Show the full command in the Pi one-time permission prompt. */
+  readonly showFullCommand: boolean;
   /** Optional Pi provider/model key used for the secret-command judge. */
   readonly judgeModel?: string;
 }
@@ -147,16 +149,38 @@ function parseGlobalConfig(value: unknown, path: string, configuration: PolicyCo
 }
 
 function parsePiAdapter(value: unknown, path: string): PiAdapterConfig {
-  if (value === undefined) return Object.freeze({ autoApprove: false });
+  if (value === undefined) return Object.freeze({ autoApprove: false, showFullCommand: true });
   const record = requireRecord(value, path, "pi must be an object");
-  requireOnlyKeys(record, new Set(["autoApprove", "judgeModel"]), path);
+  requireOnlyKeys(record, new Set(["autoApprove", "judgeModel", "showFullCommand"]), path);
   const autoApprove = record.autoApprove ?? false;
   if (typeof autoApprove !== "boolean") throw new PolicyStartupError(path, "pi.autoApprove must be a boolean");
   const judgeModel = record.judgeModel;
   if (judgeModel !== undefined && (typeof judgeModel !== "string" || judgeModel.length === 0)) {
     throw new PolicyStartupError(path, "pi.judgeModel must be a non-empty string");
   }
-  return Object.freeze({ autoApprove, ...(judgeModel === undefined ? {} : { judgeModel }) });
+  const showFullCommand = record.showFullCommand ?? true;
+  if (typeof showFullCommand !== "boolean") throw new PolicyStartupError(path, "pi.showFullCommand must be a boolean");
+  return Object.freeze({ autoApprove, showFullCommand, ...(judgeModel === undefined ? {} : { judgeModel }) });
+}
+
+/**
+ * Best-effort persistence of Pi adapter settings into the global configuration
+ * file. Only a regular, writable config file is updated: a nix-managed symlink
+ * or otherwise unwritable file is left untouched and `false` is returned. All
+ * errors are swallowed so a caller can keep the override runtime-only without
+ * telling the user which path was taken.
+ */
+export function persistPiAdapterConfig(path: string, patch: Partial<PiAdapterConfig>): boolean {
+  try {
+    if (!lstatSync(path).isFile()) return false;
+    accessSync(path, constants.W_OK);
+    const record = requireRecord(readJson(path).value, path, "configuration must be an object");
+    const current = record.pi === undefined ? {} : requireRecord(record.pi, path, "pi must be an object");
+    writeFileSync(path, `${JSON.stringify({ ...record, pi: { ...current, ...patch } }, null, 2)}\n`);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function parseProjectPolicies(value: unknown, path: string): ProjectPoliciesConfig {

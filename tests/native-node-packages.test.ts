@@ -176,7 +176,7 @@ test("packed Pi extension retains TUI-only settings and secret-read contracts", 
         registerCommand: (name, command) => commands.set(name, command),
         appendEntry() {},
       }, {
-        runtime: Promise.resolve({ config: { pi: { autoApprove: false } } }),
+        runtime: Promise.resolve({ config: { pi: { autoApprove: false, showFullCommand: true } } }),
         evaluatePolicies: () => ({ decision: "defer", analysis: { complete: false }, events: [], traces: [] }),
       });
       await handlers.get("session_start")({}, { cwd: process.cwd() });
@@ -185,11 +185,11 @@ test("packed Pi extension retains TUI-only settings and secret-read contracts", 
       for (let seed = 0; seed < 1024; seed++) {
         const entries = Array.from({ length: 1 + seed % 16 }, (_, index) => ({
           type: "custom", customType: "safety-core-pi-settings",
-          data: { autoApprove: (seed + index) % 2 === 0, judgeModel: (seed + index) % 3 === 0 ? null : "provider/model-" + seed + "-" + index },
+          data: { autoApprove: (seed + index) % 2 === 0, judgeModel: (seed + index) % 3 === 0 ? null : "provider/model-" + seed + "-" + index, showFullCommand: (seed + index) % 2 === 1 },
         }));
         const last = entries.at(-1).data;
-        const settings = resolvePiSessionSettings(entries, { autoApprove: false, judgeModel: "configured/model" });
-        if (settings.autoApprove !== last.autoApprove || settings.judgeModel !== (last.judgeModel ?? undefined)) throw new Error("seed " + seed);
+        const settings = resolvePiSessionSettings(entries, { autoApprove: false, judgeModel: "configured/model", showFullCommand: true });
+        if (settings.autoApprove !== last.autoApprove || settings.judgeModel !== (last.judgeModel ?? undefined) || settings.showFullCommand !== last.showFullCommand) throw new Error("seed " + seed);
       }
       console.log(JSON.stringify({ tools, commands: [...commands.keys()], read, notices }));
     `], installation);

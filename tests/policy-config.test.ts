@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
   PolicyStartupError,
   loadGlobalPolicyConfig,
+  persistPiAdapterConfig,
   resolveSessionPolicyConfig,
 } from "../src/policy/config.ts";
 
@@ -93,21 +94,66 @@ describe("authoritative global policy configuration", () => {
     writeGlobalConfig(home, globalConfig(["policies/read.policy.mjs"]));
     const loaded = loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home });
     expect(loaded.bashAnalysis).toEqual({ maxFunctionDepth: 7, maxNestedScriptDepth: 6, maxSteps: 5, maxWorkItems: 4 });
-    expect(loaded.pi).toEqual({ autoApprove: false });
+    expect(loaded.pi).toEqual({ autoApprove: false, showFullCommand: true });
     expect(Object.isFrozen(loaded)).toBeTrue();
     expect(Object.isFrozen(loaded.bashAnalysis)).toBeTrue();
   });
 
-  test("parses Pi defaults and rejects malformed Pi adapter configuration", () => {
+  test("parses Pi settings, defaulting command display on and rejecting malformed values", () => {
     const home = fixtureDirectory();
-    writeGlobalConfig(home, { ...globalConfig(), pi: { autoApprove: true, judgeModel: "anthropic/claude-haiku" } });
+    writeGlobalConfig(home, { ...globalConfig(), pi: { autoApprove: true, judgeModel: "anthropic/claude-haiku", showFullCommand: false } });
     expect(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }).pi).toEqual({
       autoApprove: true,
       judgeModel: "anthropic/claude-haiku",
+      showFullCommand: false,
     });
-    for (const pi of [true, { autoApprove: "true" }, { judgeModel: "" }, { unknown: true }]) {
+    writeGlobalConfig(home, { ...globalConfig(), pi: { autoApprove: true } });
+    expect(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }).pi).toEqual({
+      autoApprove: true,
+      showFullCommand: true,
+    });
+    for (const pi of [true, { autoApprove: "true" }, { judgeModel: "" }, { showFullCommand: "yes" }, { showFullCommand: 1 }, { unknown: true }]) {
       writeGlobalConfig(home, { ...globalConfig(), pi });
       expect(() => loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), JSON.stringify(pi)).toThrow(PolicyStartupError);
+    }
+  });
+
+  test("persists Pi settings into a writable config file while preserving other keys", () => {
+    const home = fixtureDirectory();
+    const path = writeGlobalConfig(home, { ...globalConfig(["read.policy.mjs"]), pi: { autoApprove: true, judgeModel: "provider/model", showFullCommand: true } });
+    expect(persistPiAdapterConfig(path, { showFullCommand: false })).toBe(true);
+    const updated = JSON.parse(readFileSync(path, "utf8"));
+    expect(updated.pi).toEqual({ autoApprove: true, judgeModel: "provider/model", showFullCommand: false });
+    expect(updated.version).toBe(1);
+    expect(updated.policies).toEqual(["read.policy.mjs"]);
+    expect(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }).pi.showFullCommand).toBe(false);
+  });
+
+  test("skips symlinked, malformed, and missing config files without throwing", () => {
+    const home = fixtureDirectory();
+    const target = join(home, "target.json");
+    const linkedDirectory = join(home, "linked", "safety-core");
+    mkdirSync(linkedDirectory, { recursive: true });
+    const linkedPath = join(linkedDirectory, "config.json");
+    writeFileSync(target, JSON.stringify({ ...globalConfig(), pi: { autoApprove: false, showFullCommand: true } }));
+    symlinkSync(target, linkedPath);
+    const before = readFileSync(target, "utf8");
+    expect(persistPiAdapterConfig(linkedPath, { showFullCommand: false })).toBe(false);
+    expect(readFileSync(target, "utf8")).toBe(before);
+
+    const malformed = writeGlobalConfig(join(home, "malformed"), globalConfig());
+    writeFileSync(malformed, "{");
+    expect(persistPiAdapterConfig(malformed, { showFullCommand: false })).toBe(false);
+    expect(persistPiAdapterConfig(join(home, "missing", "safety-core", "config.json"), { showFullCommand: false })).toBe(false);
+  });
+
+  test("property: 1,024 writable config files round-trip the toggled command display", () => {
+    for (let seed = 0; seed < 1_024; seed++) {
+      const home = fixtureDirectory();
+      const value = seed % 2 === 0;
+      const path = writeGlobalConfig(home, { ...globalConfig(), pi: { autoApprove: seed % 3 === 0, showFullCommand: !value } });
+      expect(persistPiAdapterConfig(path, { showFullCommand: value }), `seed ${seed}`).toBe(true);
+      expect(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }).pi.showFullCommand, `seed ${seed}`).toBe(value);
     }
   });
 

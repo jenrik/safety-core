@@ -38,7 +38,7 @@ test("Nix renders the same complete authoritative config shape", () => {
     config.programs.safetyCorePermissions.completePolicySources = true;
     config.programs.safetyCorePermissions.bashAnalysis.maxSteps = 5;
   `).config;
-  expect(rendered).toMatchObject({ version: 1, projectPolicies: { mode: "disabled" }, bashAnalysis: { maxSteps: 5 }, pi: { autoApprove: false } });
+  expect(rendered).toMatchObject({ version: 1, projectPolicies: { mode: "disabled" }, bashAnalysis: { maxSteps: 5 }, pi: { autoApprove: false, showFullCommand: true } });
   expect(rendered.policies).toHaveLength(27);
 });
 
@@ -46,8 +46,9 @@ test("Nix renders configured Pi permissive and judge defaults", () => {
   const rendered = evaluateNix(`
     config.programs.safetyCorePermissions.pi.autoApprove = true;
     config.programs.safetyCorePermissions.pi.judgeModel = "anthropic/claude-haiku";
+    config.programs.safetyCorePermissions.pi.showFullCommand = false;
   `).config;
-  expect(rendered.pi).toEqual({ autoApprove: true, judgeModel: "anthropic/claude-haiku" });
+  expect(rendered.pi).toEqual({ autoApprove: true, judgeModel: "anthropic/claude-haiku", showFullCommand: false });
 });
 
 test("Nix installs the CLI on PATH and registers Claude hooks only when enabled", () => {
