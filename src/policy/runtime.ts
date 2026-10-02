@@ -37,9 +37,10 @@ export async function loadPolicyRuntime(
   cwd: string,
   env: Readonly<Record<string, string | undefined>> = process.env,
   configPath?: string,
+  projectConfigPath?: string,
 ): Promise<LoadedPolicyRuntime> {
   const config = loadGlobalPolicyConfig(env, configPath);
-  const resolved = resolveSessionPolicyConfig(config, cwd);
+  const resolved = resolveSessionPolicyConfig(config, cwd, projectConfigPath);
   const policySet = await loadPolicySet(resolved);
   return Object.freeze({
     config,

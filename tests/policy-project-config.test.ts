@@ -122,6 +122,21 @@ describe("globally gated project DSL policies", () => {
     }
   });
 
+  test("an explicit project configuration bypasses discovery mode but requires the standard manifest path", () => {
+    const root = fixtureDirectory();
+    const home = join(root, "home");
+    const project = join(root, "project");
+    const configPath = writeProjectConfig(project, ["project.policy.json"]);
+    writeGlobalConfig(home, "disabled");
+
+    const selected = resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), root, configPath);
+    expect(selected.projectRoot).toBe(project);
+    expect(selected.sources).toEqual([{ path: join(project, "project.policy.json"), scope: "project" }]);
+
+    expect(() => resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), root, join(project, "config.json")))
+      .toThrow(PolicyStartupError);
+  });
+
   test("property: 1,024 canonical aliases accept only the exact nearest allowlisted root", () => {
     const root = fixtureDirectory();
     const home = join(root, "home");
