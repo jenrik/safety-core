@@ -607,7 +607,16 @@ function executeNormalizedInvocation(
   const executionTarget = resolveBashExecutionTarget(normalized, input.state, lookupDomain);
   if (executionTarget === "shell-function") {
     const definitions = input.state.functionCandidates.get(normalized.executable.value)!;
-    scheduleFunctionCall(definitions, span, normalized, input, context, completeWithDeny, schedule, false, inPipeline);
+    const shadowedEnv = normalized.executable.value === "env";
+    if (shadowedEnv) {
+      context.recordPolicyEvent?.(projectExecutionGapEvent("shadowed-env-function", {
+        environment: input.state.environment, span, provenance: input.provenance,
+        inPipeline, processEffect: input.processEffect,
+      }));
+    }
+    scheduleFunctionCall(definitions, span, normalized,
+      shadowedEnv ? addOutcome(input, indeterminate(span)) : input,
+      context, completeWithDeny, schedule, false, inPipeline);
     return;
   }
   if (executionTarget === "unresolved" && input.state.functionCandidates.has(normalized.executable.value)) {

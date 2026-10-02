@@ -1,0 +1,417 @@
+{
+  "language": "safety-core/bash-policy-v2",
+  "layer": "permission",
+  "select": [
+    {
+      "executable": {
+        "projection": "basename",
+        "equals": "env"
+      }
+    }
+  ],
+  "registers": {},
+  "folds": {},
+  "options": {
+    "ignoreEnvironment": {
+      "names": ["-i", "--ignore-environment"],
+      "value": "absent",
+      "forms": [],
+      "availableIn": ["start"],
+      "set": {}
+    },
+    "unset": {
+      "names": ["-u", "--unset"],
+      "value": "required",
+      "forms": ["separate", "attachedShort", "equalsLong", "cluster"],
+      "availableIn": ["start"],
+      "set": {}
+    },
+    "chdir": {
+      "names": ["-C", "--chdir"],
+      "value": "required",
+      "forms": ["separate", "attachedShort", "equalsLong", "cluster"],
+      "availableIn": ["start"],
+      "set": {}
+    },
+    "argv0": {
+      "names": ["-a", "--argv0"],
+      "value": "required",
+      "forms": ["separate", "attachedShort", "equalsLong", "cluster"],
+      "availableIn": ["start"],
+      "set": {}
+    },
+    "null": {
+      "names": ["-0", "--null"],
+      "value": "absent",
+      "forms": [],
+      "availableIn": ["start"],
+      "set": {}
+    },
+    "debug": {
+      "names": ["-v", "--debug"],
+      "value": "absent",
+      "forms": [],
+      "availableIn": ["start"],
+      "set": {}
+    },
+    "listSignalHandling": {
+      "names": ["--list-signal-handling"],
+      "value": "absent",
+      "forms": [],
+      "availableIn": ["start"],
+      "set": {}
+    },
+    "signalDisposition": {
+      "names": ["--block-signal", "--default-signal", "--ignore-signal"],
+      "value": "optional",
+      "forms": ["equalsLong"],
+      "availableIn": ["start"],
+      "set": {}
+    }
+  },
+  "fragments": {},
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "-"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "start"
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "--"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "afterTerminatorStart"
+          }
+        },
+        {
+          "when": {
+            "call": "startsWith",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "-"
+            ]
+          },
+          "action": {
+            "decision": "defer",
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            }
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "byte"
+              },
+              "="
+            ]
+          },
+          "action": {
+            "consume": "byte",
+            "next": "assignmentRemainder"
+          }
+        },
+        {
+          "when": true,
+          "action": {
+            "consume": "byte",
+            "next": "commandOrAssignment"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      }
+    },
+    "commandOrAssignment": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "byte"
+              },
+              "="
+            ]
+          },
+          "action": {
+            "consume": "restOfWord",
+            "next": "afterTerminatorStart"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfWord",
+                "args": []
+              },
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "env"
+                ]
+              },
+              {
+                "not": {
+                  "call": "hasInheritedExecutableFunction",
+                  "args": [
+                    "env"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "env auto-allowed with a direct child command"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            }
+          }
+        },
+        {
+          "when": true,
+          "action": {
+            "consume": "byte",
+            "next": "commandOrAssignment"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      }
+    },
+    "assignmentRemainder": {
+      "cases": [
+        {
+          "when": true,
+          "action": {
+            "consume": "restOfWord",
+            "next": "afterTerminatorStart"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      }
+    },
+    "afterTerminatorStart": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "byte"
+              },
+              "="
+            ]
+          },
+          "action": {
+            "consume": "byte",
+            "next": "afterTerminatorAssignmentRemainder"
+          }
+        },
+        {
+          "when": true,
+          "action": {
+            "consume": "byte",
+            "next": "afterTerminatorCommandOrAssignment"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      }
+    },
+    "afterTerminatorAssignmentRemainder": {
+      "cases": [
+        {
+          "when": true,
+          "action": {
+            "consume": "restOfWord",
+            "next": "afterTerminatorStart"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      }
+    },
+    "afterTerminatorCommandOrAssignment": {
+      "cases": [
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "byte"
+              },
+              "="
+            ]
+          },
+          "action": {
+            "consume": "restOfWord",
+            "next": "afterTerminatorStart"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfWord",
+                "args": []
+              },
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "env"
+                ]
+              },
+              {
+                "not": {
+                  "call": "hasInheritedExecutableFunction",
+                  "args": [
+                    "env"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "env auto-allowed with a direct child command"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            }
+          }
+        },
+        {
+          "when": true,
+          "action": {
+            "consume": "byte",
+            "next": "afterTerminatorCommandOrAssignment"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      }
+    }
+  }
+}

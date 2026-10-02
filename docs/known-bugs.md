@@ -1,5 +1,29 @@
 # Known Bugs
 
+## Executable-basename selectors cannot also exclude shell-function declarations
+
+Permission-policy selection currently distinguishes an invocation by its modeled
+executable basename, but it cannot express a single selector that both matches
+basename `env` and independently excludes or classifies a same-named Bash
+function declaration. A local or imported `env` function is modeled as a
+`shadowed-env-function` execution gap rather than as an external `env`
+invocation.
+
+Consequently, basename-scoped policies such as `env-command` must select only
+the external invocation event and rely on the aggregate execution-gap behavior
+to defer a shadowed function call. They must not combine executable and
+execution-gap selectors to try to classify both cases: the runtime's
+executable-selector prefilter admits invocation events only, so that mixed
+selector form does not evaluate the execution-gap branch. This is conservative
+today because execution gaps independently defer, but policy-specific audit
+traces cannot distinguish that defer.
+
+A future selector/runtime design should preserve OR semantics across executable
+and non-invocation selector kinds, or provide an explicit predicate for an
+external (non-function) execution target. Until then, policies should document
+this boundary and keep their selector limited to the invocation form they
+authorize.
+
 ## Eventless shell builtin work can be omitted from policy coverage
 
 The policy event stream records modeled command invocations and execution gaps,

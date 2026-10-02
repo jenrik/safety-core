@@ -138,11 +138,11 @@ describe("named Bash command dispatch", () => {
     const wrappers = [
       { prefix: "strace", options: ["--follow-forks", "--output=trace.log", "--trace=process"], suffix: "denied-command" },
       { prefix: "timeout", options: ["--verbose", "--foreground", "--kill-after=1s"], suffix: "5s denied-command" },
-      { prefix: "env", options: ["--argv0=alias", "--ignore-environment", "MODE=test"], suffix: "denied-command" },
+      { prefix: "env", options: ["--argv0=alias", "--ignore-environment"], suffix: "MODE=test denied-command" },
       { prefix: "strace", options: ["-fo trace.log", "--trace=process"], suffix: "denied-command" },
       { prefix: "timeout", options: ["-v", "-f", "-k1s"], suffix: "5s denied-command" },
       { prefix: "timeout", options: ["-vk1s", "-p"], suffix: "5s denied-command" },
-      { prefix: "env", options: ["-iuHOME", "-aalias", "MODE=test"], suffix: "denied-command" },
+      { prefix: "env", options: ["-iuHOME", "-aalias"], suffix: "MODE=test denied-command" },
       { prefix: "exec", options: ["-cl"], suffix: "denied-command" },
       { prefix: "nice", options: ["-5", "-n 2"], suffix: "denied-command" },
       { prefix: "setsid", options: ["-fw", "-c"], suffix: "denied-command" },
@@ -739,7 +739,7 @@ describe("named Bash command dispatch", () => {
   test("property: audited flags for every child-executing wrapper preserve its known child", () => {
     const random = lcg(0x4b1d7a2c);
     const wrappers = [
-      { name: "env", prefix: "env", flags: ["-i", "MODE=test"], child: "gh pr create", verdict: "neutral" },
+      { name: "env", prefix: "env", flags: ["-i"], child: "gh pr create", verdict: "neutral" },
       { name: "command", prefix: "command", flags: ["-p"], child: "gh pr create", verdict: "allow" },
       { name: "doas", prefix: "doas", flags: ["-n", "-u root"], child: "gh pr create", verdict: "neutral" },
       { name: "exec", prefix: "exec", flags: ["-c", "-l", "-a name"], child: "gh pr create", verdict: "neutral" },
@@ -756,7 +756,9 @@ describe("named Bash command dispatch", () => {
       for (let iteration = 0; iteration < 32; iteration++) {
         const invocations: InvocationCursor[] = [];
         const flags = shuffle(wrapper.flags, random).join(" ");
-        const source = `${wrapper.prefix} ${flags} ${wrapper.child}`;
+        const source = wrapper.name === "env"
+          ? `${wrapper.prefix} ${flags} MODE=test ${wrapper.child}`
+          : `${wrapper.prefix} ${flags} ${wrapper.child}`;
         const result = analyze(source, [recordingHandler("gh", invocations)]);
 
         expect(result.completed.verdict, `${wrapper.name}: ${source}`).toEqual({ kind: wrapper.verdict });
