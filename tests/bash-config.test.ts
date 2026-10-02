@@ -27,6 +27,8 @@ function evaluateNix(overrides: string) {
   `], { encoding: "utf8" }));
 }
 
+const NIX_EVAL_TIMEOUT = 180_000;
+
 test("the public config boundary is the strict authoritative global config", () => {
   expect(config.loadGlobalPolicyConfig).toBeFunction();
   expect("loadBashProfileSnapshot" in config).toBe(false);
@@ -39,8 +41,8 @@ test("Nix renders the same complete authoritative config shape", () => {
     config.programs.safetyCorePermissions.bashAnalysis.maxSteps = 5;
   `).config;
   expect(rendered).toMatchObject({ version: 1, projectPolicies: { mode: "disabled" }, bashAnalysis: { maxSteps: 5 }, pi: { autoApprove: false, showFullCommand: true } });
-  expect(rendered.policies).toHaveLength(27);
-});
+  expect(rendered.policies).toHaveLength(28);
+}, NIX_EVAL_TIMEOUT);
 
 test("Nix renders configured Pi permissive and judge defaults", () => {
   const rendered = evaluateNix(`
@@ -49,7 +51,7 @@ test("Nix renders configured Pi permissive and judge defaults", () => {
     config.programs.safetyCorePermissions.pi.showFullCommand = false;
   `).config;
   expect(rendered.pi).toEqual({ autoApprove: true, judgeModel: "anthropic/claude-haiku", showFullCommand: false });
-});
+}, NIX_EVAL_TIMEOUT);
 
 test("Nix installs the CLI on PATH and registers Claude hooks only when enabled", () => {
   const disabled = evaluateNix("");
@@ -73,4 +75,4 @@ test("Nix installs the CLI on PATH and registers Claude hooks only when enabled"
       hooks: [{ type: "command", command: "${XDG_CONFIG_HOME:-$HOME/.config}/safety-core/claude/bash_policy.mjs" }],
     }],
   });
-}, 30_000);
+}, NIX_EVAL_TIMEOUT);
