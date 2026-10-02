@@ -468,6 +468,48 @@ function validateStates(states: Readonly<Record<string, StateDeclaration>>, frag
   context.metrics.compiledCases = expandedCases;
 }
 
+/** Reject policies with a declared state that no transition can reach from start. */
+export function validatePolicyStateReachability(document: Pick<PolicyDocument, "states" | "fragments" | "start">): void {
+  const { states, fragments, start } = document;
+  const fragmentTransitions = new Map<string, readonly string[]>();
+  const visiting = new Set<string>();
+
+  const transitionsForFragment = (name: string): readonly string[] => {
+    const cached = fragmentTransitions.get(name);
+    if (cached) return cached;
+    if (visiting.has(name)) return [];
+    visiting.add(name);
+    const fragment = fragments[name]!;
+    const transitions = [
+      ...fragment.uses.flatMap(transitionsForFragment),
+      ...fragment.cases.flatMap((entry) => entry.action.kind === "transition" ? [entry.action.next] : []),
+    ];
+    visiting.delete(name);
+    fragmentTransitions.set(name, transitions);
+    return transitions;
+  };
+
+  const reachable = new Set([start]);
+  const pending = [start];
+  while (pending.length > 0) {
+    const stateName = pending.pop()!;
+    const state = states[stateName]!;
+    const transitions = [
+      ...state.fragments.flatMap(transitionsForFragment),
+      ...state.cases.flatMap((entry) => entry.action.kind === "transition" ? [entry.action.next] : []),
+    ];
+    for (const next of transitions) {
+      if (reachable.has(next)) continue;
+      reachable.add(next);
+      pending.push(next);
+    }
+  }
+
+  for (const state of Object.keys(states)) {
+    if (!reachable.has(state)) fail(`$.states.${state}`, `state ${state} is unreachable from start state ${start}`);
+  }
+}
+
 function validateCase(policyCase: PolicyCase, layer: string, names: Names, pointer: string): void {
   if (expressionType(policyCase.when, names, `${pointer}.when`) !== "bool") fail(`${pointer}.when`, "case condition must be boolean");
   if (policyCase.action.kind === "terminal") validateTerminal(policyCase.action, layer, names, `${pointer}.action`);

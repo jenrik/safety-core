@@ -39,6 +39,11 @@ prints the selected identities. Claude verifies the same snapshot for each
 isolated hook; OpenCode and Pi retain the startup object, so restart those
 harnesses after editing sources.
 
+Use `safety-core policy validate /absolute/path/source.policy.json` while
+authoring a declarative source without selecting a full runtime configuration.
+It checks the closed document schema and rejects any state without a possible
+transition path from `start`.
+
 ### Claude code-policy dependency boundary
 
 Claude's isolated-hook manifest fixes configured code-policy entry-file bytes,

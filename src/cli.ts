@@ -1,11 +1,12 @@
 import { initBundledBashParser } from "./shell.js";
 import { Command, CommanderError, InvalidArgumentError } from "commander";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { PolicyStartupError } from "./policy/config.js";
 import { createExplainTrace, renderExplainTrace } from "./policy/trace.js";
 import { evaluateLoadedPolicies, loadPolicyRuntime } from "./policy/runtime.js";
 import { nodeExecutableFilesystem } from "./policy/filesystem.js";
+import { parsePolicyDocument, validatePolicyStateReachability } from "./policy/dsl/validate.js";
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
   try {
@@ -34,6 +35,24 @@ export function createProgram(): Command {
     });
 
   program
+    .command("policy")
+    .description("inspect standalone declarative policy sources")
+    .command("validate")
+    .description("validate a declarative policy schema and state reachability")
+    .argument("<path>", "declarative .policy.json source")
+    .action((path: string) => {
+      const canonicalPath = canonicalPolicyPath(path);
+      try {
+        validatePolicyStateReachability(parsePolicyDocument(readFileSync(canonicalPath, "utf8")));
+      } catch (error) {
+        if (error instanceof PolicyStartupError) throw error;
+        const detail = error instanceof Error ? `invalid DSL policy: ${error.message}` : "invalid DSL policy";
+        throw new PolicyStartupError(canonicalPath, detail, error);
+      }
+      process.stdout.write(`${canonicalPath}: valid\n`);
+    });
+
+  program
     .command("explain")
     .description("explain the policy decision for one Bash source string")
     .option("--json", "emit the trace as JSON")
@@ -54,6 +73,15 @@ function nonEmptyPath(option: string): (path: string) => string {
     if (path.length === 0) throw new InvalidArgumentError(`${option} requires a non-empty path`);
     return path;
   };
+}
+
+function canonicalPolicyPath(path: string): string {
+  if (!path.endsWith(".policy.json")) throw new PolicyStartupError(path, "declarative policy source must use the exact .policy.json extension");
+  try {
+    return realpathSync(path);
+  } catch (error) {
+    throw new PolicyStartupError(path, "cannot canonicalize policy source", error);
+  }
 }
 
 if (process.argv[1] && pathToFileURL(realpathSync(process.argv[1])).href === import.meta.url) {

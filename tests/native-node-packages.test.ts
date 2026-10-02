@@ -120,6 +120,18 @@ test("packed packages install and expose the OpenCode v1 server and TUI forms; p
     });
     expect(cli.status).toBe(1);
     expect(cli.stderr).toContain("config.json");
+    const standalonePolicy = join(installation, "standalone.policy.json");
+    writeFileSync(standalonePolicy, JSON.stringify({
+      language: "safety-core/bash-policy-v1", layer: "permission", select: [{ kind: "invocation" }], registers: {}, start: "start",
+      states: { start: { cases: [], default: { decision: "ignore" }, end: { decision: "ignore" } } },
+    }));
+    const standaloneValidation = spawnSync(join(installation, "node_modules", ".bin", "safety-core"), ["policy", "validate", standalonePolicy], {
+      cwd: installation,
+      encoding: "utf8",
+      env: { PATH: process.env.PATH ?? "" },
+    });
+    expect(standaloneValidation.status).toBe(0);
+    expect(standaloneValidation.stdout).toBe(`${standalonePolicy}: valid\n`);
     const bashHook = spawnSync(join(installation, "node_modules", ".bin", "safety-core-claude-bash-policy"), [], {
       cwd: installation,
       encoding: "utf8",

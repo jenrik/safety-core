@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
-import { POLICY_LANGUAGE_V1, POLICY_LANGUAGE_V2, parsePolicyDocument, validatePolicyDocument } from "../src/policy/dsl/validate.ts";
+import { POLICY_LANGUAGE_V1, POLICY_LANGUAGE_V2, parsePolicyDocument, validatePolicyDocument, validatePolicyStateReachability } from "../src/policy/dsl/validate.ts";
 import { compilePolicyDocument } from "../src/policy/dsl/compile.ts";
 import { BUILTINS_V1, BUILTINS_V2 } from "../src/policy/dsl/builtins.ts";
 
@@ -96,6 +96,18 @@ describe("DCRM JSON policy validation", () => {
     invalid((document) => { document.states.command.default = { consume: "word", next: "command" }; });
     invalid((document) => { document.states.command.end = { consume: "word", next: "command" }; });
     invalid((document) => { document.registers = { "bad-name!": { type: "bool", initial: false } }; });
+  });
+
+  test("rejects declared states that no transition can reach from start", () => {
+    const orphan = policy();
+    orphan.states.orphan = { cases: [], default: { decision: "ignore" }, end: { decision: "ignore" } };
+    expect(() => validatePolicyStateReachability(validatePolicyDocument(orphan))).toThrow("state orphan is unreachable");
+
+    const fragment = policy();
+    fragment.fragments = { move: { cases: [{ when: true, action: { consume: "word", next: "orphan" } }] } };
+    fragment.states.command.fragments = ["move"];
+    fragment.states.orphan = { cases: [], default: { decision: "ignore" }, end: { decision: "ignore" } };
+    expect(() => validatePolicyStateReachability(validatePolicyDocument(fragment))).not.toThrow();
   });
 
   test("enforces action and expression typing and guard capabilities", () => {
@@ -209,6 +221,26 @@ describe("DCRM JSON policy validation", () => {
 
       (document.states[`state${stateCount - 1}`] as Record<string, any>).cases = [{ when: true, action: { consume: "word", next: "absent" } }];
       expect(() => validatePolicyDocument(document), `invalid seed ${seed}`).toThrow("unknown state");
+    }
+  });
+
+  test("property: state reachability is accepted exactly when every generated state has an incoming route", () => {
+    for (let seed = 0; seed < 256; seed++) {
+      const document = policy();
+      const stateCount = 2 + seed % 12;
+      const reachableCount = 1 + seed % stateCount;
+      document.states = Object.fromEntries(Array.from({ length: stateCount }, (_, index) => [
+        `state${index}`,
+        {
+          cases: [{ when: true, action: { consume: "word", next: `state${index + 1 < reachableCount ? index + 1 : index}` } }],
+          default: { decision: "ignore" },
+          end: { decision: "ignore" },
+        },
+      ]));
+      document.start = "state0";
+      const validation = () => validatePolicyStateReachability(validatePolicyDocument(document));
+      if (reachableCount === stateCount) expect(validation, `seed ${seed}`).not.toThrow();
+      else expect(validation, `seed ${seed}`).toThrow(`state${reachableCount} is unreachable`);
     }
   });
 

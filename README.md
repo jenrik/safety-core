@@ -27,7 +27,9 @@ with the global configuration. `safety-core validate` prints the canonical
 source path and SHA-256 digest selected for the current directory; use it
 before enabling a policy. `safety-core explain --json '<command>'` reports the
 exact modeled events and decisions for local diagnosis. Use `--` before a
-source string that begins with `-`.
+ source string that begins with `-`. `safety-core policy validate
+ /path/to/source.policy.json` validates a standalone declarative policy's
+ schema and requires every declared state to be reachable from its start state.
 
 ```json
 {

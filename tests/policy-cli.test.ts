@@ -209,6 +209,29 @@ describe("safety-core CLI", () => {
     expect(result.stdout).toContain(`  ${policy}\n`);
   });
 
+  test("policy validate checks a standalone declarative policy schema and state reachability", () => {
+    const home = fixture();
+    const policy = join(home, "standalone.policy.json");
+    writeFileSync(policy, JSON.stringify({
+      language: "safety-core/bash-policy-v1", layer: "permission", select: [{ kind: "invocation" }], registers: {}, start: "start",
+      states: { start: { cases: [], default: { decision: "ignore" }, end: { decision: "ignore" } } },
+    }));
+    const valid = cli(home, ["policy", "validate", policy]);
+    expect(valid.status).toBe(0);
+    expect(valid.stdout).toBe(`${policy}: valid\n`);
+
+    writeFileSync(policy, JSON.stringify({
+      language: "safety-core/bash-policy-v1", layer: "permission", select: [{ kind: "invocation" }], registers: {}, start: "start",
+      states: {
+        start: { cases: [], default: { decision: "ignore" }, end: { decision: "ignore" } },
+        orphan: { cases: [], default: { decision: "ignore" }, end: { decision: "ignore" } },
+      },
+    }));
+    const invalid = cli(home, ["policy", "validate", policy]);
+    expect(invalid.status).not.toBe(0);
+    expect(invalid.stderr).toContain(`${policy}: invalid DSL policy: $.states.orphan: state orphan is unreachable from start state start`);
+  });
+
   test("explain emits every source decision and the exact modeled canary argv and environment", () => {
     const home = fixture();
     const result = cli(home, ["explain", "--json", "CANARY_ASSIGN=exact-value printf '%s' CANARY_ARG"], { CANARY_INHERITED: "inherited-value" });
