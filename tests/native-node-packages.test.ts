@@ -135,7 +135,7 @@ test("packed packages install and expose the OpenCode v1 server and TUI forms; p
           await main(["unsupported-command-" + seed]);
           throw new Error("seed " + seed + " unexpectedly succeeded");
         } catch (error) {
-          if (!(error instanceof Error) || !error.message.startsWith("usage: safety-core")) throw error;
+          if (!(error instanceof Error) || error.code !== "commander.unknownCommand") throw error;
         }
       }
     `], installation);

@@ -93,14 +93,21 @@ describe("safety-core CLI", () => {
     }
   });
 
-  test("rejects missing and duplicate global config flags", () => {
+  test("rejects missing or empty global config paths", () => {
     const home = fixture();
-    const config = join(home, "safety-core", "config.json");
-    for (const args of [["--config", "validate"], ["--config=", "validate"], ["--config", config, "--config", config, "validate"]]) {
+    for (const args of [["--config"], ["--config=", "validate"]]) {
       const result = cli(home, args);
       expect(result.status, JSON.stringify(args)).not.toBe(0);
       expect(result.stderr, JSON.stringify(args)).toContain("--config");
     }
+  });
+
+  test("the final repeated global config option wins", () => {
+    const home = fixture();
+    const config = join(home, "safety-core", "config.json");
+    const result = cli(home, ["--config", join(home, "missing-config.json"), "--config", config, "validate"]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/^[a-f0-9]{64}  \/.*canary\.policy\.mjs\n$/);
   });
 
   test("validate reports canonical sources and digests and does not consult profiles.json", () => {
@@ -144,7 +151,7 @@ describe("safety-core CLI", () => {
 
   test("explain emits every source decision and the exact modeled canary argv and environment", () => {
     const home = fixture();
-    const result = cli(home, ["explain", "--json", "--", "CANARY_ASSIGN=exact-value printf '%s' CANARY_ARG"], { CANARY_INHERITED: "inherited-value" });
+    const result = cli(home, ["explain", "--json", "CANARY_ASSIGN=exact-value printf '%s' CANARY_ARG"], { CANARY_INHERITED: "inherited-value" });
     expect(result.status).toBe(0);
     const trace = JSON.parse(result.stdout);
     expect(trace).toMatchObject({ version: 1, decision: "allow" });
@@ -166,7 +173,7 @@ describe("safety-core CLI", () => {
       bashAnalysis: { maxFunctionDepth: 7, maxNestedScriptDepth: 6, maxSteps: 50, maxWorkItems: 50 },
     }));
 
-    const result = cli(home, ["explain", "--json", "--", "printf CANARY_ARG"], { CANARY_INHERITED: "exact-inherited-value" });
+    const result = cli(home, ["explain", "--json", "printf CANARY_ARG"], { CANARY_INHERITED: "exact-inherited-value" });
     expect(result.status).toBe(0);
     const trace = JSON.parse(result.stdout);
     expect(trace).toMatchObject({ version: 1, decision: "allow", analysis: { complete: true } });
@@ -174,6 +181,17 @@ describe("safety-core CLI", () => {
     expect(trace.events[0].environment.CANARY_INHERITED).toEqual({ kind: "known", value: "exact-inherited-value" });
     expect(trace.events[0].missingBindings).toBe("unset");
     expect(trace.decisions[0].decision).toMatchObject({ kind: "allow", reason: [{ kind: "literal", value: "inherited environment canary" }] });
+  });
+
+  test("Commander validates subcommand options and treats values after -- as Bash source", () => {
+    const home = fixture();
+    const invalidValidate = cli(home, ["validate", "--json"]);
+    expect(invalidValidate.status).not.toBe(0);
+    expect(invalidValidate.stderr).toContain("--json");
+
+    const sourceStartingWithOption = cli(home, ["explain", "--json", "--", "--config"]);
+    expect(sourceStartingWithOption.status).toBe(0);
+    expect(JSON.parse(sourceStartingWithOption.stdout)).toMatchObject({ version: 1, decision: "defer" });
   });
 });
 
