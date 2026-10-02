@@ -211,9 +211,25 @@
           pkgs = pkgsFor system;
           sc = scFor system;
         in {
-          default = pkgs.mkShell { packages = [
-            pkgs.bun pkgs.nodejs_22 pkgs.typescript pkgs.python3 sc.core
-          ]; };
+          default = pkgs.mkShell {
+            packages = [
+              pkgs.bun
+              pkgs.nodejs_22
+              pkgs.typescript
+              pkgs.python3
+              pkgs.pre-commit
+              pkgs.biome
+              pkgs.nixfmt
+              pkgs.markdownlint-cli
+              pkgs.ruff
+              sc.core
+            ];
+            shellHook = ''
+              if [ -d .git ] && command -v pre-commit >/dev/null 2>&1; then
+                pre-commit install >/dev/null
+              fi
+            '';
+          };
         });
     };
 }
