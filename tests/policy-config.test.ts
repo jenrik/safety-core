@@ -45,11 +45,13 @@ describe("authoritative global policy configuration", () => {
     writeGlobalConfig(xdgHome, globalConfig());
     writeGlobalConfig(join(home, ".config"), globalConfig());
 
-    expect(() => loadGlobalPolicyConfig({
-      SAFETY_CORE_CONFIG_HOME: safetyHome,
-      XDG_CONFIG_HOME: xdgHome,
-      HOME: home,
-    })).toThrow(PolicyStartupError);
+    expect(() =>
+      loadGlobalPolicyConfig({
+        SAFETY_CORE_CONFIG_HOME: safetyHome,
+        XDG_CONFIG_HOME: xdgHome,
+        HOME: home,
+      }),
+    ).toThrow(PolicyStartupError);
 
     const loaded = loadGlobalPolicyConfig({ XDG_CONFIG_HOME: xdgHome, HOME: home });
     expect(loaded.path).toBe(join(xdgHome, "safety-core", "config.json"));
@@ -65,7 +67,9 @@ describe("authoritative global policy configuration", () => {
       ...globalConfig(),
       projectPolicies: { mode: "allowlisted", allowedRoots: [join(home, "missing-root")] },
     });
-    expect(() => resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), home)).toThrow(PolicyStartupError);
+    expect(() => resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), home)).toThrow(
+      PolicyStartupError,
+    );
   });
 
   test("rejects empty or relative selected environment paths", () => {
@@ -75,7 +79,8 @@ describe("authoritative global policy configuration", () => {
       { XDG_CONFIG_HOME: "relative", HOME: "/home/test" },
       { HOME: "" },
       { HOME: "relative" },
-    ]) expect(() => loadGlobalPolicyConfig(env), JSON.stringify(env)).toThrow(PolicyStartupError);
+    ])
+      expect(() => loadGlobalPolicyConfig(env), JSON.stringify(env)).toThrow(PolicyStartupError);
   });
 
   test("strictly parses only complete recognized global configuration", () => {
@@ -88,7 +93,9 @@ describe("authoritative global policy configuration", () => {
       { ...globalConfig(), bashAnalysis: { maxSteps: 1 } },
     ]) {
       writeGlobalConfig(home, invalid);
-      expect(() => loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), JSON.stringify(invalid)).toThrow(PolicyStartupError);
+      expect(() => loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), JSON.stringify(invalid)).toThrow(
+        PolicyStartupError,
+      );
     }
 
     writeGlobalConfig(home, globalConfig(["policies/read.policy.mjs"]));
@@ -101,7 +108,10 @@ describe("authoritative global policy configuration", () => {
 
   test("parses Pi settings, defaulting command display on and rejecting malformed values", () => {
     const home = fixtureDirectory();
-    writeGlobalConfig(home, { ...globalConfig(), pi: { autoApprove: true, judgeModel: "anthropic/claude-haiku", showFullCommand: false } });
+    writeGlobalConfig(home, {
+      ...globalConfig(),
+      pi: { autoApprove: true, judgeModel: "anthropic/claude-haiku", showFullCommand: false },
+    });
     expect(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }).pi).toEqual({
       autoApprove: true,
       judgeModel: "anthropic/claude-haiku",
@@ -112,15 +122,27 @@ describe("authoritative global policy configuration", () => {
       autoApprove: true,
       showFullCommand: true,
     });
-    for (const pi of [true, { autoApprove: "true" }, { judgeModel: "" }, { showFullCommand: "yes" }, { showFullCommand: 1 }, { unknown: true }]) {
+    for (const pi of [
+      true,
+      { autoApprove: "true" },
+      { judgeModel: "" },
+      { showFullCommand: "yes" },
+      { showFullCommand: 1 },
+      { unknown: true },
+    ]) {
       writeGlobalConfig(home, { ...globalConfig(), pi });
-      expect(() => loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), JSON.stringify(pi)).toThrow(PolicyStartupError);
+      expect(() => loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), JSON.stringify(pi)).toThrow(
+        PolicyStartupError,
+      );
     }
   });
 
   test("persists Pi settings into a writable config file while preserving other keys", () => {
     const home = fixtureDirectory();
-    const path = writeGlobalConfig(home, { ...globalConfig(["read.policy.mjs"]), pi: { autoApprove: true, judgeModel: "provider/model", showFullCommand: true } });
+    const path = writeGlobalConfig(home, {
+      ...globalConfig(["read.policy.mjs"]),
+      pi: { autoApprove: true, judgeModel: "provider/model", showFullCommand: true },
+    });
     expect(persistPiAdapterConfig(path, { showFullCommand: false })).toBe(true);
     const updated = JSON.parse(readFileSync(path, "utf8"));
     expect(updated.pi).toEqual({ autoApprove: true, judgeModel: "provider/model", showFullCommand: false });
@@ -144,14 +166,19 @@ describe("authoritative global policy configuration", () => {
     const malformed = writeGlobalConfig(join(home, "malformed"), globalConfig());
     writeFileSync(malformed, "{");
     expect(persistPiAdapterConfig(malformed, { showFullCommand: false })).toBe(false);
-    expect(persistPiAdapterConfig(join(home, "missing", "safety-core", "config.json"), { showFullCommand: false })).toBe(false);
+    expect(
+      persistPiAdapterConfig(join(home, "missing", "safety-core", "config.json"), { showFullCommand: false }),
+    ).toBe(false);
   });
 
   test("property: 1,024 writable config files round-trip the toggled command display", () => {
     for (let seed = 0; seed < 1_024; seed++) {
       const home = fixtureDirectory();
       const value = seed % 2 === 0;
-      const path = writeGlobalConfig(home, { ...globalConfig(), pi: { autoApprove: seed % 3 === 0, showFullCommand: !value } });
+      const path = writeGlobalConfig(home, {
+        ...globalConfig(),
+        pi: { autoApprove: seed % 3 === 0, showFullCommand: !value },
+      });
       expect(persistPiAdapterConfig(path, { showFullCommand: value }), `seed ${seed}`).toBe(true);
       expect(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }).pi.showFullCommand, `seed ${seed}`).toBe(value);
     }
@@ -159,8 +186,14 @@ describe("authoritative global policy configuration", () => {
 
   test("resolves global references from their configuration and permits code or DSL sources", () => {
     const home = fixtureDirectory();
-    const configPath = writeGlobalConfig(home, globalConfig(["policies/read.policy.mjs", "/installed/absolute.policy.mjs"]));
-    const loaded = resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), fixtureDirectory());
+    const configPath = writeGlobalConfig(
+      home,
+      globalConfig(["policies/read.policy.mjs", "/installed/absolute.policy.mjs"]),
+    );
+    const loaded = resolveSessionPolicyConfig(
+      loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }),
+      fixtureDirectory(),
+    );
 
     expect(loaded.sources.map((source) => source.path)).toEqual([
       join(configPath, "..", "policies", "read.policy.mjs"),
@@ -170,8 +203,9 @@ describe("authoritative global policy configuration", () => {
     expect(Object.isFrozen(loaded.sources)).toBeTrue();
 
     writeGlobalConfig(home, globalConfig(["policies/read.policy.json"]));
-    expect(resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), fixtureDirectory()).sources)
-      .toEqual([{ path: join(configPath, "..", "policies", "read.policy.json"), scope: "global" }]);
+    expect(
+      resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), fixtureDirectory()).sources,
+    ).toEqual([{ path: join(configPath, "..", "policies", "read.policy.json"), scope: "global" }]);
   });
 
   test("discovers only the nearest permitted project config and rejects code policy references", () => {
@@ -181,8 +215,14 @@ describe("authoritative global policy configuration", () => {
     const child = join(project, "nested", "cwd");
     mkdirSync(join(project, ".safety-core"), { recursive: true });
     mkdirSync(join(child, ".safety-core"), { recursive: true });
-    writeFileSync(join(project, ".safety-core", "config.json"), JSON.stringify({ version: 1, policies: ["parent.policy.json"] }));
-    writeFileSync(join(child, ".safety-core", "config.json"), JSON.stringify({ version: 1, policies: ["child.policy.json"] }));
+    writeFileSync(
+      join(project, ".safety-core", "config.json"),
+      JSON.stringify({ version: 1, policies: ["parent.policy.json"] }),
+    );
+    writeFileSync(
+      join(child, ".safety-core", "config.json"),
+      JSON.stringify({ version: 1, policies: ["child.policy.json"] }),
+    );
     writeGlobalConfig(home, {
       ...globalConfig(),
       projectPolicies: { mode: "allowlisted", allowedRoots: [child] },
@@ -192,8 +232,13 @@ describe("authoritative global policy configuration", () => {
     expect(resolved.projectRoot).toBe(realpathSync(child));
     expect(resolved.sources.map((source) => source.path)).toEqual([join(child, "child.policy.json")]);
 
-    writeFileSync(join(child, ".safety-core", "config.json"), JSON.stringify({ version: 1, policies: ["child.policy.mjs"] }));
-    expect(() => resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), child)).toThrow(PolicyStartupError);
+    writeFileSync(
+      join(child, ".safety-core", "config.json"),
+      JSON.stringify({ version: 1, policies: ["child.policy.mjs"] }),
+    );
+    expect(() => resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), child)).toThrow(
+      PolicyStartupError,
+    );
   });
 
   test("property: 1,024 canonical root aliases preserve exact allowlist selection", () => {

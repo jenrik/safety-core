@@ -86,7 +86,16 @@ export interface BashUnsupportedWord {
   readonly span: SourceSpan;
 }
 
-export type BashRedirectKind = "input" | "output" | "append" | "read-write" | "here-string" | "here-document" | "duplicate" | "close" | "unsupported";
+export type BashRedirectKind =
+  | "input"
+  | "output"
+  | "append"
+  | "read-write"
+  | "here-string"
+  | "here-document"
+  | "duplicate"
+  | "close"
+  | "unsupported";
 
 export interface BashRedirect {
   readonly kind: BashRedirectKind;

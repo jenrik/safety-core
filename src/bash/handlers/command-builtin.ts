@@ -16,7 +16,10 @@ export const builtinHandler: CommandHandler = Object.freeze({
       return taintWrapperResult(evalArguments(args.slice(targetIndex + 1), context), context);
     }
     if (target?.kind === "known" && EXECUTABLE_TARGETS.has(target.value)) {
-      return taintWrapperResult(childInvocationFrom(args, targetIndex, context, undefined, "none", "builtin-only"), context);
+      return taintWrapperResult(
+        childInvocationFrom(args, targetIndex, context, undefined, "none", "builtin-only"),
+        context,
+      );
     }
     return dynamicExecutableIndeterminate(context.span);
   },

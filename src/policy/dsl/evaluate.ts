@@ -1,7 +1,15 @@
 import type { BindingValue } from "../../bash/environment.js";
 import { isBindingResolvedWord } from "../../bash/word-provenance.js";
 import type { ResolvedWord } from "../../bash/expand.js";
-import type { BashPolicyEvent, BashPolicySelector, DslPolicyTraceStep, LoadedBashPolicy, PolicyDecision, PolicyDiagnosticPart, PolicySourceIdentity } from "../types.js";
+import type {
+  BashPolicyEvent,
+  BashPolicySelector,
+  DslPolicyTraceStep,
+  LoadedBashPolicy,
+  PolicyDecision,
+  PolicyDiagnosticPart,
+  PolicySourceIdentity,
+} from "../types.js";
 import { POLICY_LANGUAGE_V2 } from "./ast.js";
 import type { AuditValue, Expression, FoldDeclaration, RegisterDeclaration, TerminalAction } from "./ast.js";
 import type { CompiledCase, CompiledOptionAction, CompiledPolicyProgram } from "./compile.js";
@@ -25,15 +33,23 @@ const NORMAL_WORD = -1;
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
 /** Create a pure, one-event DCRM policy. Every call starts from its fixed initial configuration. */
-export function createDslPolicy(program: CompiledPolicyProgram, source: string | PolicySourceIdentity): DslLoadedBashPolicy {
-  const identity = typeof source === "string" ? Object.freeze({ canonicalPath: source }) : Object.freeze({ canonicalPath: source.canonicalPath });
+export function createDslPolicy(
+  program: CompiledPolicyProgram,
+  source: string | PolicySourceIdentity,
+): DslLoadedBashPolicy {
+  const identity =
+    typeof source === "string"
+      ? Object.freeze({ canonicalPath: source })
+      : Object.freeze({ canonicalPath: source.canonicalPath });
   const selectors = Object.freeze(program.select.map(selectorForLoadedPolicy));
   const evaluateWithTrace = (event: BashPolicyEvent): DslEvaluation => evaluateProgram(program, event);
   return Object.freeze({
     source: identity,
     layer: program.layer,
     select: selectors,
-    evaluate(event: BashPolicyEvent): PolicyDecision { return evaluateWithTrace(event).decision; },
+    evaluate(event: BashPolicyEvent): PolicyDecision {
+      return evaluateWithTrace(event).decision;
+    },
     evaluateWithTrace,
   });
 }
@@ -47,7 +63,13 @@ function evaluateProgram(program: CompiledPolicyProgram, event: BashPolicyEvent)
   let clusterByteIndex = NORMAL_WORD;
   let wordByteOffset = NORMAL_WORD;
   const byteBuffers = new Map<ResolvedWord, Buffer>();
-  const cursor = () => ({ argvIndex, wordByteOffset, clusterByteIndex, byteBuffers, v2: program.language === POLICY_LANGUAGE_V2 });
+  const cursor = () => ({
+    argvIndex,
+    wordByteOffset,
+    clusterByteIndex,
+    byteBuffers,
+    v2: program.language === POLICY_LANGUAGE_V2,
+  });
   let registers: Readonly<Record<string, RuntimeValue>> = initialRegisters(program.registers);
   const foldCache = new Map<string, RuntimeValue>();
   const steps: DslMachineStep[] = [];
@@ -66,23 +88,60 @@ function evaluateProgram(program: CompiledPolicyProgram, event: BashPolicyEvent)
         computeFolds(program, entry.action.fold, event, registers, foldCache);
         if (evaluateExpression(entry.when, context) !== true) continue;
         const decision = terminalDecision(entry.action, context);
-        steps.push(step(state, argvIndex, clusterByteIndex, entry.source, entry.origin, "terminal", [], undefined, decision.kind, wordByteOffset));
+        steps.push(
+          step(
+            state,
+            argvIndex,
+            clusterByteIndex,
+            entry.source,
+            entry.origin,
+            "terminal",
+            [],
+            undefined,
+            decision.kind,
+            wordByteOffset,
+          ),
+        );
         return frozenEvaluation(decision, steps);
       }
       computeFolds(program, stateProgram.end.fold, event, registers, foldCache);
-      const decision = terminalDecision(stateProgram.end, runtimeContext(event, undefined, undefined, registers, foldCache, undefined, {}, cursor()));
-      steps.push(step(state, argvIndex, clusterByteIndex, `$.states.${state}.end`, `state:${state}`, "terminal", [], undefined, decision.kind, wordByteOffset));
+      const decision = terminalDecision(
+        stateProgram.end,
+        runtimeContext(event, undefined, undefined, registers, foldCache, undefined, {}, cursor()),
+      );
+      steps.push(
+        step(
+          state,
+          argvIndex,
+          clusterByteIndex,
+          `$.states.${state}.end`,
+          `state:${state}`,
+          "terminal",
+          [],
+          undefined,
+          decision.kind,
+          wordByteOffset,
+        ),
+      );
       return frozenEvaluation(decision, steps);
     }
 
-    const malformedOption = wordByteOffset === NORMAL_WORD && stateProgram.cases.some((entry) => entry.action.kind === "option"
-      && matchOption(entry.action, activeWord, clusterByteIndex, argv[argvIndex + 1]) === undefined
-      && optionSpellingMatches(entry.action, activeWord, clusterByteIndex));
+    const malformedOption =
+      wordByteOffset === NORMAL_WORD &&
+      stateProgram.cases.some(
+        (entry) =>
+          entry.action.kind === "option" &&
+          matchOption(entry.action, activeWord, clusterByteIndex, argv[argvIndex + 1]) === undefined &&
+          optionSpellingMatches(entry.action, activeWord, clusterByteIndex),
+      );
     let matched = false;
     for (const entry of stateProgram.cases) {
       if (malformedOption && entry.action.kind !== "option") continue;
       if (wordByteOffset !== NORMAL_WORD && entry.action.kind === "option") continue;
-      const option = entry.action.kind === "option" ? matchOption(entry.action, activeWord, clusterByteIndex, argv[argvIndex + 1]) : undefined;
+      const option =
+        entry.action.kind === "option"
+          ? matchOption(entry.action, activeWord, clusterByteIndex, argv[argvIndex + 1])
+          : undefined;
       const context = runtimeContext(event, activeWord, option?.value, registers, foldCache, undefined, {}, cursor());
       if (entry.action.kind === "terminal") computeFolds(program, entry.action.fold, event, registers, foldCache);
       const guard = isOptionPredicate(entry.when)
@@ -93,25 +152,82 @@ function evaluateProgram(program: CompiledPolicyProgram, event: BashPolicyEvent)
       matched = true;
       if (entry.action.kind === "terminal") {
         const decision = terminalDecision(entry.action, context);
-        steps.push(step(state, argvIndex, clusterByteIndex, entry.source, entry.origin, "terminal", [], undefined, decision.kind, wordByteOffset));
+        steps.push(
+          step(
+            state,
+            argvIndex,
+            clusterByteIndex,
+            entry.source,
+            entry.origin,
+            "terminal",
+            [],
+            undefined,
+            decision.kind,
+            wordByteOffset,
+          ),
+        );
         return frozenEvaluation(decision, steps);
       }
 
       const action = entry.action;
-      if (action.kind === "transition" && !validTransition(action.consume, activeWord, clusterByteIndex, wordByteOffset, byteBuffers, program.language === POLICY_LANGUAGE_V2)) {
+      if (
+        action.kind === "transition" &&
+        !validTransition(
+          action.consume,
+          activeWord,
+          clusterByteIndex,
+          wordByteOffset,
+          byteBuffers,
+          program.language === POLICY_LANGUAGE_V2,
+        )
+      ) {
         const decision = Object.freeze({ kind: "defer" as const });
-        steps.push(step(state, argvIndex, clusterByteIndex, entry.source, entry.origin, "terminal", [], undefined, decision.kind, wordByteOffset));
+        steps.push(
+          step(
+            state,
+            argvIndex,
+            clusterByteIndex,
+            entry.source,
+            entry.origin,
+            "terminal",
+            [],
+            undefined,
+            decision.kind,
+            wordByteOffset,
+          ),
+        );
         return frozenEvaluation(decision, steps);
       }
       const folds = computeFolds(program, action.fold, event, registers, foldCache);
-      const updated = simultaneousUpdates(action.set, runtimeContext(event, activeWord, option?.value, registers, foldCache, undefined, {}, cursor()));
+      const updated = simultaneousUpdates(
+        action.set,
+        runtimeContext(event, activeWord, option?.value, registers, foldCache, undefined, {}, cursor()),
+      );
       registers = Object.freeze({ ...registers, ...updated });
-      const progress = action.kind === "option"
-        ? consumeOption(action, option!, activeWord, argvIndex, clusterByteIndex, argv)
-        : action.consume === "byte"
-          ? { argvIndex, clusterByteIndex: NORMAL_WORD, wordByteOffset: (wordByteOffset === NORMAL_WORD ? 0 : wordByteOffset) + 1 }
-          : { argvIndex: argvIndex + 1, clusterByteIndex: NORMAL_WORD, wordByteOffset: NORMAL_WORD };
-      steps.push(step(state, argvIndex, clusterByteIndex, entry.source, entry.origin, action.kind, folds, action.next, undefined, wordByteOffset));
+      const progress =
+        action.kind === "option"
+          ? consumeOption(action, option!, activeWord, argvIndex, clusterByteIndex, argv)
+          : action.consume === "byte"
+            ? {
+                argvIndex,
+                clusterByteIndex: NORMAL_WORD,
+                wordByteOffset: (wordByteOffset === NORMAL_WORD ? 0 : wordByteOffset) + 1,
+              }
+            : { argvIndex: argvIndex + 1, clusterByteIndex: NORMAL_WORD, wordByteOffset: NORMAL_WORD };
+      steps.push(
+        step(
+          state,
+          argvIndex,
+          clusterByteIndex,
+          entry.source,
+          entry.origin,
+          action.kind,
+          folds,
+          action.next,
+          undefined,
+          wordByteOffset,
+        ),
+      );
       state = action.next;
       argvIndex = progress.argvIndex;
       clusterByteIndex = progress.clusterByteIndex;
@@ -121,36 +237,73 @@ function evaluateProgram(program: CompiledPolicyProgram, event: BashPolicyEvent)
     if (matched) continue;
 
     computeFolds(program, stateProgram.default.fold, event, registers, foldCache);
-    const decision = terminalDecision(stateProgram.default, runtimeContext(event, activeWord, undefined, registers, foldCache, undefined, {}, cursor()));
-    steps.push(step(state, argvIndex, clusterByteIndex, `$.states.${state}.default`, `state:${state}`, "terminal", [], undefined, decision.kind, wordByteOffset));
+    const decision = terminalDecision(
+      stateProgram.default,
+      runtimeContext(event, activeWord, undefined, registers, foldCache, undefined, {}, cursor()),
+    );
+    steps.push(
+      step(
+        state,
+        argvIndex,
+        clusterByteIndex,
+        `$.states.${state}.default`,
+        `state:${state}`,
+        "terminal",
+        [],
+        undefined,
+        decision.kind,
+        wordByteOffset,
+      ),
+    );
     return frozenEvaluation(decision, steps);
   }
 }
 
 function selects(program: CompiledPolicyProgram, event: BashPolicyEvent): boolean {
   return program.select.some((selector) => {
-    if ("kind" in selector) return event.kind === selector.kind && (selector.kind !== "execution-gap" || selector.reason === undefined || event.reason === selector.reason);
+    if ("kind" in selector)
+      return (
+        event.kind === selector.kind &&
+        (selector.kind !== "execution-gap" || selector.reason === undefined || event.reason === selector.reason)
+      );
     if (event.kind !== "invocation") return false;
     const identity = event.executableIdentity;
     switch (selector.executable.projection) {
-      case "basename": return identity.qualification !== "unknown" && identity.basename === selector.executable.equals;
-      case "selected-path": return identity.qualification === "known" && identity.selectedPath === selector.executable.equals;
-      case "canonical-target": return identity.qualification === "known" && identity.canonicalTarget === selector.executable.equals;
-      case "chain-contains": return identity.qualification === "known" && identity.chain.includes(selector.executable.equals);
+      case "basename":
+        return identity.qualification !== "unknown" && identity.basename === selector.executable.equals;
+      case "selected-path":
+        return identity.qualification === "known" && identity.selectedPath === selector.executable.equals;
+      case "canonical-target":
+        return identity.qualification === "known" && identity.canonicalTarget === selector.executable.equals;
+      case "chain-contains":
+        return identity.qualification === "known" && identity.chain.includes(selector.executable.equals);
     }
+    return false;
   });
 }
 
 function selectorForLoadedPolicy(selector: CompiledPolicyProgram["select"][number]): BashPolicySelector {
-  if ("kind" in selector) return Object.freeze(selector.reason === undefined ? { kind: selector.kind } : { kind: selector.kind, reason: selector.reason });
-  const kind = selector.executable.projection === "basename" ? "executable-basename"
-    : selector.executable.projection === "selected-path" ? "executable-selected-path"
-      : selector.executable.projection === "canonical-target" ? "executable-canonical-target" : "executable-chain-contains";
+  if ("kind" in selector)
+    return Object.freeze(
+      selector.reason === undefined ? { kind: selector.kind } : { kind: selector.kind, reason: selector.reason },
+    );
+  const kind =
+    selector.executable.projection === "basename"
+      ? "executable-basename"
+      : selector.executable.projection === "selected-path"
+        ? "executable-selected-path"
+        : selector.executable.projection === "canonical-target"
+          ? "executable-canonical-target"
+          : "executable-chain-contains";
   return Object.freeze({ kind, value: selector.executable.equals });
 }
 
-function initialRegisters(declarations: Readonly<Record<string, RegisterDeclaration>>): Readonly<Record<string, RuntimeValue>> {
-  return Object.freeze(Object.fromEntries(Object.entries(declarations).map(([name, declaration]) => [name, initialRegister(declaration)])));
+function initialRegisters(
+  declarations: Readonly<Record<string, RegisterDeclaration>>,
+): Readonly<Record<string, RuntimeValue>> {
+  return Object.freeze(
+    Object.fromEntries(Object.entries(declarations).map(([name, declaration]) => [name, initialRegister(declaration)])),
+  );
 }
 
 function initialRegister(declaration: RegisterDeclaration): RuntimeValue {
@@ -166,18 +319,44 @@ interface RuntimeContext {
   readonly folds: ReadonlyMap<string, RuntimeValue>;
   readonly foldItem?: RuntimeValue;
   readonly captures: Readonly<Record<string, RuntimeValue>>;
-  readonly cursor?: { readonly argvIndex: number; readonly wordByteOffset: number; readonly clusterByteIndex: number; readonly byteBuffers: Map<ResolvedWord, Buffer>; readonly v2: boolean };
+  readonly cursor?: {
+    readonly argvIndex: number;
+    readonly wordByteOffset: number;
+    readonly clusterByteIndex: number;
+    readonly byteBuffers: Map<ResolvedWord, Buffer>;
+    readonly v2: boolean;
+  };
 }
 
-function runtimeContext(event: BashPolicyEvent, word: ResolvedWord | undefined, optionValue: InputReference | null | undefined, registers: Readonly<Record<string, RuntimeValue>>, folds: ReadonlyMap<string, RuntimeValue>, foldItem?: RuntimeValue, captures: Readonly<Record<string, RuntimeValue>> = {}, cursor?: RuntimeContext["cursor"]): RuntimeContext {
+function runtimeContext(
+  event: BashPolicyEvent,
+  word: ResolvedWord | undefined,
+  optionValue: InputReference | null | undefined,
+  registers: Readonly<Record<string, RuntimeValue>>,
+  folds: ReadonlyMap<string, RuntimeValue>,
+  foldItem?: RuntimeValue,
+  captures: Readonly<Record<string, RuntimeValue>> = {},
+  cursor?: RuntimeContext["cursor"],
+): RuntimeContext {
   return { event, word, optionValue, registers, folds, foldItem, captures, cursor };
 }
 
 function evaluateExpression(expression: Expression, context: RuntimeContext): RuntimeValue {
-  if (expression === null || typeof expression === "string" || typeof expression === "number" || typeof expression === "boolean") return expression;
+  if (
+    expression === null ||
+    typeof expression === "string" ||
+    typeof expression === "number" ||
+    typeof expression === "boolean"
+  )
+    return expression;
   if (Array.isArray(expression)) return expression;
   if ("ref" in expression) return reference(expression.ref, context);
-  if ("call" in expression) return builtin(expression.call, expression.args.map((argument) => evaluateExpression(argument, context)), context);
+  if ("call" in expression)
+    return builtin(
+      expression.call,
+      expression.args.map((argument) => evaluateExpression(argument, context)),
+      context,
+    );
   if ("all" in expression) {
     let unknown = false;
     for (const item of expression.all) {
@@ -202,15 +381,21 @@ function evaluateExpression(expression: Expression, context: RuntimeContext): Ru
 
 function reference(name: string, context: RuntimeContext): RuntimeValue {
   if (name === "byte" && context.cursor?.v2) {
-    if (!context.word || !isKnown(context.word) || !context.cursor || context.cursor.clusterByteIndex !== NORMAL_WORD) return UNKNOWN;
+    if (!context.word || !isKnown(context.word) || !context.cursor || context.cursor.clusterByteIndex !== NORMAL_WORD)
+      return UNKNOWN;
     const bytes = encodedWord(context.word, context.cursor.byteBuffers);
     const offset = context.cursor.wordByteOffset === NORMAL_WORD ? 0 : context.cursor.wordByteOffset;
     return offset < bytes.length ? String.fromCharCode(bytes[offset]!) : UNKNOWN;
   }
   if (name === "cursor" && context.cursor?.v2) {
-    if (!context.word || !isKnown(context.word) || !context.cursor || context.cursor.clusterByteIndex !== NORMAL_WORD) return UNKNOWN;
+    if (!context.word || !isKnown(context.word) || !context.cursor || context.cursor.clusterByteIndex !== NORMAL_WORD)
+      return UNKNOWN;
     encodedWord(context.word, context.cursor.byteBuffers);
-    return Object.freeze({ word: context.word, argvIndex: context.cursor.argvIndex, offset: context.cursor.wordByteOffset === NORMAL_WORD ? 0 : context.cursor.wordByteOffset });
+    return Object.freeze({
+      word: context.word,
+      argvIndex: context.cursor.argvIndex,
+      offset: context.cursor.wordByteOffset === NORMAL_WORD ? 0 : context.cursor.wordByteOffset,
+    });
   }
   if (name === "word") return context.word === undefined ? UNKNOWN : inputReference(context.word);
   if (name === "option.value") return context.optionValue === undefined ? UNKNOWN : context.optionValue;
@@ -218,20 +403,37 @@ function reference(name: string, context: RuntimeContext): RuntimeValue {
   if (name === "event.kind") return context.event.kind;
   if (name === "event") return context.event;
   if (name === "event.gap.reason") return context.event.kind === "execution-gap" ? context.event.reason : UNKNOWN;
-  if (name === "event.executable") return context.event.kind === "invocation" && context.event.executable !== null ? inputReference(context.event.executable) : UNKNOWN;
-  if (name === "event.cwd" && context.cursor?.v2) return context.event.kind === "invocation" ? context.event.cwd ?? UNKNOWN : UNKNOWN;
-  if (name === "event.redirect.input.target") return context.event.kind === "invocation"
-    ? inputRedirectTarget(context.event) : UNKNOWN;
+  if (name === "event.executable")
+    return context.event.kind === "invocation" && context.event.executable !== null
+      ? inputReference(context.event.executable)
+      : UNKNOWN;
+  if (name === "event.cwd" && context.cursor?.v2)
+    return context.event.kind === "invocation" ? (context.event.cwd ?? UNKNOWN) : UNKNOWN;
+  if (name === "event.redirect.input.target")
+    return context.event.kind === "invocation" ? inputRedirectTarget(context.event) : UNKNOWN;
   if (name.startsWith("capture.")) return context.captures[name.slice(8)] ?? UNKNOWN;
   if (name.startsWith("fold.")) return context.folds.get(name.slice(5)) ?? UNKNOWN;
   return Object.hasOwn(context.registers, name) ? context.registers[name]! : UNKNOWN;
 }
 
-function simultaneousUpdates(assignments: Readonly<Record<string, Expression>>, context: RuntimeContext): Readonly<Record<string, RuntimeValue>> {
-  return Object.freeze(Object.fromEntries(Object.entries(assignments).map(([name, expression]) => [name, evaluateExpression(expression, context)])));
+function simultaneousUpdates(
+  assignments: Readonly<Record<string, Expression>>,
+  context: RuntimeContext,
+): Readonly<Record<string, RuntimeValue>> {
+  return Object.freeze(
+    Object.fromEntries(
+      Object.entries(assignments).map(([name, expression]) => [name, evaluateExpression(expression, context)]),
+    ),
+  );
 }
 
-function computeFolds(program: CompiledPolicyProgram, requested: readonly string[], event: BashPolicyEvent, registers: Readonly<Record<string, RuntimeValue>>, cache: Map<string, RuntimeValue>): readonly string[] {
+function computeFolds(
+  program: CompiledPolicyProgram,
+  requested: readonly string[],
+  event: BashPolicyEvent,
+  registers: Readonly<Record<string, RuntimeValue>>,
+  cache: Map<string, RuntimeValue>,
+): readonly string[] {
   const evaluated: string[] = [];
   for (const name of requested) {
     if (cache.has(name)) continue;
@@ -243,17 +445,31 @@ function computeFolds(program: CompiledPolicyProgram, requested: readonly string
   return Object.freeze(evaluated);
 }
 
-function evaluateFold(declaration: FoldDeclaration, event: BashPolicyEvent, registers: Readonly<Record<string, RuntimeValue>>, cache: ReadonlyMap<string, RuntimeValue>): RuntimeValue {
+function evaluateFold(
+  declaration: FoldDeclaration,
+  event: BashPolicyEvent,
+  registers: Readonly<Record<string, RuntimeValue>>,
+  cache: ReadonlyMap<string, RuntimeValue>,
+): RuntimeValue {
   const values = foldCollection(declaration.collection, event);
-  const predicate = (item: RuntimeValue) => evaluateExpression(declaration.when, runtimeContext(event, undefined, undefined, registers, cache, item));
+  const predicate = (item: RuntimeValue) =>
+    evaluateExpression(declaration.when, runtimeContext(event, undefined, undefined, registers, cache, item));
   if (declaration.operation === "any") {
     let unknown = false;
-    for (const value of values) { const result = predicate(value); if (result === true) return true; if (result !== false) unknown = true; }
+    for (const value of values) {
+      const result = predicate(value);
+      if (result === true) return true;
+      if (result !== false) unknown = true;
+    }
     return unknown ? UNKNOWN : false;
   }
   if (declaration.operation === "all") {
     let unknown = false;
-    for (const value of values) { const result = predicate(value); if (result === false) return false; if (result !== true) unknown = true; }
+    for (const value of values) {
+      const result = predicate(value);
+      if (result === false) return false;
+      if (result !== true) unknown = true;
+    }
     return unknown ? UNKNOWN : true;
   }
   if (declaration.operation === "firstRef") {
@@ -272,25 +488,43 @@ function evaluateFold(declaration: FoldDeclaration, event: BashPolicyEvent, regi
 
 function foldCollection(collection: FoldDeclaration["collection"], event: BashPolicyEvent): readonly RuntimeValue[] {
   if (collection === "argv") return event.kind === "invocation" ? event.argv.map((word) => inputReference(word)) : [];
-  if (collection === "redirects") return event.kind === "invocation"
-    ? event.redirects.flatMap((redirect) => redirect.kind === "input" && redirect.target !== null ? [inputReference(redirect.target)] : [])
-    : [];
+  if (collection === "redirects")
+    return event.kind === "invocation"
+      ? event.redirects.flatMap((redirect) =>
+          redirect.kind === "input" && redirect.target !== null ? [inputReference(redirect.target)] : [],
+        )
+      : [];
   if (collection === "assignments") return event.kind === "invocation" ? Object.values(event.assignments) : [];
   if (collection === "provenance") return event.provenance.route;
   return Object.values(event.environment);
 }
 
-interface OptionMatch { readonly value?: InputReference | null; readonly consumes: "word" | "separate" | "cluster"; readonly nextClusterByteIndex?: number; }
+interface OptionMatch {
+  readonly value?: InputReference | null;
+  readonly consumes: "word" | "separate" | "cluster";
+  readonly nextClusterByteIndex?: number;
+}
 
-function matchOption(action: CompiledOptionAction, word: ResolvedWord, clusterByteIndex: number, next: ResolvedWord | undefined): OptionMatch | undefined {
+function matchOption(
+  action: CompiledOptionAction,
+  word: ResolvedWord,
+  clusterByteIndex: number,
+  next: ResolvedWord | undefined,
+): OptionMatch | undefined {
   if (!isKnown(word)) return undefined;
   const value = word.value;
   if (clusterByteIndex >= 0) {
-    if ((action.value !== "absent" && !action.forms.includes("cluster")) || !value.startsWith("-") || value.startsWith("--")) return undefined;
+    if (
+      (action.value !== "absent" && !action.forms.includes("cluster")) ||
+      !value.startsWith("-") ||
+      value.startsWith("--")
+    )
+      return undefined;
     const name = `-${value[clusterByteIndex] ?? ""}`;
     if (!action.names.includes(name)) return undefined;
     const after = clusterByteIndex + 1;
-    if (action.value === "absent") return { consumes: after < value.length ? "cluster" : "word", nextClusterByteIndex: after };
+    if (action.value === "absent")
+      return { consumes: after < value.length ? "cluster" : "word", nextClusterByteIndex: after };
     if (after < value.length) return { consumes: "word", value: inputReference(word, after, Buffer.byteLength(value)) };
     return separateOptionValue(action, next);
   }
@@ -298,33 +532,57 @@ function matchOption(action: CompiledOptionAction, word: ResolvedWord, clusterBy
     if (value === name) {
       if (action.value === "absent") return { consumes: "word" };
       return separateOptionValue(action, next);
-      continue;
     }
-    if (action.forms.includes("attachedShort") && /^-[^-]$/.test(name) && value.startsWith(name) && value.length > name.length) {
+    if (
+      action.forms.includes("attachedShort") &&
+      /^-[^-]$/.test(name) &&
+      value.startsWith(name) &&
+      value.length > name.length
+    ) {
       return { consumes: "word", value: inputReference(word, Buffer.byteLength(name), Buffer.byteLength(value)) };
     }
     if (action.forms.includes("equalsLong") && name.startsWith("--") && value.startsWith(`${name}=`)) {
       return { consumes: "word", value: inputReference(word, Buffer.byteLength(name) + 1, Buffer.byteLength(value)) };
     }
-    if ((action.value === "absent" || action.forms.includes("cluster")) && /^-[^-]$/.test(name) && value.startsWith("-") && !value.startsWith("--") && value.length > 2 && value[1] === name[1]) {
+    if (
+      (action.value === "absent" || action.forms.includes("cluster")) &&
+      /^-[^-]$/.test(name) &&
+      value.startsWith("-") &&
+      !value.startsWith("--") &&
+      value.length > 2 &&
+      value[1] === name[1]
+    ) {
       const after = 2;
       if (action.value === "absent") return { consumes: "cluster", nextClusterByteIndex: after };
-      if (after < Buffer.byteLength(value)) return { consumes: "word", value: inputReference(word, after, Buffer.byteLength(value)) };
+      if (after < Buffer.byteLength(value))
+        return { consumes: "word", value: inputReference(word, after, Buffer.byteLength(value)) };
     }
   }
   return undefined;
 }
 
-function consumeOption(action: CompiledOptionAction, option: OptionMatch, word: ResolvedWord, argvIndex: number, clusterByteIndex: number, argv: readonly ResolvedWord[]): { readonly argvIndex: number; readonly clusterByteIndex: number } {
-  if (option.consumes === "cluster") return { argvIndex, clusterByteIndex: option.nextClusterByteIndex ?? clusterByteIndex + 1 };
+function consumeOption(
+  action: CompiledOptionAction,
+  option: OptionMatch,
+  word: ResolvedWord,
+  argvIndex: number,
+  clusterByteIndex: number,
+  argv: readonly ResolvedWord[],
+): { readonly argvIndex: number; readonly clusterByteIndex: number } {
+  if (option.consumes === "cluster")
+    return { argvIndex, clusterByteIndex: option.nextClusterByteIndex ?? clusterByteIndex + 1 };
   if (option.consumes === "separate") return { argvIndex: argvIndex + 2, clusterByteIndex: NORMAL_WORD };
   return { argvIndex: argvIndex + 1, clusterByteIndex: NORMAL_WORD };
 }
 
 function separateOptionValue(action: CompiledOptionAction, next: ResolvedWord | undefined): OptionMatch | undefined {
-  if (!action.forms.includes("separate")) return action.value === "optional" ? { consumes: "word", value: null } : undefined;
-  if (action.value === "required") return next === undefined ? undefined : { consumes: "separate", value: inputReference(next) };
-  return next !== undefined && !looksLikeOption(next) ? { consumes: "separate", value: inputReference(next) } : { consumes: "word", value: null };
+  if (!action.forms.includes("separate"))
+    return action.value === "optional" ? { consumes: "word", value: null } : undefined;
+  if (action.value === "required")
+    return next === undefined ? undefined : { consumes: "separate", value: inputReference(next) };
+  return next !== undefined && !looksLikeOption(next)
+    ? { consumes: "separate", value: inputReference(next) }
+    : { consumes: "word", value: null };
 }
 
 function encodedWord(word: ResolvedWord, buffers: Map<ResolvedWord, Buffer>): Buffer {
@@ -336,7 +594,14 @@ function encodedWord(word: ResolvedWord, buffers: Map<ResolvedWord, Buffer>): Bu
   return bytes;
 }
 
-function validTransition(consume: "word" | "byte" | "restOfWord", word: ResolvedWord, clusterByteIndex: number, offset: number, buffers: Map<ResolvedWord, Buffer>, v2: boolean): boolean {
+function validTransition(
+  consume: "word" | "byte" | "restOfWord",
+  word: ResolvedWord,
+  clusterByteIndex: number,
+  offset: number,
+  buffers: Map<ResolvedWord, Buffer>,
+  v2: boolean,
+): boolean {
   if (consume === "word" && offset === NORMAL_WORD) return !v2 || clusterByteIndex === NORMAL_WORD;
   if (clusterByteIndex !== NORMAL_WORD || !isKnown(word)) return false;
   const length = encodedWord(word, buffers).length;
@@ -347,102 +612,228 @@ function validTransition(consume: "word" | "byte" | "restOfWord", word: Resolved
 
 function optionSpellingMatches(action: CompiledOptionAction, word: ResolvedWord, clusterByteIndex: number): boolean {
   if (!isKnown(word)) return false;
-  if (clusterByteIndex >= 0) return word.value.startsWith("-") && !word.value.startsWith("--")
-    && action.names.includes(`-${word.value[clusterByteIndex] ?? ""}`);
-  return action.names.some((name) => word.value === name
-    || /^-[^-]$/.test(name) && word.value.startsWith(name) && word.value.length > name.length
-    || name.startsWith("--") && word.value.startsWith(`${name}=`));
+  if (clusterByteIndex >= 0)
+    return (
+      word.value.startsWith("-") &&
+      !word.value.startsWith("--") &&
+      action.names.includes(`-${word.value[clusterByteIndex] ?? ""}`)
+    );
+  return action.names.some(
+    (name) =>
+      word.value === name ||
+      (/^-[^-]$/.test(name) && word.value.startsWith(name) && word.value.length > name.length) ||
+      (name.startsWith("--") && word.value.startsWith(`${name}=`)),
+  );
 }
 
-function looksLikeOption(word: ResolvedWord): boolean { return isKnown(word) && word.value.startsWith("-") && word.value !== "-"; }
+function looksLikeOption(word: ResolvedWord): boolean {
+  return isKnown(word) && word.value.startsWith("-") && word.value !== "-";
+}
 
 function terminalDecision(action: TerminalAction, context: RuntimeContext): PolicyDecision {
   // Deliberately constrained template prototype: captures are finite, typed
   // expressions over immutable inputs only. Redesign before broadening templates.
-  context = { ...context, captures: Object.freeze(Object.fromEntries(Object.entries(action.capture).map(([name, expression]) => [name, evaluateExpression(expression, context)]))) };
+  context = {
+    ...context,
+    captures: Object.freeze(
+      Object.fromEntries(
+        Object.entries(action.capture).map(([name, expression]) => [name, evaluateExpression(expression, context)]),
+      ),
+    ),
+  };
   if (action.decision === "ignore") return Object.freeze({ kind: "ignore" });
   if (action.decision === "defer") {
-    const audit = action.audit === undefined ? undefined : auditValue(action.audit, context) as Readonly<Record<string, unknown>>;
+    const audit =
+      action.audit === undefined ? undefined : (auditValue(action.audit, context) as Readonly<Record<string, unknown>>);
     return Object.freeze({ kind: "defer", ...(audit === undefined ? {} : { audit }) });
   }
   const reason = template(action.reason ?? [], context);
-  const audit = action.audit === undefined ? undefined : auditValue(action.audit, context) as Readonly<Record<string, unknown>>;
+  const audit =
+    action.audit === undefined ? undefined : (auditValue(action.audit, context) as Readonly<Record<string, unknown>>);
   const suggestion = action.suggestion === undefined ? undefined : template(action.suggestion, context);
-  return Object.freeze({ kind: action.decision, reason, ...(suggestion === undefined ? {} : { suggestion }), ...(audit === undefined ? {} : { audit }) }) as PolicyDecision;
+  return Object.freeze({
+    kind: action.decision,
+    reason,
+    ...(suggestion === undefined ? {} : { suggestion }),
+    ...(audit === undefined ? {} : { audit }),
+  }) as PolicyDecision;
 }
 
 function template(parts: readonly (string | Expression)[], context: RuntimeContext): readonly PolicyDiagnosticPart[] {
   const result: PolicyDiagnosticPart[] = [];
   for (const part of parts) {
     const value = typeof part === "string" ? part : materialize(evaluateExpression(part, context));
-    const literal = typeof part === "string" || (typeof part === "object" && part !== null && (("call" in part) || ("ref" in part && part.ref.startsWith("capture."))) && typeof value === "string");
+    const literal =
+      typeof part === "string" ||
+      (typeof part === "object" &&
+        part !== null &&
+        ("call" in part || ("ref" in part && part.ref.startsWith("capture."))) &&
+        typeof value === "string");
     if (literal && typeof value === "string" && result.at(-1)?.kind === "literal") {
       result[result.length - 1] = Object.freeze({ kind: "literal", value: result.at(-1)!.value + value });
-    } else result.push(Object.freeze(literal ? { kind: "literal" as const, value: value as string } : { kind: "value" as const, value }));
+    } else
+      result.push(
+        Object.freeze(
+          literal ? { kind: "literal" as const, value: value as string } : { kind: "value" as const, value },
+        ),
+      );
   }
   return Object.freeze(result);
 }
 
 function auditValue(value: AuditValue, context: RuntimeContext): unknown {
-  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
+  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean")
+    return value;
   if (Array.isArray(value)) return Object.freeze(value.map((item) => auditValue(item, context)));
   if ("ref" in value) return materialize(reference(value.ref, context));
-  return Object.freeze(Object.fromEntries(Object.entries(value).map(([key, item]) => [key, auditValue(item, context)])));
+  return Object.freeze(
+    Object.fromEntries(Object.entries(value).map(([key, item]) => [key, auditValue(item, context)])),
+  );
 }
 
 function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeContext): RuntimeValue {
   const strings = args.map(stringValue);
   // String-set arguments are literal arrays, not strings. Their stringValue is
   // intentionally unknown and must not poison finite-set membership.
-  if (requiresKnownOperands(name) && (args.some(isUnknown) || !nonStringOperandBuiltin(name) && strings.some(isUnknown))) return UNKNOWN;
+  if (
+    requiresKnownOperands(name) &&
+    (args.some(isUnknown) || (!nonStringOperandBuiltin(name) && strings.some(isUnknown)))
+  )
+    return UNKNOWN;
   switch (name) {
-    case "equals": return strings[0] === strings[1];
-    case "inStringSet": return isUnknown(strings[0]) ? UNKNOWN : Array.isArray(args[1]) && args[1].includes(strings[0] as string);
-    case "asciiLower": return isUnknown(strings[0]) ? UNKNOWN : asciiCase(strings[0], false);
-    case "asciiUpper": return isUnknown(strings[0]) ? UNKNOWN : asciiCase(strings[0], true);
-    case "equalsAsciiCaseInsensitive": return asciiCase(strings[0] as string, false) === asciiCase(strings[1] as string, false);
-    case "wordInAsciiCaseInsensitiveSet": return isUnknown(strings[0]) ? UNKNOWN : Array.isArray(args[1]) && args[1].some((value) => asciiCase(value, false) === asciiCase(strings[0] as string, false));
-    case "startsWith": return (strings[0] as string).startsWith(strings[1] as string);
-    case "endsWith": return (strings[0] as string).endsWith(strings[1] as string);
-    case "includes": return (strings[0] as string).includes(strings[1] as string);
-    case "basename": return isUnknown(strings[0]) ? UNKNOWN : (strings[0] as string).split("/").filter(Boolean).at(-1) ?? "";
-    case "pathComponent": return isUnknown(strings[0]) ? UNKNOWN : (strings[0] as string).split("/").filter(Boolean)[args[1] as number] ?? "";
-    case "pathAfterComponents": return isUnknown(strings[0]) ? UNKNOWN : pathAfterComponents(strings[0] as string, args[1] as number);
-    case "splitComponent": return isUnknown(strings[0]) || isUnknown(strings[1]) ? UNKNOWN : (strings[0] as string).split(strings[1] as string)[args[2] as number] ?? "";
-    case "leadingAsciiDigits": return isUnknown(strings[0]) ? UNKNOWN : (/^[0-9]*/.exec(strings[0] as string)?.[0] ?? "");
-    case "parseBoundedInt": return isUnknown(strings[0]) ? UNKNOWN : Math.min(Number.isSafeInteger(Number(strings[0])) && /^\d+$/.test(strings[0] as string) ? Number(strings[0]) : 0, args[1] as number);
-    case "boundedIntAtMost": return (args[0] as number) <= (args[1] as number);
-    case "safeGlob": return isUnknown(strings[0]) || isUnknown(strings[1]) ? UNKNOWN : glob(strings[0] as string, strings[1] as string);
-    case "anySafeGlob": return isUnknown(strings[0]) ? UNKNOWN : Array.isArray(args[1]) && args[1].some((pattern) => glob(strings[0] as string, pattern));
-    case "linearRegex": return matchesLinearRegex(strings[0] as string, strings[1] as string);
-    case "parseUrl": return isUnknown(strings[0]) ? UNKNOWN : parseUrl(strings[0] as string);
-    case "urlHost": return isUrl(args[0]) ? args[0].host : UNKNOWN;
-    case "urlPath": return isUrl(args[0]) ? args[0].path : UNKNOWN;
-    case "urlHostEquals": return isUnknown(args[0]) || isUnknown(strings[1]) ? UNKNOWN : isUrl(args[0]) && args[0].host === asciiCase(strings[1] as string, false);
-    case "parseRepository": return isUnknown(strings[0]) ? UNKNOWN : parseRepository(strings[0] as string);
-    case "repositoryEquals": return isRepository(args[0]) && args[0].owner === strings[1] && args[0].repository === strings[2];
-    case "repositoryHasExplicitHost": return isRepository(args[0]) && args[0].explicitHost;
-    case "repositoryMatches": return isRepository(args[0]) && args[0].host === asciiCase(strings[1] as string, false)
-      && args[0].owner === asciiCase(strings[2] as string, false) && args[0].repository === asciiCase(strings[3] as string, false);
-    case "repositoryMatchesOrganization": return isRepository(args[0]) && args[0].host === asciiCase(strings[1] as string, false)
-      && args[0].owner === asciiCase(strings[2] as string, false);
-    case "normalizeKubernetesResource": return isUnknown(strings[0]) ? UNKNOWN : normalizeKubernetes(strings[0] as string);
-    case "normalizeGitHubEndpoint": return isUnknown(strings[0]) ? UNKNOWN : normalizeEndpoint(strings[0] as string);
-    case "environmentLookup": return environmentLookup(context.event, strings[0]);
-    case "environmentIsPresent": return !isUnknown(args[0]) && isBinding(args[0]) && args[0].kind !== "unset";
-    case "environmentIsKnown": return !isUnknown(args[0]) && isBinding(args[0]) && args[0].kind === "known";
-    case "environmentIsUnknown": return isUnknown(args[0]) || (isBinding(args[0]) && args[0].kind === "unknown");
-    case "environmentValueEquals": return isUnknown(args[0]) || isUnknown(strings[1]) || !isBinding(args[0]) || args[0].kind === "unknown"
-      ? UNKNOWN
-      : args[0].kind === "known" && args[0].value === strings[1];
-    case "environmentIsExported": return typeof strings[0] === "string" && context.event.kind === "invocation" && context.event.exportedEnvironment?.[strings[0]] === true;
-    case "missingEnvironmentMayBePresent": return context.event.missingBindings === "unknown";
-    case "redirectHasInputPath": return isUnknown(strings[0]) ? UNKNOWN : context.event.kind === "invocation" && context.event.redirects.some((redirect) => (redirect.kind === "input" || redirect.kind === "read-write") && redirect.target !== null && stringValue(inputReference(redirect.target)) === strings[0]);
-    case "hasAssignment": return typeof strings[0] === "string" && context.event.kind === "invocation" && Object.hasOwn(context.event.assignments, strings[0]);
-    case "hasAnyAssignment": return context.event.kind === "invocation" && Object.keys(context.event.assignments).length > 0;
-    case "assignmentsAreSubset": return context.event.kind === "invocation" && Array.isArray(args[0])
-      && Object.keys(context.event.assignments).every((name) => args[0].includes(name));
-    case "hasRedirect": return context.event.kind === "invocation" && context.event.redirects.length > 0;
+    case "equals":
+      return strings[0] === strings[1];
+    case "inStringSet":
+      return isUnknown(strings[0]) ? UNKNOWN : Array.isArray(args[1]) && args[1].includes(strings[0] as string);
+    case "asciiLower":
+      return isUnknown(strings[0]) ? UNKNOWN : asciiCase(strings[0], false);
+    case "asciiUpper":
+      return isUnknown(strings[0]) ? UNKNOWN : asciiCase(strings[0], true);
+    case "equalsAsciiCaseInsensitive":
+      return asciiCase(strings[0] as string, false) === asciiCase(strings[1] as string, false);
+    case "wordInAsciiCaseInsensitiveSet":
+      return isUnknown(strings[0])
+        ? UNKNOWN
+        : Array.isArray(args[1]) &&
+            args[1].some((value) => asciiCase(value, false) === asciiCase(strings[0] as string, false));
+    case "startsWith":
+      return (strings[0] as string).startsWith(strings[1] as string);
+    case "endsWith":
+      return (strings[0] as string).endsWith(strings[1] as string);
+    case "includes":
+      return (strings[0] as string).includes(strings[1] as string);
+    case "basename":
+      return isUnknown(strings[0]) ? UNKNOWN : ((strings[0] as string).split("/").filter(Boolean).at(-1) ?? "");
+    case "pathComponent":
+      return isUnknown(strings[0])
+        ? UNKNOWN
+        : ((strings[0] as string).split("/").filter(Boolean)[args[1] as number] ?? "");
+    case "pathAfterComponents":
+      return isUnknown(strings[0]) ? UNKNOWN : pathAfterComponents(strings[0] as string, args[1] as number);
+    case "splitComponent":
+      return isUnknown(strings[0]) || isUnknown(strings[1])
+        ? UNKNOWN
+        : ((strings[0] as string).split(strings[1] as string)[args[2] as number] ?? "");
+    case "leadingAsciiDigits":
+      return isUnknown(strings[0]) ? UNKNOWN : (/^[0-9]*/.exec(strings[0] as string)?.[0] ?? "");
+    case "parseBoundedInt":
+      return isUnknown(strings[0])
+        ? UNKNOWN
+        : Math.min(
+            Number.isSafeInteger(Number(strings[0])) && /^\d+$/.test(strings[0] as string) ? Number(strings[0]) : 0,
+            args[1] as number,
+          );
+    case "boundedIntAtMost":
+      return (args[0] as number) <= (args[1] as number);
+    case "safeGlob":
+      return isUnknown(strings[0]) || isUnknown(strings[1])
+        ? UNKNOWN
+        : glob(strings[0] as string, strings[1] as string);
+    case "anySafeGlob":
+      return isUnknown(strings[0])
+        ? UNKNOWN
+        : Array.isArray(args[1]) && args[1].some((pattern) => glob(strings[0] as string, pattern));
+    case "linearRegex":
+      return matchesLinearRegex(strings[0] as string, strings[1] as string);
+    case "parseUrl":
+      return isUnknown(strings[0]) ? UNKNOWN : parseUrl(strings[0] as string);
+    case "urlHost":
+      return isUrl(args[0]) ? args[0].host : UNKNOWN;
+    case "urlPath":
+      return isUrl(args[0]) ? args[0].path : UNKNOWN;
+    case "urlHostEquals":
+      return isUnknown(args[0]) || isUnknown(strings[1])
+        ? UNKNOWN
+        : isUrl(args[0]) && args[0].host === asciiCase(strings[1] as string, false);
+    case "parseRepository":
+      return isUnknown(strings[0]) ? UNKNOWN : parseRepository(strings[0] as string);
+    case "repositoryEquals":
+      return isRepository(args[0]) && args[0].owner === strings[1] && args[0].repository === strings[2];
+    case "repositoryHasExplicitHost":
+      return isRepository(args[0]) && args[0].explicitHost;
+    case "repositoryMatches":
+      return (
+        isRepository(args[0]) &&
+        args[0].host === asciiCase(strings[1] as string, false) &&
+        args[0].owner === asciiCase(strings[2] as string, false) &&
+        args[0].repository === asciiCase(strings[3] as string, false)
+      );
+    case "repositoryMatchesOrganization":
+      return (
+        isRepository(args[0]) &&
+        args[0].host === asciiCase(strings[1] as string, false) &&
+        args[0].owner === asciiCase(strings[2] as string, false)
+      );
+    case "normalizeKubernetesResource":
+      return isUnknown(strings[0]) ? UNKNOWN : normalizeKubernetes(strings[0] as string);
+    case "normalizeGitHubEndpoint":
+      return isUnknown(strings[0]) ? UNKNOWN : normalizeEndpoint(strings[0] as string);
+    case "environmentLookup":
+      return environmentLookup(context.event, strings[0]);
+    case "environmentIsPresent":
+      return !isUnknown(args[0]) && isBinding(args[0]) && args[0].kind !== "unset";
+    case "environmentIsKnown":
+      return !isUnknown(args[0]) && isBinding(args[0]) && args[0].kind === "known";
+    case "environmentIsUnknown":
+      return isUnknown(args[0]) || (isBinding(args[0]) && args[0].kind === "unknown");
+    case "environmentValueEquals":
+      return isUnknown(args[0]) || isUnknown(strings[1]) || !isBinding(args[0]) || args[0].kind === "unknown"
+        ? UNKNOWN
+        : args[0].kind === "known" && args[0].value === strings[1];
+    case "environmentIsExported":
+      return (
+        typeof strings[0] === "string" &&
+        context.event.kind === "invocation" &&
+        context.event.exportedEnvironment?.[strings[0]] === true
+      );
+    case "missingEnvironmentMayBePresent":
+      return context.event.missingBindings === "unknown";
+    case "redirectHasInputPath":
+      return isUnknown(strings[0])
+        ? UNKNOWN
+        : context.event.kind === "invocation" &&
+            context.event.redirects.some(
+              (redirect) =>
+                (redirect.kind === "input" || redirect.kind === "read-write") &&
+                redirect.target !== null &&
+                stringValue(inputReference(redirect.target)) === strings[0],
+            );
+    case "hasAssignment":
+      return (
+        typeof strings[0] === "string" &&
+        context.event.kind === "invocation" &&
+        Object.hasOwn(context.event.assignments, strings[0])
+      );
+    case "hasAnyAssignment":
+      return context.event.kind === "invocation" && Object.keys(context.event.assignments).length > 0;
+    case "assignmentsAreSubset":
+      return (
+        context.event.kind === "invocation" &&
+        Array.isArray(args[0]) &&
+        Object.keys(context.event.assignments).every((name) => args[0].includes(name))
+      );
+    case "hasRedirect":
+      return context.event.kind === "invocation" && context.event.redirects.length > 0;
     case "descriptorSourceIs": {
       const source = descriptorSource(context, strings[0]);
       return source === undefined ? UNKNOWN : source.kind === strings[1];
@@ -459,36 +850,74 @@ function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeCo
       const source = descriptorSource(context, strings[0]);
       return source !== undefined && source.kind === "here-string" && source.content?.kind === "known";
     }
-    case "atEndOfWord": return context.word?.kind === "known" && context.cursor !== undefined && context.cursor.wordByteOffset !== NORMAL_WORD
-      && context.cursor.wordByteOffset === encodedWord(context.word, context.cursor.byteBuffers).length;
+    case "atEndOfWord":
+      return (
+        context.word?.kind === "known" &&
+        context.cursor !== undefined &&
+        context.cursor.wordByteOffset !== NORMAL_WORD &&
+        context.cursor.wordByteOffset === encodedWord(context.word, context.cursor.byteBuffers).length
+      );
     case "span": {
       const begin = args[0];
       const end = args[1];
-      if (!isLocation(begin) || !isLocation(end) || !context.cursor || begin.word !== end.word || begin.argvIndex !== end.argvIndex
-        || !isKnown(begin.word) || begin.offset > end.offset || begin.offset < 0
-        || end.offset > (context.cursor.byteBuffers.get(begin.word)?.length ?? -1)) return UNKNOWN;
+      if (
+        !isLocation(begin) ||
+        !isLocation(end) ||
+        !context.cursor ||
+        begin.word !== end.word ||
+        begin.argvIndex !== end.argvIndex ||
+        !isKnown(begin.word) ||
+        begin.offset > end.offset ||
+        begin.offset < 0 ||
+        end.offset > (context.cursor.byteBuffers.get(begin.word)?.length ?? -1)
+      )
+        return UNKNOWN;
       return inputReference(begin.word, begin.offset, end.offset);
     }
-    case "atEndOfArguments": return context.word === undefined;
-    case "isDirectExecutable": return context.event.kind === "invocation" && context.event.executable?.kind === "known"
-      && context.event.executable.value === strings[0];
-    case "executionTargetIs": return context.event.kind === "invocation" && context.event.executionTarget === strings[0];
-    case "hasInheritedExecutableFunction": return inheritedExecutableFunction(context.event, strings[0]);
-    case "environmentAnyUnsafe": return Array.isArray(args[0]) && args[0].some((name) => environmentIsUnsafe(context.event, name));
-    case "longOptionPrefixesAny": return !isUnknown(strings[0]) && typeof strings[0] === "string" && strings[0].startsWith("--")
-      && Array.isArray(args[1]) && args[1].some((option) => option.startsWith((strings[0] as string).split("=", 1)[0]!));
-    case "hasProvenanceRoute": return typeof strings[0] === "string" && context.event.provenance.route.includes(strings[0]);
-    case "isInPipeline": return context.event.inPipeline;
-    case "processEffectIs": return strings[0] === context.event.processEffect;
-    case "inputIsBindingResolved": return isInputReference(args[0]) ? isBindingResolvedWord(args[0].word) : UNKNOWN;
-    case "inputBlockedDomain": return isInputReference(args[0]) && !isKnown(args[0].word) ? args[0].word.reason.blockedGithubDomain ?? "" : "";
-    case "domainToken": return isUnknown(strings[0]) || isUnknown(strings[1]) ? UNKNOWN : containsDomainToken(strings[0] as string, strings[1] as string);
-    default: throw new TypeError(`unknown compiled DCRM builtin: ${name}`);
+    case "atEndOfArguments":
+      return context.word === undefined;
+    case "isDirectExecutable":
+      return (
+        context.event.kind === "invocation" &&
+        context.event.executable?.kind === "known" &&
+        context.event.executable.value === strings[0]
+      );
+    case "executionTargetIs":
+      return context.event.kind === "invocation" && context.event.executionTarget === strings[0];
+    case "hasInheritedExecutableFunction":
+      return inheritedExecutableFunction(context.event, strings[0]);
+    case "environmentAnyUnsafe":
+      return Array.isArray(args[0]) && args[0].some((name) => environmentIsUnsafe(context.event, name));
+    case "longOptionPrefixesAny":
+      return (
+        !isUnknown(strings[0]) &&
+        typeof strings[0] === "string" &&
+        strings[0].startsWith("--") &&
+        Array.isArray(args[1]) &&
+        args[1].some((option) => option.startsWith((strings[0] as string).split("=", 1)[0]!))
+      );
+    case "hasProvenanceRoute":
+      return typeof strings[0] === "string" && context.event.provenance.route.includes(strings[0]);
+    case "isInPipeline":
+      return context.event.inPipeline;
+    case "processEffectIs":
+      return strings[0] === context.event.processEffect;
+    case "inputIsBindingResolved":
+      return isInputReference(args[0]) ? isBindingResolvedWord(args[0].word) : UNKNOWN;
+    case "inputBlockedDomain":
+      return isInputReference(args[0]) && !isKnown(args[0].word) ? (args[0].word.reason.blockedGithubDomain ?? "") : "";
+    case "domainToken":
+      return isUnknown(strings[0]) || isUnknown(strings[1])
+        ? UNKNOWN
+        : containsDomainToken(strings[0] as string, strings[1] as string);
+    default:
+      throw new TypeError(`unknown compiled DCRM builtin: ${name}`);
   }
 }
 
 function descriptorSource(context: RuntimeContext, descriptor: string | typeof UNKNOWN) {
-  if (typeof descriptor !== "string" || !/^(0|[1-9]\d*)$/.test(descriptor) || context.event.kind !== "invocation") return undefined;
+  if (typeof descriptor !== "string" || !/^(0|[1-9]\d*)$/.test(descriptor) || context.event.kind !== "invocation")
+    return undefined;
   return context.event.io?.[descriptor];
 }
 
@@ -497,24 +926,69 @@ function environmentLookup(event: BashPolicyEvent, name: string | typeof UNKNOWN
   const value = event.environment[name];
   return value ?? (event.missingBindings === "unset" ? Object.freeze({ kind: "unset" as const }) : UNKNOWN);
 }
-function inputReference(word: ResolvedWord, start?: number, end?: number): InputReference { return Object.freeze({ word, ...(start === undefined ? {} : { start }), ...(end === undefined ? {} : { end }) }); }
+function inputReference(word: ResolvedWord, start?: number, end?: number): InputReference {
+  return Object.freeze({ word, ...(start === undefined ? {} : { start }), ...(end === undefined ? {} : { end }) });
+}
 function stringValue(value: RuntimeValue): string | typeof UNKNOWN {
   if (isUnknown(value)) return UNKNOWN;
   if (isInputReference(value)) {
     if (!isKnown(value.word)) return UNKNOWN;
     if (value.start === undefined || value.end === undefined) return value.word.value;
-    try { return utf8Decoder.decode(Buffer.from(value.word.value).subarray(value.start, value.end)); }
-    catch { return UNKNOWN; }
+    try {
+      return utf8Decoder.decode(Buffer.from(value.word.value).subarray(value.start, value.end));
+    } catch {
+      return UNKNOWN;
+    }
   }
   return typeof value === "string" ? value : UNKNOWN;
 }
-function materialize(value: RuntimeValue): unknown { return isInputReference(value) ? (isKnown(value.word) ? stringValue(value) : value.word) : isUnknown(value) ? { kind: "unknown" } : value; }
-function isKnown(word: ResolvedWord): word is Extract<ResolvedWord, { readonly kind: "known" }> { return word.kind === "known"; }
-function isInputReference(value: unknown): value is InputReference { return typeof value === "object" && value !== null && "word" in value; }
-function isUnknown(value: unknown): value is typeof UNKNOWN { return value === UNKNOWN; }
-function isBinding(value: unknown): value is BindingValue { return typeof value === "object" && value !== null && "kind" in value && ["known", "unknown", "unset"].includes((value as { kind: string }).kind); }
-function asciiCase(value: string, upper: boolean): string { return value.replace(/[A-Za-z]/g, (character) => upper ? character.toUpperCase() : character.toLowerCase()); }
-function glob(value: string, pattern: string): boolean { const row = Array<boolean>(pattern.length + 1).fill(false); row[0] = true; for (let j = 1; j <= pattern.length; j++) row[j] = pattern[j - 1] === "*" && row[j - 1]!; for (const character of value) { let previous = row[0]!; row[0] = false; for (let j = 1; j <= pattern.length; j++) { const before = row[j]!; row[j] = pattern[j - 1] === "*" ? row[j - 1]! || before : (pattern[j - 1] === "?" || pattern[j - 1] === character) && previous; previous = before; } } return row[pattern.length]!; }
+function materialize(value: RuntimeValue): unknown {
+  return isInputReference(value)
+    ? isKnown(value.word)
+      ? stringValue(value)
+      : value.word
+    : isUnknown(value)
+      ? { kind: "unknown" }
+      : value;
+}
+function isKnown(word: ResolvedWord): word is Extract<ResolvedWord, { readonly kind: "known" }> {
+  return word.kind === "known";
+}
+function isInputReference(value: unknown): value is InputReference {
+  return typeof value === "object" && value !== null && "word" in value;
+}
+function isUnknown(value: unknown): value is typeof UNKNOWN {
+  return value === UNKNOWN;
+}
+function isBinding(value: unknown): value is BindingValue {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "kind" in value &&
+    ["known", "unknown", "unset"].includes((value as { kind: string }).kind)
+  );
+}
+function asciiCase(value: string, upper: boolean): string {
+  return value.replace(/[A-Za-z]/g, (character) => (upper ? character.toUpperCase() : character.toLowerCase()));
+}
+function glob(value: string, pattern: string): boolean {
+  const row = Array<boolean>(pattern.length + 1).fill(false);
+  row[0] = true;
+  for (let j = 1; j <= pattern.length; j++) row[j] = pattern[j - 1] === "*" && row[j - 1]!;
+  for (const character of value) {
+    let previous = row[0]!;
+    row[0] = false;
+    for (let j = 1; j <= pattern.length; j++) {
+      const before = row[j]!;
+      row[j] =
+        pattern[j - 1] === "*"
+          ? row[j - 1]! || before
+          : (pattern[j - 1] === "?" || pattern[j - 1] === character) && previous;
+      previous = before;
+    }
+  }
+  return row[pattern.length]!;
+}
 function pathAfterComponents(value: string, count: number): string {
   let cursor = 0;
   for (let index = 0; index < count; index++) {
@@ -536,28 +1010,102 @@ function containsDomainToken(value: string, domain: string): boolean {
   }
   return false;
 }
-function parseUrl(value: string): RuntimeValue { try { const parsed = new URL(value); return Object.freeze({ host: asciiCase(parsed.hostname, false), path: parsed.pathname || "/" }); } catch { return null; } }
-function isUrl(value: unknown): value is { readonly host: string; readonly path: string } { return typeof value === "object" && value !== null && "host" in value && "path" in value; }
+function parseUrl(value: string): RuntimeValue {
+  try {
+    const parsed = new URL(value);
+    return Object.freeze({ host: asciiCase(parsed.hostname, false), path: parsed.pathname || "/" });
+  } catch {
+    return null;
+  }
+}
+function isUrl(value: unknown): value is { readonly host: string; readonly path: string } {
+  return typeof value === "object" && value !== null && "host" in value && "path" in value;
+}
 function parseRepository(value: string): RuntimeValue {
   const normalized = asciiCase(value.trim(), false).replace(/\/$/, "");
-  const url = /^(?:https:\/\/|git@)([^/:]+)(?:\/|:)([a-z0-9][a-z0-9._-]*)\/([a-z0-9][a-z0-9._-]*?)(?:\.git)?$/.exec(normalized);
+  const url = /^(?:https:\/\/|git@)([^/:]+)(?:\/|:)([a-z0-9][a-z0-9._-]*)\/([a-z0-9][a-z0-9._-]*?)(?:\.git)?$/.exec(
+    normalized,
+  );
   if (url) return Object.freeze({ host: url[1]!, owner: url[2]!, repository: url[3]!, explicitHost: true });
   const parts = normalized.split("/");
-  if (parts.length === 2 && parts.every(identifier)) return Object.freeze({ host: "github.com", owner: parts[0]!, repository: parts[1]!, explicitHost: false });
-  if (parts.length === 3 && parts.every(identifier)) return Object.freeze({ host: parts[0]!, owner: parts[1]!, repository: parts[2]!, explicitHost: true });
+  if (parts.length === 2 && parts.every(identifier))
+    return Object.freeze({ host: "github.com", owner: parts[0]!, repository: parts[1]!, explicitHost: false });
+  if (parts.length === 3 && parts.every(identifier))
+    return Object.freeze({ host: parts[0]!, owner: parts[1]!, repository: parts[2]!, explicitHost: true });
   return null;
 }
-function identifier(value: string): boolean { return /^[a-z0-9][a-z0-9._-]*$/.test(value); }
-function isRepository(value: unknown): value is { readonly host: string; readonly owner: string; readonly repository: string; readonly explicitHost: boolean } { return typeof value === "object" && value !== null && "host" in value && "owner" in value && "repository" in value && "explicitHost" in value; }
-function normalizeKubernetes(value: string): string { const lower = asciiCase(value, false); return lower.endsWith("ies") ? `${lower.slice(0, -3)}y` : lower.endsWith("s") ? lower.slice(0, -1) : lower; }
-function normalizeEndpoint(value: string): string { return `/${value.split("/").filter(Boolean).join("/")}`; }
-function requiresKnownOperands(name: string): boolean {
-  return !["environmentIsPresent", "environmentIsKnown", "environmentIsUnknown", "environmentValueEquals", "missingEnvironmentMayBePresent", "isInPipeline", "hasAnyAssignment", "hasRedirect"].includes(name);
+function identifier(value: string): boolean {
+  return /^[a-z0-9][a-z0-9._-]*$/.test(value);
 }
-function nonStringOperandBuiltin(name: string): boolean { return name === "atEndOfWord" || name === "span" || name === "inStringSet" || name === "wordInAsciiCaseInsensitiveSet" || name === "pathComponent" || name === "pathAfterComponents" || name === "splitComponent" || name === "parseBoundedInt" || name === "boundedIntAtMost" || name === "anySafeGlob" || name === "urlHost" || name === "urlPath" || name === "urlHostEquals" || name === "repositoryEquals" || name === "repositoryHasExplicitHost" || name === "repositoryMatches" || name === "repositoryMatchesOrganization" || name === "environmentAnyUnsafe" || name === "assignmentsAreSubset" || name === "longOptionPrefixesAny" || name === "inputBlockedDomain"; }
+function isRepository(value: unknown): value is {
+  readonly host: string;
+  readonly owner: string;
+  readonly repository: string;
+  readonly explicitHost: boolean;
+} {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "host" in value &&
+    "owner" in value &&
+    "repository" in value &&
+    "explicitHost" in value
+  );
+}
+function normalizeKubernetes(value: string): string {
+  const lower = asciiCase(value, false);
+  return lower.endsWith("ies") ? `${lower.slice(0, -3)}y` : lower.endsWith("s") ? lower.slice(0, -1) : lower;
+}
+function normalizeEndpoint(value: string): string {
+  return `/${value.split("/").filter(Boolean).join("/")}`;
+}
+function requiresKnownOperands(name: string): boolean {
+  return ![
+    "environmentIsPresent",
+    "environmentIsKnown",
+    "environmentIsUnknown",
+    "environmentValueEquals",
+    "missingEnvironmentMayBePresent",
+    "isInPipeline",
+    "hasAnyAssignment",
+    "hasRedirect",
+  ].includes(name);
+}
+function nonStringOperandBuiltin(name: string): boolean {
+  return (
+    name === "atEndOfWord" ||
+    name === "span" ||
+    name === "inStringSet" ||
+    name === "wordInAsciiCaseInsensitiveSet" ||
+    name === "pathComponent" ||
+    name === "pathAfterComponents" ||
+    name === "splitComponent" ||
+    name === "parseBoundedInt" ||
+    name === "boundedIntAtMost" ||
+    name === "anySafeGlob" ||
+    name === "urlHost" ||
+    name === "urlPath" ||
+    name === "urlHostEquals" ||
+    name === "repositoryEquals" ||
+    name === "repositoryHasExplicitHost" ||
+    name === "repositoryMatches" ||
+    name === "repositoryMatchesOrganization" ||
+    name === "environmentAnyUnsafe" ||
+    name === "assignmentsAreSubset" ||
+    name === "longOptionPrefixesAny" ||
+    name === "inputBlockedDomain"
+  );
+}
 function isLocation(value: unknown): value is InputLocation {
-  return typeof value === "object" && value !== null && "word" in value && "argvIndex" in value && "offset" in value
-    && Number.isSafeInteger((value as InputLocation).argvIndex) && Number.isSafeInteger((value as InputLocation).offset);
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "word" in value &&
+    "argvIndex" in value &&
+    "offset" in value &&
+    Number.isSafeInteger((value as InputLocation).argvIndex) &&
+    Number.isSafeInteger((value as InputLocation).offset)
+  );
 }
 function inheritedExecutableFunction(event: BashPolicyEvent, executable: string | typeof UNKNOWN): RuntimeValue {
   if (isUnknown(executable) || event.kind !== "invocation") return UNKNOWN;
@@ -570,15 +1118,52 @@ function inheritedExecutableFunction(event: BashPolicyEvent, executable: string 
 function environmentIsUnsafe(event: BashPolicyEvent, name: unknown): boolean {
   if (typeof name !== "string") return true;
   const value = environmentLookup(event, name);
-  return value === UNKNOWN || !isBinding(value) || value.kind === "unknown" || value.kind === "known" && value.value.length > 0;
+  return (
+    value === UNKNOWN ||
+    !isBinding(value) ||
+    value.kind === "unknown" ||
+    (value.kind === "known" && value.value.length > 0)
+  );
 }
 function inputRedirectTarget(event: Extract<BashPolicyEvent, { readonly kind: "invocation" }>): RuntimeValue {
   const target = event.redirects.find((redirect) => redirect.kind === "input")?.target;
   return target === null || target === undefined ? UNKNOWN : inputReference(target);
 }
 function matchesLinearRegex(value: string, pattern: string): boolean {
-  try { return new RegExp(pattern).test(value); } catch { return false; }
+  try {
+    return new RegExp(pattern).test(value);
+  } catch {
+    return false;
+  }
 }
-function isOptionPredicate(value: CompiledCase["when"]): value is { readonly kind: "option" } { return typeof value === "object" && value !== null && "kind" in value && value.kind === "option"; }
-function step(state: string, argvIndex: number, clusterByteIndex: number, source: string, origin: string, action: DslMachineStep["action"], folds: readonly string[], nextState?: string, decision?: PolicyDecision["kind"], wordByteOffset: number = NORMAL_WORD): DslMachineStep { return Object.freeze({ state, argvIndex, clusterByteIndex, wordByteOffset, source, origin, action, folds: Object.freeze([...folds]), ...(nextState === undefined ? {} : { nextState }), ...(decision === undefined ? {} : { decision }) }); }
-function frozenEvaluation(decision: PolicyDecision, steps: readonly DslMachineStep[]): DslEvaluation { return Object.freeze({ decision, steps: Object.freeze([...steps]) }); }
+function isOptionPredicate(value: CompiledCase["when"]): value is { readonly kind: "option" } {
+  return typeof value === "object" && value !== null && "kind" in value && value.kind === "option";
+}
+function step(
+  state: string,
+  argvIndex: number,
+  clusterByteIndex: number,
+  source: string,
+  origin: string,
+  action: DslMachineStep["action"],
+  folds: readonly string[],
+  nextState?: string,
+  decision?: PolicyDecision["kind"],
+  wordByteOffset: number = NORMAL_WORD,
+): DslMachineStep {
+  return Object.freeze({
+    state,
+    argvIndex,
+    clusterByteIndex,
+    wordByteOffset,
+    source,
+    origin,
+    action,
+    folds: Object.freeze([...folds]),
+    ...(nextState === undefined ? {} : { nextState }),
+    ...(decision === undefined ? {} : { decision }),
+  });
+}
+function frozenEvaluation(decision: PolicyDecision, steps: readonly DslMachineStep[]): DslEvaluation {
+  return Object.freeze({ decision, steps: Object.freeze([...steps]) });
+}

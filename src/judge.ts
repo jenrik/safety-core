@@ -38,10 +38,7 @@ export interface JudgeVerdict {
  * (ctx.model, process.env.ANTHROPIC_API_KEY, etc.) and register it
  * via `setJudgeProvider()`.
  */
-export type JudgeProvider = (
-  command: string,
-  signal?: AbortSignal,
-) => Promise<JudgeVerdict>;
+export type JudgeProvider = (command: string, signal?: AbortSignal) => Promise<JudgeVerdict>;
 
 // ── Provider registration ───────────────────────────────────────────────────
 
@@ -61,10 +58,7 @@ export function getJudgeProvider(): JudgeProvider | null {
  * Invoke the LLM judge. Returns null if no provider is registered or
  * if the provider throws (fail-open).
  */
-export async function invokeJudge(
-  command: string,
-  signal?: AbortSignal,
-): Promise<JudgeVerdict | null> {
+export async function invokeJudge(command: string, signal?: AbortSignal): Promise<JudgeVerdict | null> {
   if (!_judgeProvider) return null;
   try {
     return await _judgeProvider(command, signal);
@@ -117,9 +111,7 @@ export const SECRET_JUDGE_PATTERNS: readonly string[] = [
  */
 export function shouldInvokeJudge(command: string): boolean {
   const haystack = command.toLowerCase();
-  return SECRET_JUDGE_PATTERNS.some((p) =>
-    haystack.includes(p.toLowerCase().replaceAll("*", "")),
-  );
+  return SECRET_JUDGE_PATTERNS.some((p) => haystack.includes(p.toLowerCase().replaceAll("*", "")));
 }
 
 // ── Judge prompt ────────────────────────────────────────────────────────────
@@ -190,10 +182,7 @@ const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5";
  * Create a JudgeProvider backed by the Anthropic Messages API.
  */
 export function createAnthropicJudge(options: AnthropicJudgeOptions): JudgeProvider {
-  const baseUrl =
-    options.baseUrl ??
-    process.env.ANTHROPIC_BASE_URL ??
-    "https://api.anthropic.com/v1";
+  const baseUrl = options.baseUrl ?? process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com/v1";
   const hasAuthToken = Boolean(process.env.ANTHROPIC_AUTH_TOKEN);
 
   return async (command: string, signal?: AbortSignal): Promise<JudgeVerdict> => {
@@ -204,9 +193,7 @@ export function createAnthropicJudge(options: AnthropicJudgeOptions): JudgeProvi
           "content-type": "application/json",
           "x-api-key": options.apiKey,
           "anthropic-version": "2023-06-01",
-          ...(hasAuthToken
-            ? { authorization: `Bearer ${options.apiKey}` }
-            : {}),
+          ...(hasAuthToken ? { authorization: `Bearer ${options.apiKey}` } : {}),
         },
         body: JSON.stringify({
           model: options.model ?? DEFAULT_ANTHROPIC_MODEL,
@@ -313,10 +300,7 @@ function parseJudgeResponse(text: string): JudgeVerdict {
     };
 
     const safeValue = parsed.ok ?? parsed.safe;
-    const safe =
-      typeof safeValue === "string"
-        ? safeValue.toLowerCase() !== "false"
-        : safeValue !== false;
+    const safe = typeof safeValue === "string" ? safeValue.toLowerCase() !== "false" : safeValue !== false;
 
     return {
       safe,

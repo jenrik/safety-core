@@ -6,7 +6,14 @@ const fixturePath = new URL("../data/gh-cli-2.100.0-reference.json", import.meta
 const fixture = JSON.parse(readFileSync(fixturePath, "utf8")) as {
   schemaVersion: number;
   metadata: Record<string, string>;
-  commands: Array<{ path: string[]; aliases: string[][]; kind: string; usage: string; summary: string; preview: boolean }>;
+  commands: Array<{
+    path: string[];
+    aliases: string[][];
+    kind: string;
+    usage: string;
+    summary: string;
+    preview: boolean;
+  }>;
   helpTopics: Array<{ name: string; summary: string; executable: boolean }>;
   environment: Array<{ name: string }>;
   dynamicRoutes: Array<{ kind: string; route: string; rationale: string }>;
@@ -37,11 +44,13 @@ describe("GitHub CLI 2.100.0 independent reference", () => {
     expect(new Set(paths).size).toBe(paths.length);
     expect(new Set(aliases).size).toBe(aliases.length);
     expect(aliases.some((alias) => paths.includes(alias))).toBe(false);
-    expect(paths).toEqual([...paths].sort((left, right) => {
-      const a = left.replaceAll(" ", "\0");
-      const b = right.replaceAll(" ", "\0");
-      return a < b ? -1 : a > b ? 1 : 0;
-    }));
+    expect(paths).toEqual(
+      [...paths].sort((left, right) => {
+        const a = left.replaceAll(" ", "\0");
+        const b = right.replaceAll(" ", "\0");
+        return a < b ? -1 : a > b ? 1 : 0;
+      }),
+    );
     for (const command of fixture.commands) {
       expect(command.path.length).toBeGreaterThan(0);
       expect(command.usage.startsWith(`gh ${command.path.join(" ")}`)).toBe(true);
@@ -49,26 +58,56 @@ describe("GitHub CLI 2.100.0 independent reference", () => {
       expect(["command", "group", "top-level-command", "hidden-command"]).toContain(command.kind);
       expect(typeof command.preview).toBe("boolean");
     }
-    expect(fixture.commands.filter((command) => command.kind === "hidden-command").map((command) => command.path.join(" "))).toEqual([
-      "accessibility", "actions", "attestation inspect", "auth git-credential", "codespace select",
-      "credits", "repo credits", "repo garden", "send-telemetry", "version",
+    expect(
+      fixture.commands.filter((command) => command.kind === "hidden-command").map((command) => command.path.join(" ")),
+    ).toEqual([
+      "accessibility",
+      "actions",
+      "attestation inspect",
+      "auth git-credential",
+      "codespace select",
+      "credits",
+      "repo credits",
+      "repo garden",
+      "send-telemetry",
+      "version",
     ]);
     expect(fixture.commands.find((command) => command.path.join(" ") === "accessibility")?.aliases).toEqual([["a11y"]]);
   });
 
   test("keeps help topics, environment routes, and dynamic routes explicit", () => {
     expect(fixture.helpTopics.map((topic) => topic.name)).toEqual([
-      "environment", "exit-codes", "formatting", "mintty", "reference", "telemetry",
+      "environment",
+      "exit-codes",
+      "formatting",
+      "mintty",
+      "reference",
+      "telemetry",
     ]);
     expect(fixture.helpTopics.every((topic) => topic.executable && topic.summary.length > 0)).toBe(true);
     expect(fixture.environment).toHaveLength(37);
-    expect(fixture.environment.map((route) => route.name)).toEqual(expect.arrayContaining([
-      "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
-      "GH_CONFIG_DIR", "GH_HOST", "GH_REPO", "GH_PAGER", "PAGER", "HOME", "XDG_CONFIG_HOME",
-    ]));
+    expect(fixture.environment.map((route) => route.name)).toEqual(
+      expect.arrayContaining([
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+        "GH_ENTERPRISE_TOKEN",
+        "GITHUB_ENTERPRISE_TOKEN",
+        "GH_CONFIG_DIR",
+        "GH_HOST",
+        "GH_REPO",
+        "GH_PAGER",
+        "PAGER",
+        "HOME",
+        "XDG_CONFIG_HOME",
+      ]),
+    );
     expect(fixture.dynamicRoutes.map((route) => route.kind)).toEqual([
-      "configured-alias", "shipped-default-alias", "installed-extension",
-      "official-extension-stub", "official-extension-stub", "official-extension-stub",
+      "configured-alias",
+      "shipped-default-alias",
+      "installed-extension",
+      "official-extension-stub",
+      "official-extension-stub",
+      "official-extension-stub",
     ]);
   });
 });

@@ -8,8 +8,14 @@ import { parsePolicyDocument } from "../src/policy/dsl/validate.ts";
 
 const envPath = new URL("../policies/dsl/env-command.policy.json", import.meta.url);
 const commandPath = new URL("../policies/dsl/command-discovery.policy.json", import.meta.url);
-const envPolicy = createDslPolicy(compilePolicyDocument(parsePolicyDocument(readFileSync(envPath, "utf8"))), envPath.pathname);
-const commandPolicy = createDslPolicy(compilePolicyDocument(parsePolicyDocument(readFileSync(commandPath, "utf8"))), commandPath.pathname);
+const envPolicy = createDslPolicy(
+  compilePolicyDocument(parsePolicyDocument(readFileSync(envPath, "utf8"))),
+  envPath.pathname,
+);
+const commandPolicy = createDslPolicy(
+  compilePolicyDocument(parsePolicyDocument(readFileSync(commandPath, "utf8"))),
+  commandPath.pathname,
+);
 
 beforeAll(async () => {
   await initBundledBashParser();
@@ -20,10 +26,22 @@ function directDecision(argv: readonly string[]): string {
     kind: "invocation",
     executable: { kind: "known", value: "env" },
     executionTarget: "external-path",
-    executableIdentity: { qualification: "incomplete", spelling: "env", basename: "env", chain: [], failure: { kind: "not-found" } },
+    executableIdentity: {
+      qualification: "incomplete",
+      spelling: "env",
+      basename: "env",
+      chain: [],
+      failure: { kind: "not-found" },
+    },
     argv: argv.map((value) => ({ kind: "known" as const, value })),
-    environment: {}, missingBindings: "unset", redirects: [], assignments: {},
-    span: { start: 0, end: 0 }, provenance: { route: ["direct"] }, inPipeline: false, processEffect: "none",
+    environment: {},
+    missingBindings: "unset",
+    redirects: [],
+    assignments: {},
+    span: { start: 0, end: 0 },
+    provenance: { route: ["direct"] },
+    inPipeline: false,
+    processEffect: "none",
   } as any).kind;
 }
 
@@ -36,24 +54,45 @@ function analyze(source: string) {
 }
 
 function invocationNames(result: ReturnType<typeof analyze>): string[] {
-  return result.events.flatMap((event) => event.kind === "invocation" && event.executable.kind === "known" ? [event.executable.value] : []);
+  return result.events.flatMap((event) =>
+    event.kind === "invocation" && event.executable.kind === "known" ? [event.executable.value] : [],
+  );
 }
 
 function envEvent(result: ReturnType<typeof analyze>): any {
-  const event = result.events.find((candidate) => candidate.kind === "invocation" && candidate.executable.kind === "known" && candidate.executable.value === "env");
+  const event = result.events.find(
+    (candidate) =>
+      candidate.kind === "invocation" && candidate.executable.kind === "known" && candidate.executable.value === "env",
+  );
   if (!event) throw new Error("missing env invocation");
   return event;
 }
 
 describe("env command DSL policy", () => {
   test("defers every assignment-only environment print form, including after --", () => {
-    for (const argv of [[], ["MODE=test"], ["A-B=y"], ["1X=y"], ["A.B=y"], ["=y"], ["--", "MODE=test"], ["--", "A-B=y"]]) {
+    for (const argv of [
+      [],
+      ["MODE=test"],
+      ["A-B=y"],
+      ["1X=y"],
+      ["A.B=y"],
+      ["=y"],
+      ["--", "MODE=test"],
+      ["--", "A-B=y"],
+    ]) {
       expect(directDecision(argv), argv.join(" ")).toBe("defer");
     }
   });
 
   test("permits a child command after GNU assignment operands before or after --", () => {
-    for (const argv of [["MODE=test", "command", "-v", "tool"], ["A-B=y", "command", "-v", "tool"], ["1X=y", "command", "-v", "tool"], ["=y", "command", "-v", "tool"], ["--", "MODE=test", "command", "-v", "tool"], ["--", "A-B=y", "command", "-v", "tool"]]) {
+    for (const argv of [
+      ["MODE=test", "command", "-v", "tool"],
+      ["A-B=y", "command", "-v", "tool"],
+      ["1X=y", "command", "-v", "tool"],
+      ["=y", "command", "-v", "tool"],
+      ["--", "MODE=test", "command", "-v", "tool"],
+      ["--", "A-B=y", "command", "-v", "tool"],
+    ]) {
       expect(directDecision(argv), argv.join(" ")).toBe("allow");
     }
   });
@@ -100,7 +139,15 @@ describe("env command DSL policy", () => {
   });
 
   test("keeps assignment-only forms prompt-gated instead of fabricating a child", () => {
-    for (const source of ["env MODE=test", "env A-B=y", "env 1X=y", "env A.B=y", "env =y", "env -- MODE=test", "env -- A-B=y"]) {
+    for (const source of [
+      "env MODE=test",
+      "env A-B=y",
+      "env 1X=y",
+      "env A.B=y",
+      "env =y",
+      "env -- MODE=test",
+      "env -- A-B=y",
+    ]) {
       const result = analyze(source);
       expect(result.decision, source).toBe("defer");
       expect(invocationNames(result), source).toEqual(["env"]);
@@ -114,7 +161,9 @@ describe("env command DSL policy", () => {
       ["env() { command -v tool; }; env command -v tool", completePolicyInitialEnvironment({})],
     ] as const) {
       const result = analyzeBashWithPolicies({ source, initialEnvironment, policies: [envPolicy, commandPolicy] });
-      const gap = result.events.find((event) => event.kind === "execution-gap" && event.reason === "shadowed-env-function");
+      const gap = result.events.find(
+        (event) => event.kind === "execution-gap" && event.reason === "shadowed-env-function",
+      );
       expect(gap, source).toBeDefined();
       expect(result.decision, source).toBe("defer");
       expect(invocationNames(result), source).toEqual(["command"]);
@@ -143,7 +192,10 @@ describe("env command DSL policy", () => {
       for (const valueOption of ["u", "C", "a"]) {
         const attached = `-${flags}${valueOption}value`;
         const separate = `-${flags}${valueOption}`;
-        for (const argv of [[attached, "command", "-v", "tool"], [separate, "value", "command", "-v", "tool"]]) {
+        for (const argv of [
+          [attached, "command", "-v", "tool"],
+          [separate, "value", "command", "-v", "tool"],
+        ]) {
           const source = `env ${argv.join(" ")}`;
           const result = analyze(source);
           expect(directDecision(argv), source).toBe("allow");
@@ -182,7 +234,13 @@ describe("env command DSL policy", () => {
   test("property: modifier-looking operands after assignments are child commands", () => {
     const children = ["--", "-", "-i", "-iv", "--ignore-environment", "-u"];
     for (let index = 0; index < 128; index++) {
-      const assignment = [`MODE_${index}=value-${index}`, `A-${index}=value-${index}`, `${index}X=value-${index}`, `A.${index}=value-${index}`, `=value-${index}`][index % 5]!;
+      const assignment = [
+        `MODE_${index}=value-${index}`,
+        `A-${index}=value-${index}`,
+        `${index}X=value-${index}`,
+        `A.${index}=value-${index}`,
+        `=value-${index}`,
+      ][index % 5]!;
       const child = children[index % children.length]!;
       const source = `env ${assignment} ${child}`;
       const result = analyze(source);

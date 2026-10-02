@@ -18,10 +18,14 @@ export function createExplainTrace(runtime: LoadedPolicyRuntime, evaluation: Bas
     version: 1,
     decision: evaluation.decision,
     analysis: evaluation.analysis,
-    sources: Object.freeze(runtime.policySet.sources.map((source) => Object.freeze({
-      canonicalPath: source.canonicalPath,
-      sha256: source.sha256,
-    }))),
+    sources: Object.freeze(
+      runtime.policySet.sources.map((source) =>
+        Object.freeze({
+          canonicalPath: source.canonicalPath,
+          sha256: source.sha256,
+        }),
+      ),
+    ),
     events: evaluation.events,
     decisions: evaluation.traces,
     fileAccesses: evaluation.fileAccesses,
@@ -39,7 +43,10 @@ export function renderExplainTrace(trace: ExplainTrace, json: boolean): string {
     "decisions:",
     ...trace.decisions.flatMap((decision) => [
       `  ${decision.layer} ${decision.decision.kind} ${decision.source.canonicalPath}`,
-      ...(decision.dslSteps ?? []).map((step) => `    ${step.action} ${step.source} state=${step.state} argv=${step.argvIndex} cluster=${step.clusterByteIndex}${step.nextState === undefined ? "" : ` -> ${step.nextState}`}${step.decision === undefined ? "" : ` decision=${step.decision}`}`),
+      ...(decision.dslSteps ?? []).map(
+        (step) =>
+          `    ${step.action} ${step.source} state=${step.state} argv=${step.argvIndex} cluster=${step.clusterByteIndex}${step.nextState === undefined ? "" : ` -> ${step.nextState}`}${step.decision === undefined ? "" : ` decision=${step.decision}`}`,
+      ),
     ]),
   ];
   return `${lines.join("\n")}\n`;

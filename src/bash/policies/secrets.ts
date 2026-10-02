@@ -4,7 +4,10 @@ import { SECRET_EXCEPTIONS, SECRET_PATTERNS } from "../../patterns.js";
 
 export type SecretReadPolicyDecision =
   | { readonly kind: "allow"; readonly evidence: { readonly name: "secret-read"; readonly decision: "allow" } }
-  | { readonly kind: "deny"; readonly evidence: { readonly name: "secret-read"; readonly decision: "deny"; readonly reason: string } };
+  | {
+      readonly kind: "deny";
+      readonly evidence: { readonly name: "secret-read"; readonly decision: "deny"; readonly reason: string };
+    };
 
 /** The pure secret classifier only needs the invocation fields it inspects. */
 export type SecretReadInvocation = Pick<NormalizedCommand, "executable" | "argv" | "redirects"> & {
@@ -18,20 +21,28 @@ export function analyzeSecretReadInvocation(invocation: SecretReadInvocation): S
   if (redirect.kind === "deny") return redirect;
   for (const argument of invocation.argv) {
     if (argument.kind !== "known" || argument.value.startsWith("-")) continue;
-    if (isSecretPath(argument.value)) return deny(isBindingResolvedWord(argument)
-      ? `bash \`${executableName(invocation)}\` on a protected secret file`
-      : `bash \`${executableName(invocation)}\` on '${basename(argument.value)}'`);
+    if (isSecretPath(argument.value))
+      return deny(
+        isBindingResolvedWord(argument)
+          ? `bash \`${executableName(invocation)}\` on a protected secret file`
+          : `bash \`${executableName(invocation)}\` on '${basename(argument.value)}'`,
+      );
   }
   return Object.freeze({ kind: "allow", evidence: Object.freeze({ name: "secret-read", decision: "allow" }) });
 }
 
 /** Apply secret input-redirection protection before executable-specific policy. */
-export function analyzeSecretRedirectInvocation(invocation: Pick<SecretReadInvocation, "redirects">): SecretReadPolicyDecision {
+export function analyzeSecretRedirectInvocation(
+  invocation: Pick<SecretReadInvocation, "redirects">,
+): SecretReadPolicyDecision {
   for (const redirect of invocation.redirects) {
     if (redirect.kind !== "input" || redirect.target?.kind !== "known") continue;
-    if (isSecretPath(redirect.target.value)) return deny(isBindingResolvedWord(redirect.target)
-      ? "bash redirect from a protected secret file"
-      : `bash redirect from '${basename(redirect.target.value)}'`);
+    if (isSecretPath(redirect.target.value))
+      return deny(
+        isBindingResolvedWord(redirect.target)
+          ? "bash redirect from a protected secret file"
+          : `bash redirect from '${basename(redirect.target.value)}'`,
+      );
   }
   return Object.freeze({ kind: "allow", evidence: Object.freeze({ name: "secret-read", decision: "allow" }) });
 }
@@ -55,5 +66,12 @@ function basename(path: string): string {
 
 function matchesAnyGlob(name: string, patterns: readonly string[]): boolean {
   const lower = name.toLowerCase();
-  return patterns.some((pattern) => new RegExp(`^${pattern.toLowerCase().replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`).test(lower));
+  return patterns.some((pattern) =>
+    new RegExp(
+      `^${pattern
+        .toLowerCase()
+        .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+        .replace(/\*/g, ".*")}$`,
+    ).test(lower),
+  );
 }

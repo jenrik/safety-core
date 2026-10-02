@@ -9,12 +9,67 @@ export type BashExecutionTargetKind = "builtin" | "shell-function" | "external-p
 
 // Bash's builtins (not just the subset for which we model state transitions).
 const BASH_BUILTINS = new Set([
-  ".", ":", "[", "alias", "bg", "bind", "break", "builtin", "caller", "cd", "command", "compgen",
-  "complete", "compopt", "continue", "declare", "dirs", "disown", "echo", "enable", "eval", "exec",
-  "exit", "export", "false", "fc", "fg", "getopts", "hash", "help", "history", "jobs", "kill", "let",
-  "local", "logout", "mapfile", "popd", "printf", "pushd", "pwd", "read", "readarray", "readonly",
-  "return", "set", "shift", "shopt", "source", "suspend", "test", "times", "trap", "true", "type",
-  "typeset", "ulimit", "umask", "unalias", "unset", "wait",
+  ".",
+  ":",
+  "[",
+  "alias",
+  "bg",
+  "bind",
+  "break",
+  "builtin",
+  "caller",
+  "cd",
+  "command",
+  "compgen",
+  "complete",
+  "compopt",
+  "continue",
+  "declare",
+  "dirs",
+  "disown",
+  "echo",
+  "enable",
+  "eval",
+  "exec",
+  "exit",
+  "export",
+  "false",
+  "fc",
+  "fg",
+  "getopts",
+  "hash",
+  "help",
+  "history",
+  "jobs",
+  "kill",
+  "let",
+  "local",
+  "logout",
+  "mapfile",
+  "popd",
+  "printf",
+  "pushd",
+  "pwd",
+  "read",
+  "readarray",
+  "readonly",
+  "return",
+  "set",
+  "shift",
+  "shopt",
+  "source",
+  "suspend",
+  "test",
+  "times",
+  "trap",
+  "true",
+  "type",
+  "typeset",
+  "ulimit",
+  "umask",
+  "unalias",
+  "unset",
+  "wait",
 ]);
 
 export function isBashBuiltin(name: string): boolean {
@@ -35,9 +90,13 @@ export function resolveBashExecutionTarget(
   if (domain === "shell") {
     if (state.functionCandidates.has(name)) return state.missingFunctions.has(name) ? "unresolved" : "shell-function";
     const environment = state.environment;
-    if (!hasBinding(environment, BASH_FUNCTIONS_CAPTURED_FACT) && environment.missingBindings === "unknown") return "unresolved";
-    if (hasBinding(environment, BASH_FUNCTIONS_CAPTURED_FACT)
-      && lookupBinding(environment, BASH_FUNCTIONS_CAPTURED_FACT).value.kind !== "known") return "unresolved";
+    if (!hasBinding(environment, BASH_FUNCTIONS_CAPTURED_FACT) && environment.missingBindings === "unknown")
+      return "unresolved";
+    if (
+      hasBinding(environment, BASH_FUNCTIONS_CAPTURED_FACT) &&
+      lookupBinding(environment, BASH_FUNCTIONS_CAPTURED_FACT).value.kind !== "known"
+    )
+      return "unresolved";
   }
   return BASH_BUILTINS.has(name) ? "builtin" : "external-path";
 }

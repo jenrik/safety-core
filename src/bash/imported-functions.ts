@@ -29,25 +29,25 @@ export function importBashFunctions(environment: Environment, parent?: BashShell
     if (!name || binding.kind === "unset") continue;
     if (parent?.missingFunctions.has(name)) {
       invalid = true;
-      definitions.push(...parent.functionCandidates.get(name) ?? []);
+      definitions.push(...(parent.functionCandidates.get(name) ?? []));
       continue;
     }
-    if (binding.kind === "unknown" && parent?.functionCandidates.has(name)
-      && !parent.missingFunctions.has(name)) {
+    if (binding.kind === "unknown" && parent?.functionCandidates.has(name) && !parent.missingFunctions.has(name)) {
       definitions.push(...parent.functionCandidates.get(name)!);
       continue;
     }
-    if (binding.kind !== "known" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)
-      || !/^\(\) \{/.test(binding.value)) {
+    if (binding.kind !== "known" || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || !/^\(\) \{/.test(binding.value)) {
       invalid = true;
       continue;
     }
     const source = `${name}${binding.value}`;
     const parsed = parseBashProgram(source);
-    const definition = parsed.kind === "program" && parsed.statements.length === 1
-      ? parsed.statements[0] : undefined;
-    if (definition?.kind !== "function" || definition.name !== name
-      || source.slice(definition.span.end).trim().length > 0) {
+    const definition = parsed.kind === "program" && parsed.statements.length === 1 ? parsed.statements[0] : undefined;
+    if (
+      definition?.kind !== "function" ||
+      definition.name !== name ||
+      source.slice(definition.span.end).trim().length > 0
+    ) {
       invalid = true;
       continue;
     }

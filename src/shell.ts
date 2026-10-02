@@ -17,11 +17,9 @@ import type {
   BashIf,
   BashList,
   BashParseFailure,
-  BashPipeline,
   BashProgram,
   BashRedirect,
   BashStatement,
-  BashSubshell,
   BashTime,
   BashWord,
   SourceSpan,
@@ -92,10 +90,7 @@ export interface BundledBashAssets {
  * resolution owns the runtime. This supports source, packed-core, and bundled
  * adapter layouts without duplicating either asset.
  */
-export function resolveBundledBashAssets(
-  moduleUrl = import.meta.url,
-  runtimePath?: string,
-): BundledBashAssets {
+export function resolveBundledBashAssets(moduleUrl = import.meta.url, runtimePath?: string): BundledBashAssets {
   const { pathname, protocol } = new URL(moduleUrl);
   if (protocol !== "file:") throw new BashParserFailure(`Bash parser assets require a file URL, received ${moduleUrl}`);
 
@@ -106,7 +101,8 @@ export function resolveBundledBashAssets(
   } catch {
     // Standalone bundles do not have a core package boundary.
   }
-  const resolvedRuntimePath = runtimePath ?? createRequire(coreEntrypoint ?? moduleUrl).resolve("web-tree-sitter/web-tree-sitter.wasm");
+  const resolvedRuntimePath =
+    runtimePath ?? createRequire(coreEntrypoint ?? moduleUrl).resolve("web-tree-sitter/web-tree-sitter.wasm");
 
   if (coreEntrypoint) {
     const grammarPath = join(dirname(coreEntrypoint), "..", "tree-sitter-bash.wasm");
@@ -143,15 +139,17 @@ export function isBashParserInitialized(): boolean {
 /** Crash rather than evaluating restrictive policy with no parser. */
 export function assertBashParserInitialized(): asserts bashParser is Parser {
   if (bashParser) return;
-  throw initializationFailure ?? new BashParserFailure(
-    "Bash parser was not initialized before safety-core policy evaluation",
+  throw (
+    initializationFailure ??
+    new BashParserFailure("Bash parser was not initialized before safety-core policy evaluation")
   );
 }
 
 export function isBashParserFailure(error: unknown): error is BashParserFailure {
-  return error instanceof BashParserFailure
-    || (typeof error === "object" && error !== null
-      && "code" in error && error.code === "SAFETY_CORE_BASH_PARSER_FAILURE");
+  return (
+    error instanceof BashParserFailure ||
+    (typeof error === "object" && error !== null && "code" in error && error.code === "SAFETY_CORE_BASH_PARSER_FAILURE")
+  );
 }
 
 /**
@@ -200,7 +198,6 @@ export function discoverWasmDir(moduleUrl: string): string {
 }
 
 // ─── Public types ───────────────────────────────────────────────────────────
-
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
@@ -254,8 +251,11 @@ function collectCompletePrefix(children: readonly SyntaxNode[], source: string, 
     }
     if (findSyntaxError(child)) return;
     if (isProjectableStatement(child)) {
-      const next = children.slice(index + 1).find((candidate) => candidate.type !== ";" && candidate.type !== "&" && candidate.type !== "comment")
-        ?? children[index + 1];
+      const next =
+        children
+          .slice(index + 1)
+          .find((candidate) => candidate.type !== ";" && candidate.type !== "&" && candidate.type !== "comment") ??
+        children[index + 1];
       if (!next || !hasStatementBoundary(source, child.endIndex, next.startIndex, next.type)) return;
       statements.push(child);
       continue;
@@ -310,14 +310,21 @@ export function stripQuotes(token: string): string {
 /** Decode Bash's static $'...' quoting form for command-policy matching. */
 function decodeAnsiCQuotes(token: string): string {
   return token.replace(/\$'((?:\\[\s\S]|[^'])*)'/g, (_match, content: string) =>
-    content.replace(/\\(x[0-9a-fA-F]{1,2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|[0-7]{1,3}|[\s\S])/g, (_escape, value: string) => {
-      if (/^x[0-9a-fA-F]+$/.test(value)) return String.fromCharCode(Number.parseInt(value.slice(1), 16));
-      if (/^u[0-9a-fA-F]{4}$/.test(value) || /^U[0-9a-fA-F]{8}$/.test(value)) {
-        return String.fromCodePoint(Number.parseInt(value.slice(1), 16));
-      }
-      if (/^[0-7]{1,3}$/.test(value)) return String.fromCharCode(Number.parseInt(value, 8));
-      return ({ a: "\u0007", b: "\b", e: "\u001b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v" } as Record<string, string>)[value] ?? value;
-    }),
+    content.replace(
+      /\\(x[0-9a-fA-F]{1,2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|[0-7]{1,3}|[\s\S])/g,
+      (_escape, value: string) => {
+        if (/^x[0-9a-fA-F]+$/.test(value)) return String.fromCharCode(Number.parseInt(value.slice(1), 16));
+        if (/^u[0-9a-fA-F]{4}$/.test(value) || /^U[0-9a-fA-F]{8}$/.test(value)) {
+          return String.fromCodePoint(Number.parseInt(value.slice(1), 16));
+        }
+        if (/^[0-7]{1,3}$/.test(value)) return String.fromCharCode(Number.parseInt(value, 8));
+        return (
+          (
+            { a: "\u0007", b: "\b", e: "\u001b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v" } as Record<string, string>
+          )[value] ?? value
+        );
+      },
+    ),
   );
 }
 
@@ -430,10 +437,7 @@ function projectRedirectedStatement(node: SyntaxNode): BashStatement {
   return withRedirects(statement, redirects, span(node));
 }
 
-function projectCommand(
-  node: SyntaxNode,
-  redirects: readonly BashRedirect[],
-): BashCommand {
+function projectCommand(node: SyntaxNode, redirects: readonly BashRedirect[]): BashCommand {
   const nameNode = node.childForFieldName("name");
   const commandName = nameNode?.namedChildren[0] ?? null;
   const command: BashCommand = {
@@ -446,7 +450,11 @@ function projectCommand(
     redirects: [],
     span: span(node),
   };
-  return withCommandRedirects(command, [...redirects, ...node.namedChildren.filter(isRedirectNode).map(projectRedirect)], span(node));
+  return withCommandRedirects(
+    command,
+    [...redirects, ...node.namedChildren.filter(isRedirectNode).map(projectRedirect)],
+    span(node),
+  );
 }
 
 function projectAssignment(node: SyntaxNode): BashAssignment {
@@ -462,43 +470,74 @@ function projectAssignment(node: SyntaxNode): BashAssignment {
 function projectRedirect(node: SyntaxNode): BashRedirect {
   const operator = node.children.find((child) => !child.isNamed && /^(?:[<>]|&>)/.test(child.text))?.text ?? "";
   const descriptorText = node.childForFieldName("descriptor")?.text;
-  const descriptor = descriptorText === undefined ? operator.startsWith("<") ? 0 : 1
-    : /^\d+$/.test(descriptorText) && Number.isSafeInteger(Number(descriptorText)) ? Number(descriptorText) : null;
-  const words = node.type === "herestring_redirect"
-    ? node.namedChildren.filter((child) => child.type !== "file_descriptor").map(projectWord)
-    : node.childrenForFieldName("destination").map(projectWord);
-  const content = node.type === "herestring_redirect" ? words[0] ?? null : null;
-  const kind = node.type === "herestring_redirect" ? "here-string"
-    : node.type === "heredoc_redirect" ? "here-document"
-      : operator === "<&" || operator === ">&"
-        ? words[0]?.text === "-" ? "close" : "duplicate"
-        : operator === "<" ? "input"
-          : operator === "<>" ? "read-write"
-            : operator === ">>" || operator === "&>>" ? "append"
-              : [">", ">|", "&>"].includes(operator) ? "output" : "unsupported";
+  const descriptor =
+    descriptorText === undefined
+      ? operator.startsWith("<")
+        ? 0
+        : 1
+      : /^\d+$/.test(descriptorText) && Number.isSafeInteger(Number(descriptorText))
+        ? Number(descriptorText)
+        : null;
+  const words =
+    node.type === "herestring_redirect"
+      ? node.namedChildren.filter((child) => child.type !== "file_descriptor").map(projectWord)
+      : node.childrenForFieldName("destination").map(projectWord);
+  const content = node.type === "herestring_redirect" ? (words[0] ?? null) : null;
+  const kind =
+    node.type === "herestring_redirect"
+      ? "here-string"
+      : node.type === "heredoc_redirect"
+        ? "here-document"
+        : operator === "<&" || operator === ">&"
+          ? words[0]?.text === "-"
+            ? "close"
+            : "duplicate"
+          : operator === "<"
+            ? "input"
+            : operator === "<>"
+              ? "read-write"
+              : operator === ">>" || operator === "&>>"
+                ? "append"
+                : [">", ">|", "&>"].includes(operator)
+                  ? "output"
+                  : "unsupported";
   return {
     kind,
     operator,
     descriptor,
     descriptorExplicit: descriptorText !== undefined,
-    target: kind === "here-string" || kind === "here-document" ? null : words[0] ?? null,
+    target: kind === "here-string" || kind === "here-document" ? null : (words[0] ?? null),
     ...(kind === "here-string" ? { content } : {}),
-    words: node.type === "heredoc_redirect"
-      ? node.namedChildren.filter((child) => child.type === "heredoc_body").map((child) => ({
-        kind: "unsupported-word" as const, text: child.text, reason: "Here-document content is not statically modeled",
-        statements: projectNestedStatements(child), span: span(child),
-      })) : words,
+    words:
+      node.type === "heredoc_redirect"
+        ? node.namedChildren
+            .filter((child) => child.type === "heredoc_body")
+            .map((child) => ({
+              kind: "unsupported-word" as const,
+              text: child.text,
+              reason: "Here-document content is not statically modeled",
+              statements: projectNestedStatements(child),
+              span: span(child),
+            }))
+        : words,
     span: span(node),
   };
 }
 
 function projectFunction(node: SyntaxNode): BashFunction {
   const name = node.childForFieldName("name") ?? node.namedChildren.find((child) => child.type === "word");
-  const bodyNode = node.childForFieldName("body") ?? node.namedChildren.find((child) => child !== name && !isRedirectNode(child));
+  const bodyNode =
+    node.childForFieldName("body") ?? node.namedChildren.find((child) => child !== name && !isRedirectNode(child));
   const body = bodyNode
     ? projectStatement(bodyNode)
     : { kind: "unsupported" as const, reason: "Function body is missing", statements: [], span: span(node) };
-  return { kind: "function", name: name?.text ?? "", body, redirects: node.namedChildren.filter(isRedirectNode).map(projectRedirect), span: span(node) };
+  return {
+    kind: "function",
+    name: name?.text ?? "",
+    body,
+    redirects: node.namedChildren.filter(isRedirectNode).map(projectRedirect),
+    span: span(node),
+  };
 }
 
 function projectUnsetCommand(node: SyntaxNode): BashCommand {
@@ -587,7 +626,6 @@ function projectWord(node: SyntaxNode): BashWord {
   }
 }
 
-
 function projectUnsupported(node: SyntaxNode): BashStatement {
   return {
     kind: "unsupported",
@@ -624,7 +662,11 @@ function isProjectableStatement(node: SyntaxNode): boolean {
   ].includes(node.type);
 }
 
-function withRedirects(statement: BashStatement, redirects: readonly BashRedirect[], statementSpan: SourceSpan): BashStatement {
+function withRedirects(
+  statement: BashStatement,
+  redirects: readonly BashRedirect[],
+  statementSpan: SourceSpan,
+): BashStatement {
   switch (statement.kind) {
     case "command":
       return withCommandRedirects(statement, redirects, statementSpan);
@@ -642,13 +684,25 @@ function withRedirects(statement: BashStatement, redirects: readonly BashRedirec
 }
 
 /** The grammar groups trailing command arguments into file_redirect destinations. */
-function withCommandRedirects(command: BashCommand, redirects: readonly BashRedirect[], statementSpan: SourceSpan): BashCommand {
-  const trailing = redirects.flatMap((redirect) => ["here-string", "here-document"].includes(redirect.kind) ? [] : redirect.words.slice(1));
+function withCommandRedirects(
+  command: BashCommand,
+  redirects: readonly BashRedirect[],
+  statementSpan: SourceSpan,
+): BashCommand {
+  const trailing = redirects.flatMap((redirect) =>
+    ["here-string", "here-document"].includes(redirect.kind) ? [] : redirect.words.slice(1),
+  );
   return {
     ...command,
     words: [...command.words, ...trailing].sort((left, right) => left.span.start - right.span.start),
-    redirects: [...command.redirects, ...redirects.map((redirect) => ["here-string", "here-document"].includes(redirect.kind)
-      ? redirect : { ...redirect, words: redirect.words.slice(0, 1) })],
+    redirects: [
+      ...command.redirects,
+      ...redirects.map((redirect) =>
+        ["here-string", "here-document"].includes(redirect.kind)
+          ? redirect
+          : { ...redirect, words: redirect.words.slice(0, 1) },
+      ),
+    ],
     span: statementSpan,
   };
 }

@@ -2,17 +2,38 @@ import { beforeAll, expect, test } from "bun:test";
 import { createOpenCodePlugin } from "../adapters/opencode.ts";
 import { createOpenCodeV2Plugin } from "../adapters/opencode-v2.ts";
 import {
-  analyzeBashWithPolicies, checkBashFilePermissions, combineBashPermissionVerdicts, createOpenCodeBashPreflights,
-  initBundledBashParser, openCodeBashPermissionStatus, OPENCODE_POLICY_RELOAD_COMMAND,
-  type BashPolicyEvaluation, type HarnessFilePermission, type LoadedPolicyRuntime, type ValidatedBashPolicy,
+  analyzeBashWithPolicies,
+  checkBashFilePermissions,
+  combineBashPermissionVerdicts,
+  createOpenCodeBashPreflights,
+  initBundledBashParser,
+  openCodeBashPermissionStatus,
+  OPENCODE_POLICY_RELOAD_COMMAND,
+  type BashPolicyEvaluation,
+  type HarnessFilePermission,
+  type LoadedPolicyRuntime,
+  type ValidatedBashPolicy,
 } from "../src/index.ts";
 
 beforeAll(initBundledBashParser);
 const limits = { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 };
-const commandPolicy: ValidatedBashPolicy = { source: { canonicalPath: "/fixture.policy.json" }, layer: "permission", select: [],
-  evaluate: () => ({ kind: "allow", reason: [] }) };
-const runtime = { config: { bashAnalysis: limits }, policySet: { policies: [commandPolicy], sources: [] }, limits } as unknown as LoadedPolicyRuntime;
-const evaluation = (decision: "allow" | "defer" | "deny"): BashPolicyEvaluation => ({ decision, events: [], traces: [], analysis: { complete: true } });
+const commandPolicy: ValidatedBashPolicy = {
+  source: { canonicalPath: "/fixture.policy.json" },
+  layer: "permission",
+  select: [],
+  evaluate: () => ({ kind: "allow", reason: [] }),
+};
+const runtime = {
+  config: { bashAnalysis: limits },
+  policySet: { policies: [commandPolicy], sources: [] },
+  limits,
+} as unknown as LoadedPolicyRuntime;
+const evaluation = (decision: "allow" | "defer" | "deny"): BashPolicyEvaluation => ({
+  decision,
+  events: [],
+  traces: [],
+  analysis: { complete: true },
+});
 const identity = { sessionID: "session", callID: "call" };
 
 test("preflight ledger retains every outstanding generation and retires each exactly", () => {
@@ -57,8 +78,12 @@ test("permission mapping preserves native deny and maps the aggregate command/fi
   for (const native of ["allow", "ask", "deny"] as const) {
     expect(openCodeBashPermissionStatus(undefined, native)).toBe(native);
     for (const verdict of ["allow", "defer", "deny"] as const) {
-      expect(openCodeBashPermissionStatus({ kind: "complete", source: "foo", cwd: "/workspace", evaluation: evaluation(verdict) }, native))
-        .toBe(native === "deny" ? "deny" : verdict === "defer" ? "ask" : verdict);
+      expect(
+        openCodeBashPermissionStatus(
+          { kind: "complete", source: "foo", cwd: "/workspace", evaluation: evaluation(verdict) },
+          native,
+        ),
+      ).toBe(native === "deny" ? "deny" : verdict === "defer" ? "ask" : verdict);
     }
   }
 });
@@ -66,19 +91,39 @@ test("permission mapping preserves native deny and maps the aggregate command/fi
 test("property: every command/file verdict combination is reduced restrictively and independent of file order", async () => {
   const verdicts = ["allow", "defer", "deny"] as const;
   for (const command of verdicts) {
-    for (const a of verdicts) for (const b of verdicts) for (const c of verdicts) {
-      const all = [command, a, b, c];
-      const expected = all.some((verdict) => verdict === "deny") ? "deny" : all.some((verdict) => verdict === "defer") ? "defer" : "allow";
-      const result = analyzeBashWithPolicies({ source: "foo >first >second >third", cwd: "/workspace", initialEnvironment: { kind: "verified", values: {} },
-        policies: [{ ...commandPolicy, evaluate: () => command === "defer" ? { kind: "defer" } : { kind: command, reason: [] } }] });
-      for (const files of [[a, b, c], [c, a, b], [b, c, a]]) {
-        let checked = 0;
-        const combined = await checkBashFilePermissions(result, { check: () => files[checked++]! });
-        expect(combined.decision).toBe(expected);
-        if (command !== "deny") expect(combined.filePermissionChecks!.map((check) => check.decision)).toEqual(files);
-        expect(combineBashPermissionVerdicts([command, ...files])).toBe(expected);
-      }
-    }
+    for (const a of verdicts)
+      for (const b of verdicts)
+        for (const c of verdicts) {
+          const all = [command, a, b, c];
+          const expected = all.some((verdict) => verdict === "deny")
+            ? "deny"
+            : all.some((verdict) => verdict === "defer")
+              ? "defer"
+              : "allow";
+          const result = analyzeBashWithPolicies({
+            source: "foo >first >second >third",
+            cwd: "/workspace",
+            initialEnvironment: { kind: "verified", values: {} },
+            policies: [
+              {
+                ...commandPolicy,
+                evaluate: () => (command === "defer" ? { kind: "defer" } : { kind: command, reason: [] }),
+              },
+            ],
+          });
+          for (const files of [
+            [a, b, c],
+            [c, a, b],
+            [b, c, a],
+          ]) {
+            let checked = 0;
+            const combined = await checkBashFilePermissions(result, { check: () => files[checked++]! });
+            expect(combined.decision).toBe(expected);
+            if (command !== "deny")
+              expect(combined.filePermissionChecks!.map((check) => check.decision)).toEqual(files);
+            expect(combineBashPermissionVerdicts([command, ...files])).toBe(expected);
+          }
+        }
   }
 });
 
@@ -87,20 +132,38 @@ test("both adapters use stored file verdicts instead of rechecking or approving 
     let filePermission: HarnessFilePermission = "ask";
     let evaluated = 0;
     let checked = 0;
-    const plugin = await create({ runtime,
-      evaluatePolicies: (loaded, source, context) => {
-        evaluated++;
-        return analyzeBashWithPolicies({ source, cwd: context?.cwd, policies: loaded.policySet.policies, initialEnvironment: { kind: "verified", values: {} } });
+    const plugin = await create(
+      {
+        runtime,
+        evaluatePolicies: (loaded, source, context) => {
+          evaluated++;
+          return analyzeBashWithPolicies({
+            source,
+            cwd: context?.cwd,
+            policies: loaded.policySet.policies,
+            initialEnvironment: { kind: "verified", values: {} },
+          });
+        },
+        filePermissions: () => ({
+          check: () => {
+            checked++;
+            return filePermission;
+          },
+        }),
       },
-      filePermissions: () => ({ check: () => { checked++; return filePermission; } }),
-    }, undefined, "/workspace");
+      undefined,
+      "/workspace",
+    );
     for (const initial of ["allow", "ask", "deny"]) {
       const output = { status: initial };
       await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "foo", ...identity }, output);
       expect(output.status).toBe(initial);
     }
     expect(evaluated).toBe(0);
-    await (plugin["tool.execute.before"] as Function)({ tool: "bash", ...identity }, { args: { command: "foo >out", workdir: "/external" } });
+    await (plugin["tool.execute.before"] as Function)(
+      { tool: "bash", ...identity },
+      { args: { command: "foo >out", workdir: "/external" } },
+    );
     expect(evaluated).toBe(1);
     expect(checked).toBe(1);
     filePermission = "allow";
@@ -118,9 +181,23 @@ test("both adapters discard records on replacement failures, completion events, 
   for (const create of [createOpenCodePlugin, createOpenCodeV2Plugin]) {
     const replies: unknown[] = [];
     let reloads = 0;
-    const plugin = await create({ runtime, evaluatePolicies: (_loaded, source) => evaluation(source === "deny" ? "deny" : "allow"),
-      loadRuntime: async () => { if (++reloads === 2) throw new Error("replacement failed"); return runtime; },
-    }, { permission: { reply: async (reply: unknown) => { replies.push(reply); } } } as never);
+    const plugin = await create(
+      {
+        runtime,
+        evaluatePolicies: (_loaded, source) => evaluation(source === "deny" ? "deny" : "allow"),
+        loadRuntime: async () => {
+          if (++reloads === 2) throw new Error("replacement failed");
+          return runtime;
+        },
+      },
+      {
+        permission: {
+          reply: async (reply: unknown) => {
+            replies.push(reply);
+          },
+        },
+      } as never,
+    );
     let call = 0;
     let currentIdentity = identity;
     let args: Record<string, unknown> = {};
@@ -141,18 +218,38 @@ test("both adapters discard records on replacement failures, completion events, 
     expect(await native()).toBe("ask");
     for (const status of ["completed", "error"]) {
       await before();
-      await (plugin.event as Function)({ event: { type: "message.part.updated", properties: { part: { type: "tool", ...currentIdentity, state: { status } } } } });
+      await (plugin.event as Function)({
+        event: {
+          type: "message.part.updated",
+          properties: { part: { type: "tool", ...currentIdentity, state: { status } } },
+        },
+      });
       expect(await native()).toBe("ask");
     }
     for (let attempt = 0; attempt < 2; attempt++) {
       await before();
-      await (plugin.event as Function)({ event: { type: "tui.command.execute", properties: { command: OPENCODE_POLICY_RELOAD_COMMAND } } });
+      await (plugin.event as Function)({
+        event: { type: "tui.command.execute", properties: { command: OPENCODE_POLICY_RELOAD_COMMAND } },
+      });
       expect(await native()).toBe("ask");
     }
     await before();
-    await expect((plugin["tool.execute.before"] as Function)({ tool: "bash", ...currentIdentity }, { args: { command: "deny" } })).rejects.toThrow();
+    await expect(
+      (plugin["tool.execute.before"] as Function)({ tool: "bash", ...currentIdentity }, { args: { command: "deny" } }),
+    ).rejects.toThrow();
     expect(await native()).toBe("ask");
-    await (plugin.event as Function)({ event: { type: "permission.asked", properties: { permission: "bash", patterns: ["foo"], ...currentIdentity, id: "request", tool: { callID: currentIdentity.callID } } } });
+    await (plugin.event as Function)({
+      event: {
+        type: "permission.asked",
+        properties: {
+          permission: "bash",
+          patterns: ["foo"],
+          ...currentIdentity,
+          id: "request",
+          tool: { callID: currentIdentity.callID },
+        },
+      },
+    });
     expect(replies).toHaveLength(0);
   }
 });
@@ -181,17 +278,39 @@ test("both adapters retain an older pending file ask after a newer generation re
     let checks = 0;
     let resolveOlder!: (permission: HarnessFilePermission) => void;
     let started!: () => void;
-    const startedOlder = new Promise<void>((resolve) => { started = resolve; });
+    const startedOlder = new Promise<void>((resolve) => {
+      started = resolve;
+    });
     const replies: unknown[] = [];
-    const plugin = await create({ runtime,
-      evaluatePolicies: (loaded, source, context) => analyzeBashWithPolicies({ source, cwd: context?.cwd,
-        policies: loaded.policySet.policies, initialEnvironment: { kind: "verified", values: {} } }),
-      filePermissions: () => ({ check: () => {
-        if (++checks !== 1) return "allow";
-        started();
-        return new Promise<HarnessFilePermission>((resolve) => { resolveOlder = resolve; });
-      } }),
-    }, { permission: { reply: async (reply: unknown) => { replies.push(reply); } } } as never, "/workspace");
+    const plugin = await create(
+      {
+        runtime,
+        evaluatePolicies: (loaded, source, context) =>
+          analyzeBashWithPolicies({
+            source,
+            cwd: context?.cwd,
+            policies: loaded.policySet.policies,
+            initialEnvironment: { kind: "verified", values: {} },
+          }),
+        filePermissions: () => ({
+          check: () => {
+            if (++checks !== 1) return "allow";
+            started();
+            return new Promise<HarnessFilePermission>((resolve) => {
+              resolveOlder = resolve;
+            });
+          },
+        }),
+      },
+      {
+        permission: {
+          reply: async (reply: unknown) => {
+            replies.push(reply);
+          },
+        },
+      } as never,
+      "/workspace",
+    );
     const before = plugin["tool.execute.before"] as Function;
     const after = plugin["tool.execute.after"] as Function;
     const olderArgs = { command: "foo >older" };
@@ -211,8 +330,18 @@ test("both adapters retain an older pending file ask after a newer generation re
     const afterNewRetired = { status: "allow" };
     await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "foo", ...identity }, afterNewRetired);
     expect(afterNewRetired.status).toBe("ask");
-    await (plugin.event as Function)({ event: { type: "permission.asked", properties: { permission: "bash", patterns: ["foo"],
-      ...identity, id: "older-request", tool: { callID: identity.callID } } } });
+    await (plugin.event as Function)({
+      event: {
+        type: "permission.asked",
+        properties: {
+          permission: "bash",
+          patterns: ["foo"],
+          ...identity,
+          id: "older-request",
+          tool: { callID: identity.callID },
+        },
+      },
+    });
     expect(replies).toHaveLength(0);
     expect(checks).toBe(2);
     await after({ tool: "bash", ...identity, args: olderArgs }, {});
@@ -240,8 +369,12 @@ test("outstanding older denials are retained and late retired tokens cannot modi
 });
 
 test("property: all completion and retirement permutations retain overlap until the last generation retires", () => {
-  const permutations = <T>(values: readonly T[]): T[][] => values.length === 0 ? [[]]
-    : values.flatMap((value, index) => permutations(values.filter((_item, itemIndex) => itemIndex !== index)).map((suffix) => [value, ...suffix]));
+  const permutations = <T>(values: readonly T[]): T[][] =>
+    values.length === 0
+      ? [[]]
+      : values.flatMap((value, index) =>
+          permutations(values.filter((_item, itemIndex) => itemIndex !== index)).map((suffix) => [value, ...suffix]),
+        );
   for (const completionOrder of permutations([0, 1, 2])) {
     for (const retirementOrder of permutations([0, 1, 2])) {
       for (const disturbance of ["none", "reload", "uncorrelated"] as const) {
@@ -351,52 +484,96 @@ test("overlapping permission generations cannot authorize an old request using a
 test("both adapters prevent stale terminal callbacks from dropping a pending retry's file ask", async () => {
   for (const create of [createOpenCodePlugin, createOpenCodeV2Plugin]) {
     for (const terminal of ["after-known", "after-missing", "event-known", "event-copy"] as const) {
-      for (const retired of [false, true]) for (const permission of ["allow", "ask"] as const) {
-        let checks = 0;
-        let resolveCheck!: (permission: HarnessFilePermission) => void;
-        let started!: () => void;
-        const checkStarted = new Promise<void>((resolve) => { started = resolve; });
-        const replies: unknown[] = [];
-        const plugin = await create({ runtime,
-          evaluatePolicies: (loaded, source, context) => analyzeBashWithPolicies({ source, cwd: context?.cwd,
-            policies: loaded.policySet.policies, initialEnvironment: { kind: "verified", values: {} } }),
-          filePermissions: () => ({ check: () => {
-            if (++checks === 1) return "allow";
-            started();
-            return new Promise<HarnessFilePermission>((resolve) => { resolveCheck = resolve; });
-          } }),
-        }, { permission: { reply: async (reply: unknown) => { replies.push(reply); } } } as never, "/workspace");
-        const firstArgs = { command: "foo >first" };
-        const retryArgs = { command: "foo >second" };
-        const before = plugin["tool.execute.before"] as Function;
-        const after = plugin["tool.execute.after"] as Function;
-        const event = plugin.event as Function;
-        await before({ tool: "bash", ...identity }, { args: firstArgs });
-        if (retired) await after({ tool: "bash", ...identity, args: firstArgs }, {});
-        const retry = before({ tool: "bash", ...identity }, { args: retryArgs });
-        await checkStarted;
-        if (terminal.startsWith("after")) await after({ tool: "bash", ...identity,
-          ...(terminal === "after-known" ? { args: firstArgs } : {}) }, {});
-        else await event({ event: { type: "message.part.updated", properties: { part: { type: "tool", ...identity,
-          state: { status: "completed", input: terminal === "event-known" ? firstArgs : { ...firstArgs } } } } } });
-        const pending = { status: "allow" };
-        await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "foo", ...identity }, pending);
-        expect(pending.status, `${terminal}, retired=${retired}`).toBe("ask");
-        resolveCheck(permission);
-        await retry;
-        const output = { status: "allow" };
-        await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "foo", ...identity }, output);
-        const correlated = terminal === "after-known" || terminal === "event-known";
-        const expected = retired && correlated && permission === "allow" ? "allow" : "ask";
-        expect(output.status, `${terminal}, retired=${retired}, permission=${permission}`).toBe(expected);
-        if (expected === "ask") {
-          await event({ event: { type: "permission.asked", properties: { permission: "bash", patterns: ["foo"],
-            ...identity, id: "request", tool: { callID: identity.callID } } } });
-          expect(replies).toHaveLength(0);
+      for (const retired of [false, true])
+        for (const permission of ["allow", "ask"] as const) {
+          let checks = 0;
+          let resolveCheck!: (permission: HarnessFilePermission) => void;
+          let started!: () => void;
+          const checkStarted = new Promise<void>((resolve) => {
+            started = resolve;
+          });
+          const replies: unknown[] = [];
+          const plugin = await create(
+            {
+              runtime,
+              evaluatePolicies: (loaded, source, context) =>
+                analyzeBashWithPolicies({
+                  source,
+                  cwd: context?.cwd,
+                  policies: loaded.policySet.policies,
+                  initialEnvironment: { kind: "verified", values: {} },
+                }),
+              filePermissions: () => ({
+                check: () => {
+                  if (++checks === 1) return "allow";
+                  started();
+                  return new Promise<HarnessFilePermission>((resolve) => {
+                    resolveCheck = resolve;
+                  });
+                },
+              }),
+            },
+            {
+              permission: {
+                reply: async (reply: unknown) => {
+                  replies.push(reply);
+                },
+              },
+            } as never,
+            "/workspace",
+          );
+          const firstArgs = { command: "foo >first" };
+          const retryArgs = { command: "foo >second" };
+          const before = plugin["tool.execute.before"] as Function;
+          const after = plugin["tool.execute.after"] as Function;
+          const event = plugin.event as Function;
+          await before({ tool: "bash", ...identity }, { args: firstArgs });
+          if (retired) await after({ tool: "bash", ...identity, args: firstArgs }, {});
+          const retry = before({ tool: "bash", ...identity }, { args: retryArgs });
+          await checkStarted;
+          if (terminal.startsWith("after"))
+            await after({ tool: "bash", ...identity, ...(terminal === "after-known" ? { args: firstArgs } : {}) }, {});
+          else
+            await event({
+              event: {
+                type: "message.part.updated",
+                properties: {
+                  part: {
+                    type: "tool",
+                    ...identity,
+                    state: { status: "completed", input: terminal === "event-known" ? firstArgs : { ...firstArgs } },
+                  },
+                },
+              },
+            });
+          const pending = { status: "allow" };
+          await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "foo", ...identity }, pending);
+          expect(pending.status, `${terminal}, retired=${retired}`).toBe("ask");
+          resolveCheck(permission);
+          await retry;
+          const output = { status: "allow" };
+          await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "foo", ...identity }, output);
+          const correlated = terminal === "after-known" || terminal === "event-known";
+          const expected = retired && correlated && permission === "allow" ? "allow" : "ask";
+          expect(output.status, `${terminal}, retired=${retired}, permission=${permission}`).toBe(expected);
+          if (expected === "ask") {
+            await event({
+              event: {
+                type: "permission.asked",
+                properties: {
+                  permission: "bash",
+                  patterns: ["foo"],
+                  ...identity,
+                  id: "request",
+                  tool: { callID: identity.callID },
+                },
+              },
+            });
+            expect(replies).toHaveLength(0);
+          }
+          expect(checks).toBe(2);
+          await after({ tool: "bash", ...identity, args: retryArgs }, {});
         }
-        expect(checks).toBe(2);
-        await after({ tool: "bash", ...identity, args: retryArgs }, {});
-      }
     }
   }
 });

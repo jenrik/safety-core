@@ -3,12 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  analyzeBashAuthorization,
-  checkWebfetchUrl,
-  evaluateBashGuards,
-  initBashParser,
-} from "../src/index.ts";
+import { analyzeBashAuthorization, checkWebfetchUrl, evaluateBashGuards, initBashParser } from "../src/index.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-bash-hard-block-policies-"));
 
@@ -73,14 +68,13 @@ describe("walker-backed hard-block compatibility policies", () => {
       "fish -d parser -c 'cat credentials.json'",
       "fish --interactive -c 'cat credentials.json'",
       "fish --init-cmd 'cat credentials.json' -c true",
-    ]) expectGuardBlock(source, "unsupported-shell-source");
+    ])
+      expectGuardBlock(source, "unsupported-shell-source");
   });
 
   test("keeps fish attached and separate command source behind its hard block", () => {
-    for (const source of [
-      "fish -c'curl https://api.github.com/user'",
-      "fish -c 'curl https://api.github.com/user'",
-    ]) expectGuardBlock(source, "unsupported-shell-source");
+    for (const source of ["fish -c'curl https://api.github.com/user'", "fish -c 'curl https://api.github.com/user'"])
+      expectGuardBlock(source, "unsupported-shell-source");
   });
 
   test("keeps dynamic fish command source behind its hard block", () => {
@@ -101,7 +95,8 @@ describe("walker-backed hard-block compatibility policies", () => {
       'fish --init-command "$(unpredictable-command-output)"',
       'fish --init-command="$(unpredictable-command-output)"',
       'fish --init-cmd="$(unpredictable-command-output)"',
-    ]) expectGuardBlock(source, "unsupported-shell-source");
+    ])
+      expectGuardBlock(source, "unsupported-shell-source");
   });
 
   test("fish preflight denial does not spend nested work or retain symbolic literals", () => {
@@ -121,17 +116,22 @@ describe("walker-backed hard-block compatibility policies", () => {
   });
 
   test("does not blanket-deny non-source or fully dynamic fish option identities", () => {
-    expect(evaluateBashGuards({ source: "fish --version" }))
-      .not.toMatchObject({ kind: "block", policy: { name: "unsupported-shell-source" } });
-    expect(evaluateBashGuards({ source: 'fish "$(echo -c)" true' }))
-      .toMatchObject({ kind: "pass", status: "failure" });
-    expect(evaluateBashGuards({ source: 'fish -d "$(echo parser)" --version' }))
-      .not.toMatchObject({ kind: "block", policy: { name: "unsupported-shell-source" } });
+    expect(evaluateBashGuards({ source: "fish --version" })).not.toMatchObject({
+      kind: "block",
+      policy: { name: "unsupported-shell-source" },
+    });
+    expect(evaluateBashGuards({ source: 'fish "$(echo -c)" true' })).toMatchObject({ kind: "pass", status: "failure" });
+    expect(evaluateBashGuards({ source: 'fish -d "$(echo parser)" --version' })).not.toMatchObject({
+      kind: "block",
+      policy: { name: "unsupported-shell-source" },
+    });
   });
 
   test("does not apply external fish preflight to a definite shell function", () => {
-    expect(evaluateBashGuards({ source: 'fish(){ true; }; fish -c "$(echo foo)"' }))
-      .not.toMatchObject({ kind: "block", policy: { name: "unsupported-shell-source" } });
+    expect(evaluateBashGuards({ source: 'fish(){ true; }; fish -c "$(echo foo)"' })).not.toMatchObject({
+      kind: "block",
+      policy: { name: "unsupported-shell-source" },
+    });
   });
 
   test("uses find expression positions rather than action-like operands", () => {
@@ -144,10 +144,7 @@ describe("walker-backed hard-block compatibility policies", () => {
   });
 
   test("treats rejected Bash and zsh attached command source as incomplete opaque execution", () => {
-    for (const source of [
-      "bash -c'curl https://api.github.com/user'",
-      "zsh -c'curl https://api.github.com/user'",
-    ]) {
+    for (const source of ["bash -c'curl https://api.github.com/user'", "zsh -c'curl https://api.github.com/user'"]) {
       const result = evaluateBashGuards({ source });
       expect(result, source).toMatchObject({ kind: "pass", status: "failure" });
       expect(JSON.stringify(result), source).not.toContain("api.github.com");
@@ -161,7 +158,8 @@ describe("walker-backed hard-block compatibility policies", () => {
       "bash -co pipefail 'curl https://api.github.com/user'",
       "bash -cO extglob 'curl https://api.github.com/user'",
       "zsh -ce 'curl https://api.github.com/user'",
-    ]) expectGuardBlock(source, "github-http");
+    ])
+      expectGuardBlock(source, "github-http");
   });
 
   test("propagates function facts through current-scope structural children", () => {
@@ -173,19 +171,18 @@ describe("walker-backed hard-block compatibility policies", () => {
     for (const source of [
       "exec -aname curl https://api.github.com/user",
       "exec -claname curl https://api.github.com/user",
-    ]) expectGuardBlock(source, "github-http");
+    ])
+      expectGuardBlock(source, "github-http");
   });
 
   test("uses the best-effort Bash parser for zsh command source", () => {
-    for (const source of [
-      "zsh --no-rcs -c 'cat credentials.json'",
-      "zsh --no_rcs -c 'cat credentials.json'",
-    ]) expectGuardBlock(source, "secret-read");
+    for (const source of ["zsh --no-rcs -c 'cat credentials.json'", "zsh --no_rcs -c 'cat credentials.json'"])
+      expectGuardBlock(source, "secret-read");
   });
 
   test("preserves current-shell command builtin writes for hard-block policies", () => {
-    expectGuardBlock("command export U=https://api.github.com/user; curl \"$U\"", "github-http");
-    expectGuardBlock("command export P=credentials.json; cat \"$P\"", "secret-read");
+    expectGuardBlock('command export U=https://api.github.com/user; curl "$U"', "github-http");
+    expectGuardBlock('command export P=credentials.json; cat "$P"', "secret-read");
   });
 
   test("preserves child denials across later budget exhaustion", () => {
@@ -202,7 +199,14 @@ describe("walker-backed hard-block compatibility policies", () => {
     }
     expectGuardBlock("command time --verb cat credentials.json", "secret-read");
     for (const options of [
-      "-tx", "-txn1", "-tn 1 -x", "-Cfx", "--no-color", "--follow", "-d=permanent", "-dpermanent",
+      "-tx",
+      "-txn1",
+      "-tn 1 -x",
+      "-Cfx",
+      "--no-color",
+      "--follow",
+      "-d=permanent",
+      "-dpermanent",
     ]) {
       expectGuardBlock(`watch ${options} cat credentials.json`, "secret-read");
     }
@@ -227,7 +231,8 @@ describe("walker-backed hard-block compatibility policies", () => {
       "coproc worker if true; then cat credentials.json; fi",
       "coproc worker while true; do cat credentials.json; done",
       "coproc worker case item in item) cat credentials.json;; esac",
-    ]) expectGuardBlock(source, "secret-read");
+    ])
+      expectGuardBlock(source, "secret-read");
   });
 
   for (const [name, source] of [
@@ -273,25 +278,28 @@ describe("walker-backed hard-block compatibility policies", () => {
       "xargs -racredentials.json echo",
       "xargs -ra credentials.json echo",
       "xargs -0acredentials.json echo",
-    ]) expectGuardBlock(source, "secret-read");
+    ])
+      expectGuardBlock(source, "secret-read");
   });
 
   test("retains short-circuit path correlations needed for hard blocks", () => {
     expectGuardBlock('condition && FILE=credentials.json; cat "$FILE"', "secret-read");
     expectGuardBlock("condition || # keep the right operand\ncat credentials.json", "secret-read");
-    expectGuardBlock(
-      'X=credentials.json; Y=README.md; condition && X=README.md || Y=$X; cat "$Y"',
-      "secret-read",
-    );
+    expectGuardBlock('X=credentials.json; Y=README.md; condition && X=README.md || Y=$X; cat "$Y"', "secret-read");
   });
 
   test("applies env environment operands to its child while keeping the wrapper prompt-gated", () => {
     const blocked = "https://api.github.com/repos/example/project/issues";
 
-    expect(analyzeBashAuthorization({ source: "env -i -- sh -c 'curl \"$URL\"'", initialEnvironment: { kind: "verified", values: { URL: blocked } } }).verdict)
-      .toEqual({ kind: "neutral" });
-    expect(analyzeBashAuthorization({ source: `env -u URL URL=${blocked} sh -c 'curl \"$URL\"'` }).verdict)
-      .toMatchObject({ kind: "deny" });
+    expect(
+      analyzeBashAuthorization({
+        source: "env -i -- sh -c 'curl \"$URL\"'",
+        initialEnvironment: { kind: "verified", values: { URL: blocked } },
+      }).verdict,
+    ).toEqual({ kind: "neutral" });
+    expect(
+      analyzeBashAuthorization({ source: `env -u URL URL=${blocked} sh -c 'curl \"$URL\"'` }).verdict,
+    ).toMatchObject({ kind: "deny" });
   });
 
   test("denies path-qualified reader commands", () => {
@@ -300,34 +308,50 @@ describe("walker-backed hard-block compatibility policies", () => {
 
   test("denies secret input redirects for arbitrary commands and redirect-only commands", () => {
     for (const command of [
-      "wc < credentials.json", "bash < credentials.json", "< credentials.json",
-      "(cat) < credentials.json", "{ cat; } < credentials.json",
+      "wc < credentials.json",
+      "bash < credentials.json",
+      "< credentials.json",
+      "(cat) < credentials.json",
+      "{ cat; } < credentials.json",
     ]) {
       expectGuardBlock(command, "secret-read", "bash redirect from 'credentials.json'");
     }
   });
 
-  test.each([
-    '"$UNKNOWN" < credentials.json',
-    "f(){ true; }; f < credentials.json",
-    "export VALUE < credentials.json",
-  ])("denies a secret input redirect before the shortcut in %s", (command) => {
-    expectGuardBlock(command, "secret-read", "bash redirect from 'credentials.json'");
-  });
+  test.each(['"$UNKNOWN" < credentials.json', "f(){ true; }; f < credentials.json", "export VALUE < credentials.json"])(
+    "denies a secret input redirect before the shortcut in %s",
+    (command) => {
+      expectGuardBlock(command, "secret-read", "bash redirect from 'credentials.json'");
+    },
+  );
 
   test("denies a secret input redirect before the readonly-assignment shortcut", () => {
-    expectGuardBlock("readonly VALUE=old; VALUE=next cat < credentials.json", "secret-read", "bash redirect from 'credentials.json'");
+    expectGuardBlock(
+      "readonly VALUE=old; VALUE=next cat < credentials.json",
+      "secret-read",
+      "bash redirect from 'credentials.json'",
+    );
   });
 
   test("detects direct GitHub HTTP invocations", () => {
     expectGuardBlock("curl https://api.github.com/repos/o/r/issues", "github-http", "Use the native gh command");
-    expectGuardBlock("curl https://example.test; strace curl https://api.github.com/repos/o/r/issues", "github-http", "Use the native gh command");
-    expectGuardBlock("(curl https://api.github.com/repos/o/r/issues) > trace.log", "github-http", "Use the native gh command");
+    expectGuardBlock(
+      "curl https://example.test; strace curl https://api.github.com/repos/o/r/issues",
+      "github-http",
+      "Use the native gh command",
+    );
+    expectGuardBlock(
+      "(curl https://api.github.com/repos/o/r/issues) > trace.log",
+      "github-http",
+      "Use the native gh command",
+    );
   });
 
   test("normalizes GitHub host casing and redacts URL authentication material", () => {
     const canary = "safety-core-auth-canary";
-    const analysis = evaluateBashGuards({ source: `curl 'https://${canary}@API.GITHUB.COM/user?access_token=${canary}#${canary}'` });
+    const analysis = evaluateBashGuards({
+      source: `curl 'https://${canary}@API.GITHUB.COM/user?access_token=${canary}#${canary}'`,
+    });
     expect(analysis).toMatchObject({ kind: "block", policy: { name: "github-http", decision: "deny" } });
     expect(JSON.stringify(analysis)).not.toContain(canary);
 
@@ -348,11 +372,21 @@ describe("walker-backed hard-block compatibility policies", () => {
   });
 
   test("property: GitHub host matching is case-insensitive and hostname-boundary-aware", () => {
-    for (const host of ["API.GITHUB.COM", "Api.GitHub.Com", "API.GITHUB.COM.", "RAW.GITHUBUSERCONTENT.COM", "Raw.GithubUserContent.Com"]) {
+    for (const host of [
+      "API.GITHUB.COM",
+      "Api.GitHub.Com",
+      "API.GITHUB.COM.",
+      "RAW.GITHUBUSERCONTENT.COM",
+      "Raw.GithubUserContent.Com",
+    ]) {
       const result = evaluateBashGuards({ source: `curl https://${host}/owner/repository/main/file` });
       expect(result, host).toMatchObject({ kind: "block", policy: { name: "github-http", decision: "deny" } });
     }
-    for (const host of ["evilapi.github.com", "api.github.com.example.test", "raw.githubusercontent.com.example.test"]) {
+    for (const host of [
+      "evilapi.github.com",
+      "api.github.com.example.test",
+      "raw.githubusercontent.com.example.test",
+    ]) {
       expect(evaluateBashGuards({ source: `curl https://${host}/user` }), host).toMatchObject({ kind: "pass" });
       expect(checkWebfetchUrl(`https://${host}/user`), host).toBeNull();
     }
@@ -379,13 +413,24 @@ describe("walker-backed hard-block compatibility policies", () => {
 
   test("recognizes ANSI-C executable quoting and shell long options before --command", () => {
     expectGuardBlock("$'cu'rl https://api.github.com/repos/o/r/issues", "github-http", "Use the native gh command");
-    expectGuardBlock("bash --noprofile --command 'curl https://api.github.com/repos/o/r/issues'", "github-http", "Use the native gh command");
-    expectGuardBlock("bash -c 'curl \"$2\"' shell-name ignored https://api.github.com/repos/o/r/issues", "github-http", "Use the native gh command");
+    expectGuardBlock(
+      "bash --noprofile --command 'curl https://api.github.com/repos/o/r/issues'",
+      "github-http",
+      "Use the native gh command",
+    );
+    expectGuardBlock(
+      "bash -c 'curl \"$2\"' shell-name ignored https://api.github.com/repos/o/r/issues",
+      "github-http",
+      "Use the native gh command",
+    );
   });
 
   test("does not expose a resolved URL or query in GitHub policy evidence", () => {
     const resolved = "https://api.github.com/repos/o/r/issues?opaque-query-marker";
-    const analysis = analyzeBashAuthorization({ source: "curl \"$URL\"", initialEnvironment: { kind: "verified", values: { URL: resolved } } });
+    const analysis = analyzeBashAuthorization({
+      source: 'curl "$URL"',
+      initialEnvironment: { kind: "verified", values: { URL: resolved } },
+    });
     const reason = analysis.policies.find((policy) => policy.name === "github-http")?.reason ?? "";
 
     expect(analysis.policies.length).toBe(1);
@@ -396,7 +441,7 @@ describe("walker-backed hard-block compatibility policies", () => {
   test("does not expose binding-derived GitHub query data after a transparent wrapper", () => {
     const resolved = "https://api.github.com/repos/o/r/issues?opaque-query-marker";
     const analysis = analyzeBashAuthorization({
-      source: "strace -f curl \"$URL\"",
+      source: 'strace -f curl "$URL"',
       initialEnvironment: { kind: "verified", values: { URL: resolved } },
     });
     const reason = analysis.policies.find((policy) => policy.name === "github-http")?.reason ?? "";
@@ -409,7 +454,7 @@ describe("walker-backed hard-block compatibility policies", () => {
   test("does not expose a binding-derived GitHub URL after literal eval reparsing", () => {
     const resolved = "https://api.github.com/repos/o/r/issues";
     const analysis = analyzeBashAuthorization({
-      source: "eval curl \"$URL\"",
+      source: 'eval curl "$URL"',
       initialEnvironment: { kind: "verified", values: { URL: resolved } },
     });
     const reason = analysis.policies.find((policy) => policy.name === "github-http")?.reason ?? "";
@@ -421,7 +466,7 @@ describe("walker-backed hard-block compatibility policies", () => {
 
   test("recurses into known literal eval payloads while keeping unknown eval payloads neutral", () => {
     expectGuardBlock("eval 'cat credentials.json'", "secret-read");
-    expect(analyzeBashAuthorization({ source: "eval \"$UNKNOWN\"" }).verdict).toEqual({ kind: "neutral" });
+    expect(analyzeBashAuthorization({ source: 'eval "$UNKNOWN"' }).verdict).toEqual({ kind: "neutral" });
   });
 
   test("preserves URL-specific steering for path-qualified HTTP commands", () => {
@@ -440,8 +485,9 @@ describe("walker-backed hard-block compatibility policies", () => {
   });
 
   test("allows only a complete set of known-safe hard-block invocations", () => {
-    expect(analyzeBashAuthorization({ source: "cat README.md; curl https://example.test; kubectl get pods" }).verdict)
-      .toEqual({ kind: "allow" });
+    expect(
+      analyzeBashAuthorization({ source: "cat README.md; curl https://example.test; kubectl get pods" }).verdict,
+    ).toEqual({ kind: "allow" });
   });
 
   test("keeps ambient variable expansion neutral instead of reading process environment", () => {
@@ -450,11 +496,7 @@ describe("walker-backed hard-block compatibility policies", () => {
 
   test("property: a later hard-block denial dominates preceding indeterminate evidence", () => {
     const random = lcg(0x7337c0de);
-    const blocked = [
-      "cat credentials.json",
-      "curl https://api.github.com/repos/o/r/issues",
-      "kubectl view-secret app",
-    ];
+    const blocked = ["cat credentials.json", "curl https://api.github.com/repos/o/r/issues", "kubectl view-secret app"];
     const wrappers = [
       (command: string) => command,
       (command: string) => `strace -f ${command}`,
@@ -466,8 +508,9 @@ describe("walker-backed hard-block compatibility policies", () => {
       const command = blocked[random() % blocked.length]!;
       const wrap = wrappers[random() % wrappers.length]!;
       const safePrefix = ["cat README.md", "curl https://example.test", "kubectl get pods"][random() % 3]!;
-      expect(analyzeBashAuthorization({ source: `${safePrefix}; unknown-command; ${wrap(command)}` }).verdict.kind)
-        .toBe("deny");
+      expect(
+        analyzeBashAuthorization({ source: `${safePrefix}; unknown-command; ${wrap(command)}` }).verdict.kind,
+      ).toBe("deny");
     }
   });
 
@@ -489,7 +532,11 @@ describe("walker-backed hard-block compatibility policies", () => {
   });
 });
 
-function expectGuardBlock(source: string, policy: "secret-read" | "github-http" | "kubectl" | "unsupported-shell-source", reason?: string): void {
+function expectGuardBlock(
+  source: string,
+  policy: "secret-read" | "github-http" | "kubectl" | "unsupported-shell-source",
+  reason?: string,
+): void {
   const result = evaluateBashGuards({ source });
   expect(result, source).toMatchObject({ kind: "block", policy: { name: policy, decision: "deny" } });
   if (reason !== undefined) expect(result.reason, source).toContain(reason);
@@ -506,11 +553,13 @@ function expectGuardBlockWithLimits(source: string, maxSteps: number, policy: "s
 function expectKubectlSecretReview(source: string): void {
   expect(evaluateBashGuards({ source }), source).toMatchObject({
     kind: "pass",
-    policies: [expect.objectContaining({
-      name: "kubectl",
-      decision: "defer",
-      kubectl: expect.objectContaining({ secretReview: true }),
-    })],
+    policies: [
+      expect.objectContaining({
+        name: "kubectl",
+        decision: "defer",
+        kubectl: expect.objectContaining({ secretReview: true }),
+      }),
+    ],
   });
 }
 

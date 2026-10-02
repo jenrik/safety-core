@@ -37,18 +37,43 @@ export function shellFileAccesses(events: readonly BashPolicyEvent[]): readonly 
       if (redirect.target?.kind === "unknown" && redirect.target.reason.kind === "process-substitution") continue;
       const target = redirect.target?.kind === "known" ? redirect.target.value : null;
       const cwd = event.cwd ?? null;
-      const path = target !== null && target.length > 0 && !target.includes("\0")
-        ? target.startsWith("/") ? target : cwd === null ? null : `${cwd.replace(/\/$/, "")}/${target}` : null;
+      const path =
+        target !== null && target.length > 0 && !target.includes("\0")
+          ? target.startsWith("/")
+            ? target
+            : cwd === null
+              ? null
+              : `${cwd.replace(/\/$/, "")}/${target}`
+          : null;
       const lexicalPath = path === null ? null : posix.normalize(path);
       // /dev/null is a supported file-permission target, not an exemption.
-      const special = lexicalPath !== null && /^\/(?:dev|proc|sys)(?:\/|$)/.test(lexicalPath) && lexicalPath !== "/dev/null";
+      const special =
+        lexicalPath !== null && /^\/(?:dev|proc|sys)(?:\/|$)/.test(lexicalPath) && lexicalPath !== "/dev/null";
       const common = {
-        path: special ? null : path, cwd, span: redirect.span ?? event.span,
-        ...(special ? { reason: "special-file" as const } : path === null
-          ? { reason: target === null || target.length === 0 || target.includes("\0") ? "unknown-path" as const : "unknown-cwd" as const } : {}),
+        path: special ? null : path,
+        cwd,
+        span: redirect.span ?? event.span,
+        ...(special
+          ? { reason: "special-file" as const }
+          : path === null
+            ? {
+                reason:
+                  target === null || target.length === 0 || target.includes("\0")
+                    ? ("unknown-path" as const)
+                    : ("unknown-cwd" as const),
+              }
+            : {}),
       };
-      const effect = redirect.kind === "input" ? "read" : redirect.kind === "append" ? "append" : redirect.kind === "read-write" ? "read-write" : "truncate";
-      if (redirect.kind === "input" || redirect.kind === "read-write") requests.push(Object.freeze({ ...common, operation: "read", effect }));
+      const effect =
+        redirect.kind === "input"
+          ? "read"
+          : redirect.kind === "append"
+            ? "append"
+            : redirect.kind === "read-write"
+              ? "read-write"
+              : "truncate";
+      if (redirect.kind === "input" || redirect.kind === "read-write")
+        requests.push(Object.freeze({ ...common, operation: "read", effect }));
       if (redirect.kind !== "input") requests.push(Object.freeze({ ...common, operation: "write", effect }));
     }
   }
@@ -58,7 +83,12 @@ export function shellFileAccesses(events: readonly BashPolicyEvent[]): readonly 
 /** Omitted redirection semantics cannot be repaired by a broad command allow. */
 export function redirectIsUnmodeled(redirect: NormalizedRedirect): boolean {
   if (redirect.descriptor === null || redirect.kind === "unsupported" || redirect.kind === "here-document") return true;
-  if (redirect.kind === "duplicate") return redirect.target?.kind !== "known" || !/^\d+$/.test(redirect.target.value) || !Number.isSafeInteger(Number(redirect.target.value));
+  if (redirect.kind === "duplicate")
+    return (
+      redirect.target?.kind !== "known" ||
+      !/^\d+$/.test(redirect.target.value) ||
+      !Number.isSafeInteger(Number(redirect.target.value))
+    );
   return redirect.kind === "here-string" && redirect.content === null;
 }
 
@@ -74,16 +104,26 @@ export async function checkBashFilePermissions(
   for (const request of requests) {
     let decision: HarnessFilePermission = "defer";
     if (request.path !== null && permissions) {
-      try { decision = await permissions.check(request); } catch { decision = "defer"; }
+      try {
+        decision = await permissions.check(request);
+      } catch {
+        decision = "defer";
+      }
     }
     checks.push(Object.freeze({ request, decision: decision === "allow" || decision === "deny" ? decision : "defer" }));
   }
-  return Object.freeze({ ...evaluation, commandDecision, fileAccesses: requests, filePermissionChecks: Object.freeze(checks),
+  return Object.freeze({
+    ...evaluation,
+    commandDecision,
+    fileAccesses: requests,
+    filePermissionChecks: Object.freeze(checks),
     decision: combineBashPermissionVerdicts([commandDecision, ...checks.map((check) => check.decision)]),
   });
 }
 
 /** Most restrictive verdict across the total command and each required access. */
-export function combineBashPermissionVerdicts(verdicts: readonly ("allow" | "deny" | "defer")[]): "allow" | "deny" | "defer" {
+export function combineBashPermissionVerdicts(
+  verdicts: readonly ("allow" | "deny" | "defer")[],
+): "allow" | "deny" | "defer" {
   return verdicts.includes("deny") ? "deny" : verdicts.includes("defer") ? "defer" : "allow";
 }

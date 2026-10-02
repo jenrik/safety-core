@@ -32,46 +32,71 @@ export function analyzeKubectlInvocation(invocation: KubectlInvocation): Kubectl
   const mentionsSecret = args.some(mentionsSecretResource);
   const operands = positionalArgs(args, subcommandIndex + 1);
   const firstOperand = operands[0];
-  const auditResource = !firstOperand || isBindingResolvedWord(invocation.argv[firstOperand.index]!)
-    ? null
-    : resourceType(firstOperand.value);
-  if (sub === "view-secret") return deny(
-    "kubectl view-secret is blocked: it decodes and displays Secret values in plaintext.",
-    evidenceSubcommand,
-    auditResource,
-    mentionsSecret,
-  );
-  if (KUBECTL_ALWAYS_ALLOW.has(sub)) return allow(
-    evidenceSubcommand ? `kubectl ${sub} auto-allowed (read-only)` : "kubectl command auto-allowed (read-only)",
-    evidenceSubcommand,
-    auditResource,
-    mentionsSecret,
-  );
+  const auditResource =
+    !firstOperand || isBindingResolvedWord(invocation.argv[firstOperand.index]!)
+      ? null
+      : resourceType(firstOperand.value);
+  if (sub === "view-secret")
+    return deny(
+      "kubectl view-secret is blocked: it decodes and displays Secret values in plaintext.",
+      evidenceSubcommand,
+      auditResource,
+      mentionsSecret,
+    );
+  if (KUBECTL_ALWAYS_ALLOW.has(sub))
+    return allow(
+      evidenceSubcommand ? `kubectl ${sub} auto-allowed (read-only)` : "kubectl command auto-allowed (read-only)",
+      evidenceSubcommand,
+      auditResource,
+      mentionsSecret,
+    );
   if (sub === "get") {
     const resources = operands.map((operand) => operand.value);
     if (resources.length === 0) return defer(evidenceSubcommand, null, false);
     const requiresReview = kubectlResourceOperandsRequireReview(resources);
     const resource = auditResource;
-    return requiresReview ? defer(evidenceSubcommand, resource, true, mentionsSecret) : allow("kubectl get auto-allowed", evidenceSubcommand, resource, mentionsSecret);
+    return requiresReview
+      ? defer(evidenceSubcommand, resource, true, mentionsSecret)
+      : allow("kubectl get auto-allowed", evidenceSubcommand, resource, mentionsSecret);
   }
   if (sub === "rollout") {
     const sub2 = operands[0]?.value;
     const literalPath = evidenceSubcommand !== null && operandIsLiteral(invocation, operands[0]);
     return sub2 && KUBECTL_ROLLOUT_ALLOW.has(sub2)
-      ? allow(literalPath ? `kubectl rollout ${sub2} auto-allowed (read-only)` : "kubectl rollout command auto-allowed (read-only)", evidenceSubcommand, auditResource, mentionsSecret)
+      ? allow(
+          literalPath
+            ? `kubectl rollout ${sub2} auto-allowed (read-only)`
+            : "kubectl rollout command auto-allowed (read-only)",
+          evidenceSubcommand,
+          auditResource,
+          mentionsSecret,
+        )
       : defer(evidenceSubcommand, auditResource, false, mentionsSecret);
   }
-  if (sub === "config") return operands[0]?.value === "get-contexts"
-    ? allow("kubectl config get-contexts auto-allowed (read-only, no credentials)", evidenceSubcommand, auditResource, mentionsSecret)
-    : defer(evidenceSubcommand, auditResource, false, mentionsSecret);
-  if (sub === "auth") return operands[0] && KUBECTL_AUTH_ALLOW.has(operands[0].value)
-    ? allow(operandIsLiteral(invocation, operands[0]) && evidenceSubcommand !== null
-      ? `kubectl auth ${operands[0].value} auto-allowed (read-only)`
-      : "kubectl auth command auto-allowed (read-only)", evidenceSubcommand, auditResource, mentionsSecret)
-    : defer(evidenceSubcommand, auditResource, false, mentionsSecret);
-  if (sub === "plugin") return operands[0]?.value === "list"
-    ? allow("kubectl plugin list auto-allowed (read-only)", evidenceSubcommand, auditResource, mentionsSecret)
-    : defer(evidenceSubcommand, auditResource, false, mentionsSecret);
+  if (sub === "config")
+    return operands[0]?.value === "get-contexts"
+      ? allow(
+          "kubectl config get-contexts auto-allowed (read-only, no credentials)",
+          evidenceSubcommand,
+          auditResource,
+          mentionsSecret,
+        )
+      : defer(evidenceSubcommand, auditResource, false, mentionsSecret);
+  if (sub === "auth")
+    return operands[0] && KUBECTL_AUTH_ALLOW.has(operands[0].value)
+      ? allow(
+          operandIsLiteral(invocation, operands[0]) && evidenceSubcommand !== null
+            ? `kubectl auth ${operands[0].value} auto-allowed (read-only)`
+            : "kubectl auth command auto-allowed (read-only)",
+          evidenceSubcommand,
+          auditResource,
+          mentionsSecret,
+        )
+      : defer(evidenceSubcommand, auditResource, false, mentionsSecret);
+  if (sub === "plugin")
+    return operands[0]?.value === "list"
+      ? allow("kubectl plugin list auto-allowed (read-only)", evidenceSubcommand, auditResource, mentionsSecret)
+      : defer(evidenceSubcommand, auditResource, false, mentionsSecret);
   return defer(evidenceSubcommand, auditResource, false, mentionsSecret);
 }
 
@@ -104,7 +129,7 @@ interface PositionalArgument {
 
 function positionalArgs(args: readonly string[], start: number): PositionalArgument[] {
   const positionals: PositionalArgument[] = [];
-  for (let index = start; index < args.length;) {
+  for (let index = start; index < args.length; ) {
     const argument = args[index]!;
     if (!argument.startsWith("-")) {
       positionals.push({ value: argument, index });
@@ -122,7 +147,7 @@ function operandIsLiteral(invocation: KubectlInvocation, operand: PositionalArgu
 
 /** Finds the first non-flag token after consuming global flags in any order. */
 function findSubcommandIndex(args: readonly string[]): number | undefined {
-  for (let index = 0; index < args.length;) {
+  for (let index = 0; index < args.length; ) {
     const argument = args[index]!;
     if (!argument.startsWith("-")) return index;
     index += !argument.includes("=") && KUBECTL_FLAGS_WITH_VALUES.has(argument) ? 2 : 1;
@@ -138,7 +163,14 @@ function mentionsSecretResource(value: string): boolean {
   return /(^|[/,])secrets?(?:$|[./,])|view-secret/i.test(value);
 }
 
-function evidence(decision: PolicyEvidence["decision"], subcommand: string | null, resource: string | null, secretReview: boolean, mentionsSecret: boolean, reason?: string): PolicyEvidence {
+function evidence(
+  decision: PolicyEvidence["decision"],
+  subcommand: string | null,
+  resource: string | null,
+  secretReview: boolean,
+  mentionsSecret: boolean,
+  reason?: string,
+): PolicyEvidence {
   return Object.freeze({
     name: "kubectl",
     decision,
@@ -147,14 +179,40 @@ function evidence(decision: PolicyEvidence["decision"], subcommand: string | nul
   });
 }
 
-function allow(reason: string, subcommand: string | null, resource: string | null, mentionsSecret: boolean): KubectlInvocationDecision {
-  return Object.freeze({ kind: "allow", reason, evidence: evidence("allow", subcommand, resource, false, mentionsSecret, reason) });
+function allow(
+  reason: string,
+  subcommand: string | null,
+  resource: string | null,
+  mentionsSecret: boolean,
+): KubectlInvocationDecision {
+  return Object.freeze({
+    kind: "allow",
+    reason,
+    evidence: evidence("allow", subcommand, resource, false, mentionsSecret, reason),
+  });
 }
 
-function deny(reason: string, subcommand: string | null, resource: string | null, mentionsSecret: boolean): KubectlInvocationDecision {
-  return Object.freeze({ kind: "deny", reason, evidence: evidence("deny", subcommand, resource, false, mentionsSecret, reason) });
+function deny(
+  reason: string,
+  subcommand: string | null,
+  resource: string | null,
+  mentionsSecret: boolean,
+): KubectlInvocationDecision {
+  return Object.freeze({
+    kind: "deny",
+    reason,
+    evidence: evidence("deny", subcommand, resource, false, mentionsSecret, reason),
+  });
 }
 
-function defer(subcommand: string | null, resource: string | null, secretReview: boolean, mentionsSecret = false): KubectlInvocationDecision {
-  return Object.freeze({ kind: "defer", evidence: evidence("defer", subcommand, resource, secretReview, mentionsSecret) });
+function defer(
+  subcommand: string | null,
+  resource: string | null,
+  secretReview: boolean,
+  mentionsSecret = false,
+): KubectlInvocationDecision {
+  return Object.freeze({
+    kind: "defer",
+    evidence: evidence("defer", subcommand, resource, secretReview, mentionsSecret),
+  });
 }

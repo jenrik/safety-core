@@ -37,12 +37,16 @@ test("property: every required patch context rejects 1,024 source drifts", () =>
   for (let seed = 0; seed < 1_024; seed++) {
     const file = patchFiles[seed % patchFiles.length]!;
     const hunk = file.hunks[(seed >> 1) % file.hunks.length]!;
-    const expected = hunk.lines.filter((line) => line.startsWith(" ") || line.startsWith("-")).map((line) => line.slice(1));
+    const expected = hunk.lines
+      .filter((line) => line.startsWith(" ") || line.startsWith("-"))
+      .map((line) => line.slice(1));
     const lineOffset = seed % expected.length;
     const sourcePath = join(root, "node_modules", "tree-sitter-bash", ...file.path.split("/"));
     const source = readFileSync(sourcePath, "utf8").split("\n");
     source[hunk.oldStart - 1 + lineOffset] = `${source[hunk.oldStart - 1 + lineOffset]} drift-${seed}`;
-    expect(() => applyPatchFile(source.join("\n"), file), `seed ${seed}`).toThrow("grammar patch no longer applies cleanly");
+    expect(() => applyPatchFile(source.join("\n"), file), `seed ${seed}`).toThrow(
+      "grammar patch no longer applies cleanly",
+    );
   }
 });
 

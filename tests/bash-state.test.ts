@@ -18,10 +18,10 @@ describe("complete abstract Bash shell state", () => {
   test("propagates every modeled domain from one current-scope child", () => {
     const parent = initialShellState(fromInitialEnvironment({ X: "outer" }));
     const definition = bashFunction("f");
-    const child = defineShellFunction(withShellEnvironment(
-      parent,
-      assignBinding(parent.environment, "X", known("inner")),
-    ), definition);
+    const child = defineShellFunction(
+      withShellEnvironment(parent, assignBinding(parent.environment, "X", known("inner"))),
+      definition,
+    );
 
     const completed = completeShellState(parent, [{ state: child, writes: new Set(["X"]), scope: "current" }]);
 
@@ -32,10 +32,10 @@ describe("complete abstract Bash shell state", () => {
 
   test("discards every modeled domain from subshell children", () => {
     const parent = initialShellState(fromInitialEnvironment({ X: "outer" }));
-    const child = defineShellFunction(withShellEnvironment(
-      parent,
-      assignBinding(parent.environment, "X", known("inner")),
-    ), bashFunction("f"));
+    const child = defineShellFunction(
+      withShellEnvironment(parent, assignBinding(parent.environment, "X", known("inner"))),
+      bashFunction("f"),
+    );
 
     expect(completeShellState(parent, [{ state: child, writes: new Set(["X"]), scope: "subshell" }])).toBe(parent);
   });
@@ -46,11 +46,17 @@ describe("complete abstract Bash shell state", () => {
     const rightDefinition = bashFunction("f", 2);
     const branches = [
       {
-        state: defineShellFunction(withShellEnvironment(parent, assignBinding(parent.environment, "X", known("left"))), leftDefinition),
+        state: defineShellFunction(
+          withShellEnvironment(parent, assignBinding(parent.environment, "X", known("left"))),
+          leftDefinition,
+        ),
         writes: new Set(["X"]),
       },
       {
-        state: defineShellFunction(withShellEnvironment(parent, assignBinding(parent.environment, "X", known("right"))), rightDefinition),
+        state: defineShellFunction(
+          withShellEnvironment(parent, assignBinding(parent.environment, "X", known("right"))),
+          rightDefinition,
+        ),
         writes: new Set(["X"]),
       },
       { state: parent, writes: new Set<string>() },
@@ -93,13 +99,18 @@ function bashFunction(name: string, start = 0): BashFunction {
   return Object.freeze({
     kind: "function",
     name,
-    body: Object.freeze({ kind: "group", statements: Object.freeze([]), span: Object.freeze({ start, end: start + 1 }) }),
+    body: Object.freeze({
+      kind: "group",
+      statements: Object.freeze([]),
+      span: Object.freeze({ start, end: start + 1 }),
+    }),
     span: Object.freeze({ start, end: start + 1 }),
   });
 }
 
 function permutations<T>(values: readonly T[]): T[][] {
   if (values.length <= 1) return [[...values]];
-  return values.flatMap((value, index) => permutations([...values.slice(0, index), ...values.slice(index + 1)])
-    .map((rest) => [value, ...rest]));
+  return values.flatMap((value, index) =>
+    permutations([...values.slice(0, index), ...values.slice(index + 1)]).map((rest) => [value, ...rest]),
+  );
 }

@@ -67,7 +67,11 @@ export function resolveLongOption(
   const equals = argument.indexOf("=");
   const name = equals < 0 ? argument : argument.slice(0, equals);
   const exact = options.includes(name) ? name : undefined;
-  const matches = exact ? [exact] : resolution === "unique-prefix" ? options.filter((option) => option.startsWith(name)) : [];
+  const matches = exact
+    ? [exact]
+    : resolution === "unique-prefix"
+      ? options.filter((option) => option.startsWith(name))
+      : [];
   if (matches.length === 0) return undefined;
   if (matches.length > 1) return Object.freeze({ kind: "ambiguous" });
   return Object.freeze({
@@ -87,9 +91,8 @@ export function scanOptions(arguments_: readonly ResolvedWord[], grammar: Option
     if (word.kind !== "known") {
       const symbolic = scanSymbolicOption(word, grammar, index);
       if (symbolic.kind === "failure") return symbolic;
-      if (symbolic.kind === "operand") return grammar.stopAtFirstOperand === false
-        ? failure("unknown-option")
-        : parsed(scanned, index);
+      if (symbolic.kind === "operand")
+        return grammar.stopAtFirstOperand === false ? failure("unknown-option") : parsed(scanned, index);
       scanned.push(...symbolic.options);
       index++;
       if (symbolic.terminal) return parsed(scanned, index, symbolic.terminal);
@@ -202,7 +205,8 @@ function scanSymbolicOption(
       grammar.options.flatMap((spec) => spec.long ?? []),
       grammar.longResolution,
     );
-    if (!resolved || resolved.kind === "ambiguous") return failure(resolved?.kind === "ambiguous" ? "ambiguous-long-option" : "dynamic-option");
+    if (!resolved || resolved.kind === "ambiguous")
+      return failure(resolved?.kind === "ambiguous" ? "ambiguous-long-option" : "dynamic-option");
     const spec = grammar.options.find((candidate) => candidate.long?.includes(resolved.option))!;
     if (spec.value !== "required" || spec.equals !== true) return failure("dynamic-option");
     const option = Object.freeze({ id: spec.id, spelling: resolved.option, index, attached: true, value: word });
@@ -235,7 +239,10 @@ function scanSymbolicOption(
   return failure("dynamic-option");
 }
 
-function resolveLong(argument: string, grammar: OptionGrammar):
+function resolveLong(
+  argument: string,
+  grammar: OptionGrammar,
+):
   | { readonly kind: "resolved"; readonly spec: OptionSpec; readonly spelling: string; readonly attachedValue?: string }
   | { readonly kind: "failure"; readonly reason: OptionScanFailureReason } {
   const resolved = resolveLongOption(
@@ -269,12 +276,20 @@ function consumeOptionValue(
   if (attachedValue !== undefined) {
     if (spec.attached !== true && spec.equals !== true) return failure("unsupported-attached-value");
     const value = Object.freeze({ kind: "known" as const, value: attachedValue });
-    return { kind: "consumed", option: Object.freeze({ id: spec.id, spelling, index, attached: true, value }), consumed: 1 };
+    return {
+      kind: "consumed",
+      option: Object.freeze({ id: spec.id, spelling, index, attached: true, value }),
+      consumed: 1,
+    };
   }
   if (spec.separate === false) return failure("unsupported-separate-value");
   const value = arguments_[index + 1];
   if (!value) return failure("missing-option-value");
-  return { kind: "consumed", option: Object.freeze({ id: spec.id, spelling, index, attached: false, value }), consumed: 2 };
+  return {
+    kind: "consumed",
+    option: Object.freeze({ id: spec.id, spelling, index, attached: false, value }),
+    consumed: 2,
+  };
 }
 
 function parsed(options: readonly ScannedOption[], operandIndex: number, terminal?: ScannedOption): OptionScanResult {

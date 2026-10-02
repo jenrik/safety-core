@@ -284,7 +284,8 @@ workflow run
 workflow view
 `);
 
-const GROUP_PATHS = new Set(lines(`
+const GROUP_PATHS = new Set(
+  lines(`
 agent-task
 alias
 attestation
@@ -317,18 +318,22 @@ skill
 ssh-key
 variable
 workflow
-`));
+`),
+);
 
-const TOP_LEVEL_COMMANDS = new Set(lines(`
+const TOP_LEVEL_COMMANDS = new Set(
+  lines(`
 api
 browse
 completion
 copilot
 licenses
 status
-`));
+`),
+);
 
-const HIDDEN_COMMANDS = new Set(lines(`
+const HIDDEN_COMMANDS = new Set(
+  lines(`
 accessibility
 actions
 attestation inspect
@@ -339,9 +344,11 @@ repo credits
 repo garden
 send-telemetry
 version
-`));
+`),
+);
 
-const PREVIEW_COMMANDS = new Set(lines(`
+const PREVIEW_COMMANDS = new Set(
+  lines(`
 agent-task
 agent-task create
 agent-task list
@@ -362,7 +369,8 @@ skill preview
 skill publish
 skill search
 skill update
-`));
+`),
+);
 
 const NATIVE_ALIASES: Readonly<Record<string, readonly string[]>> = Object.freeze({
   accessibility: ["a11y"],
@@ -444,38 +452,143 @@ const PR_CREATE_FLAGS: readonly GhFlagGrammar[] = Object.freeze([
 ]);
 
 const MUTATING_VERBS = new Set([
-  "add", "archive", "cancel", "clear-cache", "clone", "close", "comment", "copy", "cp", "create", "delete",
-  "develop", "disable", "edit", "enable", "fork", "forward", "import", "install", "link", "lock", "login",
-  "logout", "mark-template", "merge", "pin", "publish", "ready", "rebuild", "refresh", "remove", "rename",
-  "reopen", "rerun", "review", "revert", "run", "set", "setup-git", "stop", "switch", "sync", "transfer",
-  "unarchive", "unlink", "unlock", "unpin", "update", "update-branch", "upgrade", "upload", "visibility",
+  "add",
+  "archive",
+  "cancel",
+  "clear-cache",
+  "clone",
+  "close",
+  "comment",
+  "copy",
+  "cp",
+  "create",
+  "delete",
+  "develop",
+  "disable",
+  "edit",
+  "enable",
+  "fork",
+  "forward",
+  "import",
+  "install",
+  "link",
+  "lock",
+  "login",
+  "logout",
+  "mark-template",
+  "merge",
+  "pin",
+  "publish",
+  "ready",
+  "rebuild",
+  "refresh",
+  "remove",
+  "rename",
+  "reopen",
+  "rerun",
+  "review",
+  "revert",
+  "run",
+  "set",
+  "setup-git",
+  "stop",
+  "switch",
+  "sync",
+  "transfer",
+  "unarchive",
+  "unlink",
+  "unlock",
+  "unpin",
+  "update",
+  "update-branch",
+  "upgrade",
+  "upload",
+  "visibility",
 ]);
 const LOCAL_OR_EXTERNAL_PATHS = new Set([
-  "attestation download", "attestation trusted-root", "attestation verify", "browse", "codespace code", "codespace jupyter",
-  "codespace ssh", "completion", "copilot", "extension browse", "extension exec", "gist clone", "preview prompter",
-  "licenses", "release download", "release verify-asset", "repo clone", "repo deploy-key add", "repo read-file", "run download",
-  "run watch", "skill install", "skill list", "skill preview", "skill publish", "skill update", "ssh-key add",
+  "attestation download",
+  "attestation trusted-root",
+  "attestation verify",
+  "browse",
+  "codespace code",
+  "codespace jupyter",
+  "codespace ssh",
+  "completion",
+  "copilot",
+  "extension browse",
+  "extension exec",
+  "gist clone",
+  "preview prompter",
+  "licenses",
+  "release download",
+  "release verify-asset",
+  "repo clone",
+  "repo deploy-key add",
+  "repo read-file",
+  "run download",
+  "run watch",
+  "skill install",
+  "skill list",
+  "skill preview",
+  "skill publish",
+  "skill update",
+  "ssh-key add",
 ]);
 const CREDENTIAL_PATHS = new Set([
-  "alias list", "auth", "auth git-credential", "auth status", "auth token", "config", "config get", "config list",
-  "extension list", "gpg-key list", "repo deploy-key list", "secret", "secret list", "ssh-key list", "variable get",
+  "alias list",
+  "auth",
+  "auth git-credential",
+  "auth status",
+  "auth token",
+  "config",
+  "config get",
+  "config list",
+  "extension list",
+  "gpg-key list",
+  "repo deploy-key list",
+  "secret",
+  "secret list",
+  "ssh-key list",
+  "variable get",
   "variable list",
 ]);
 
-export const GH_READ_ONLY_RULES: readonly GhCommandRule[] = Object.freeze(COMMAND_PATHS
-  .map((path) => makeRule(path))
-  .sort((left, right) => compareText(left.path.join("\0"), right.path.join("\0"))));
+export const GH_READ_ONLY_RULES: readonly GhCommandRule[] = Object.freeze(
+  COMMAND_PATHS.map((path) => makeRule(path)).sort((left, right) =>
+    compareText(left.path.join("\0"), right.path.join("\0")),
+  ),
+);
 export const GH_READ_ONLY_RULE_BY_PATH: ReadonlyMap<string, GhCommandRule> = new Map(
   GH_READ_ONLY_RULES.map((rule) => [rule.path.join(" "), rule]),
 );
 
 export const GH_HELP_TOPIC_RULES = Object.freeze([
-  helpTopic("environment", "defer", "Common gh startup can migrate configuration, check for updates, and launch telemetry before rendering this static topic."),
-  helpTopic("exit-codes", "defer", "Common gh startup can migrate configuration, check for updates, and launch telemetry before rendering this static topic."),
-  helpTopic("formatting", "defer", "Common gh startup can migrate configuration, check for updates, and launch telemetry before rendering this static topic."),
-  helpTopic("mintty", "defer", "Common gh startup can migrate configuration, check for updates, and launch telemetry before rendering this static topic."),
+  helpTopic(
+    "environment",
+    "defer",
+    "Common gh startup can migrate configuration, check for updates, and launch telemetry before rendering this static topic.",
+  ),
+  helpTopic(
+    "exit-codes",
+    "defer",
+    "Common gh startup can migrate configuration, check for updates, and launch telemetry before rendering this static topic.",
+  ),
+  helpTopic(
+    "formatting",
+    "defer",
+    "Common gh startup can migrate configuration, check for updates, and launch telemetry before rendering this static topic.",
+  ),
+  helpTopic(
+    "mintty",
+    "defer",
+    "Common gh startup can migrate configuration, check for updates, and launch telemetry before rendering this static topic.",
+  ),
   helpTopic("reference", "defer", "The generated reference incorporates configured aliases and installed extensions."),
-  helpTopic("telemetry", "defer", "Common gh startup can migrate configuration, check for updates, and launch telemetry before rendering this static topic."),
+  helpTopic(
+    "telemetry",
+    "defer",
+    "Common gh startup can migrate configuration, check for updates, and launch telemetry before rendering this static topic.",
+  ),
 ]);
 
 export const GH_HELP_TOPIC_RULE_BY_NAME: ReadonlyMap<string, (typeof GH_HELP_TOPIC_RULES)[number]> = new Map(
@@ -490,10 +603,13 @@ function makeRule(path: string): GhCommandRule {
   return Object.freeze({
     path: Object.freeze(path.split(" ")),
     aliases: Object.freeze((NATIVE_ALIASES[path] ?? []).map((alias) => Object.freeze(alias.split(" ")))),
-    kind: HIDDEN_COMMANDS.has(path) ? "hidden-command"
-      : GROUP_PATHS.has(path) ? "group"
-      : TOP_LEVEL_COMMANDS.has(path) ? "top-level-command"
-      : "command",
+    kind: HIDDEN_COMMANDS.has(path)
+      ? "hidden-command"
+      : GROUP_PATHS.has(path)
+        ? "group"
+        : TOP_LEVEL_COMMANDS.has(path)
+          ? "top-level-command"
+          : "command",
     preview: PREVIEW_COMMANDS.has(path),
     disposition,
     ...(owner ? { owner } : {}),
@@ -504,9 +620,22 @@ function makeRule(path: string): GhCommandRule {
       : owner
         ? `Output is assessed by ${owner}, not ghReadOnly.`
         : assessment!.outputTrust,
-    environmentRoutes: Object.freeze(path === "api"
-      ? ["GH_CONFIG_DIR", "GH_HOST", "GH_REPO", "GH_PAGER", "GH_DEBUG", "GH_PATH", "GH_TELEMETRY", "GH_TELEMETRY_SAMPLE_RATE"]
-      : allowed ? ["GH_NO_UPDATE_NOTIFIER", "NO_COLOR"] : ["GH_CONFIG_DIR", "GH_HOST", "GH_REPO"]),
+    environmentRoutes: Object.freeze(
+      path === "api"
+        ? [
+            "GH_CONFIG_DIR",
+            "GH_HOST",
+            "GH_REPO",
+            "GH_PAGER",
+            "GH_DEBUG",
+            "GH_PATH",
+            "GH_TELEMETRY",
+            "GH_TELEMETRY_SAMPLE_RATE",
+          ]
+        : allowed
+          ? ["GH_NO_UPDATE_NOTIFIER", "NO_COLOR"]
+          : ["GH_CONFIG_DIR", "GH_HOST", "GH_REPO"],
+    ),
     evidence: `GitHub CLI ${GH_CLI_AUDIT_VERSION} (${GH_CLI_AUDIT_COMMIT}): gh ${path}`,
     rationale: allowed
       ? "This exact form is proven credential-safe."
@@ -519,44 +648,64 @@ function makeRule(path: string): GhCommandRule {
 
 function exclusion(path: string): { reason: GhExclusionReason; rationale: string; outputTrust: string } {
   const leaf = path.split(" ").at(-1)!;
-  if (["accessibility", "actions", "version"].includes(path)) return {
-    reason: "external-execution",
-    rationale: "Even this static route runs common gh startup, which can migrate configuration, check for updates, and launch telemetry before dispatch.",
-    outputTrust: "Static command output is not enough to trust the preceding configuration, network, and external-execution routes.",
-  };
-  if (GROUP_PATHS.has(path)) return {
-    reason: "interaction",
-    rationale: "A command group without a reviewed leaf may print configuration-dependent help or trigger context-dependent selection.",
-    outputTrust: "Group behavior is context-dependent and not trusted.",
-  };
-  if (MUTATING_VERBS.has(leaf)) return {
-    reason: "mutation",
-    rationale: "This command can change GitHub, repository, account, workflow, project, or local state.",
-    outputTrust: "Mutation output and prompts are not trusted.",
-  };
-  if (LOCAL_OR_EXTERNAL_PATHS.has(path)) return {
-    reason: path.includes("download") || path.includes("read-file") || path.endsWith(" clone") ? "local-output" : "external-execution",
-    rationale: "This command can read or write local paths, download data, or invoke an external browser, editor, pager, helper, or program.",
-    outputTrust: "Local I/O and external-program output are not trusted.",
-  };
-  if (CREDENTIAL_PATHS.has(path)) return {
-    reason: "arbitrary-content",
-    rationale: "This command can display authentication, configuration, key, secret, variable, alias, or extension information.",
-    outputTrust: "Credential-adjacent configuration output is not trusted.",
-  };
-  if (HIDDEN_COMMANDS.has(path) || PREVIEW_COMMANDS.has(path)) return {
-    reason: "unreviewed-behavior",
-    rationale: "This hidden or preview route is not a stable credential-safe interface and requires review after upstream changes.",
-    outputTrust: "Hidden or preview behavior is not trusted.",
-  };
-  if (["list", "ls", "view", "status", "search", "checks", "check", "diff", "logs", "ports", "get", "code"].includes(leaf)) return {
-    reason: "arbitrary-content",
-    rationale: "Successful or failure output can contain unrestricted remote content and may use a configured pager or renderer.",
-    outputTrust: "Remote content, server error text, and pager output are not trusted.",
-  };
+  if (["accessibility", "actions", "version"].includes(path))
+    return {
+      reason: "external-execution",
+      rationale:
+        "Even this static route runs common gh startup, which can migrate configuration, check for updates, and launch telemetry before dispatch.",
+      outputTrust:
+        "Static command output is not enough to trust the preceding configuration, network, and external-execution routes.",
+    };
+  if (GROUP_PATHS.has(path))
+    return {
+      reason: "interaction",
+      rationale:
+        "A command group without a reviewed leaf may print configuration-dependent help or trigger context-dependent selection.",
+      outputTrust: "Group behavior is context-dependent and not trusted.",
+    };
+  if (MUTATING_VERBS.has(leaf))
+    return {
+      reason: "mutation",
+      rationale: "This command can change GitHub, repository, account, workflow, project, or local state.",
+      outputTrust: "Mutation output and prompts are not trusted.",
+    };
+  if (LOCAL_OR_EXTERNAL_PATHS.has(path))
+    return {
+      reason:
+        path.includes("download") || path.includes("read-file") || path.endsWith(" clone")
+          ? "local-output"
+          : "external-execution",
+      rationale:
+        "This command can read or write local paths, download data, or invoke an external browser, editor, pager, helper, or program.",
+      outputTrust: "Local I/O and external-program output are not trusted.",
+    };
+  if (CREDENTIAL_PATHS.has(path))
+    return {
+      reason: "arbitrary-content",
+      rationale:
+        "This command can display authentication, configuration, key, secret, variable, alias, or extension information.",
+      outputTrust: "Credential-adjacent configuration output is not trusted.",
+    };
+  if (HIDDEN_COMMANDS.has(path) || PREVIEW_COMMANDS.has(path))
+    return {
+      reason: "unreviewed-behavior",
+      rationale:
+        "This hidden or preview route is not a stable credential-safe interface and requires review after upstream changes.",
+      outputTrust: "Hidden or preview behavior is not trusted.",
+    };
+  if (
+    ["list", "ls", "view", "status", "search", "checks", "check", "diff", "logs", "ports", "get", "code"].includes(leaf)
+  )
+    return {
+      reason: "arbitrary-content",
+      rationale:
+        "Successful or failure output can contain unrestricted remote content and may use a configured pager or renderer.",
+      outputTrust: "Remote content, server error text, and pager output are not trusted.",
+    };
   return {
     reason: "unreviewed-behavior",
-    rationale: "The complete success, failure, configuration, prompt, and execution behavior is not proven credential-safe.",
+    rationale:
+      "The complete success, failure, configuration, prompt, and execution behavior is not proven credential-safe.",
     outputTrust: "Unreviewed command output is not trusted.",
   };
 }
@@ -573,7 +722,12 @@ function helpTopic(name: string, disposition: "allow" | "defer", rationale: stri
 }
 
 function booleanFlag(long: string, short?: string): GhFlagGrammar {
-  return Object.freeze({ long, ...(short ? { short } : {}), takesValue: false, forms: Object.freeze(["separate"] as const) });
+  return Object.freeze({
+    long,
+    ...(short ? { short } : {}),
+    takesValue: false,
+    forms: Object.freeze(["separate"] as const),
+  });
 }
 
 function valueFlag(long: string, short?: string, repeatable = false): GhFlagGrammar {
@@ -587,7 +741,13 @@ function valueFlag(long: string, short?: string, repeatable = false): GhFlagGram
 }
 
 function lines(value: string): readonly string[] {
-  return Object.freeze(value.trim().split("\n").map((line) => line.trim()).filter(Boolean));
+  return Object.freeze(
+    value
+      .trim()
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean),
+  );
 }
 
 function compareText(left: string, right: string): number {

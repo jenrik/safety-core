@@ -13,17 +13,31 @@ function decision(args: readonly string[], overrides: Record<string, unknown> = 
   return policy.evaluate({
     kind: "invocation",
     executable: { kind: "known", value: "nix-prefetch-url" },
-    executableIdentity: { qualification: "incomplete", spelling: "nix-prefetch-url", basename: "nix-prefetch-url", chain: [], failure: { kind: "not-found" } },
+    executableIdentity: {
+      qualification: "incomplete",
+      spelling: "nix-prefetch-url",
+      basename: "nix-prefetch-url",
+      chain: [],
+      failure: { kind: "not-found" },
+    },
     argv: args.map((value) => ({ kind: "known" as const, value })),
-    environment: {}, missingBindings: "unset", redirects: [], assignments: {},
-    span: { start: 0, end: 0 }, provenance: { route: ["direct"] }, inPipeline: false, processEffect: "none",
+    environment: {},
+    missingBindings: "unset",
+    redirects: [],
+    assignments: {},
+    span: { start: 0, end: 0 },
+    provenance: { route: ["direct"] },
+    inPipeline: false,
+    processEffect: "none",
     ...overrides,
   } as any).kind;
 }
 
 function permutations<T>(values: readonly T[]): T[][] {
   if (values.length < 2) return [[...values]];
-  return values.flatMap((value, index) => permutations([...values.slice(0, index), ...values.slice(index + 1)]).map((tail) => [value, ...tail]));
+  return values.flatMap((value, index) =>
+    permutations([...values.slice(0, index), ...values.slice(index + 1)]).map((tail) => [value, ...tail]),
+  );
 }
 
 describe("nix-prefetch-url read-only DSL policy", () => {
@@ -51,20 +65,32 @@ describe("nix-prefetch-url read-only DSL policy", () => {
           [...options, url, "sha256-deadbeef"],
           [url, ...options, "sha256-deadbeef"],
           [url, "sha256-deadbeef", ...options],
-        ]) expect(decision(args), args.join(" ")).toBe("allow");
+        ])
+          expect(decision(args), args.join(" ")).toBe("allow");
       }
     }
   });
 
   test("defers excluded URLs, malformed command grammar, and unresolved input", () => {
     for (const args of [
-      [], ["file:///tmp/synthetic-input"], ["FILE:///tmp/synthetic-input"], ["s3://example.test/source"],
-      ["https://"], ["https://user@example.test/source"], ["https://example.test/source?token=synthetic"],
-      ["https://example.test/source#fragment"], ["https://example.test/source", "extra", "another"],
-      ["https://example.test/source", "--"], ["https://example.test/source", "--type"],
-      ["https://example.test/source", "--type=sha256"], ["https://example.test/source", "--type", "sha3"],
-      ["https://example.test/source", "--unknown"], ["--help"], ["--version"],
-    ]) expect(decision(args), args.join(" ")).toBe("defer");
+      [],
+      ["file:///tmp/synthetic-input"],
+      ["FILE:///tmp/synthetic-input"],
+      ["s3://example.test/source"],
+      ["https://"],
+      ["https://user@example.test/source"],
+      ["https://example.test/source?token=synthetic"],
+      ["https://example.test/source#fragment"],
+      ["https://example.test/source", "extra", "another"],
+      ["https://example.test/source", "--"],
+      ["https://example.test/source", "--type"],
+      ["https://example.test/source", "--type=sha256"],
+      ["https://example.test/source", "--type", "sha3"],
+      ["https://example.test/source", "--unknown"],
+      ["--help"],
+      ["--version"],
+    ])
+      expect(decision(args), args.join(" ")).toBe("defer");
 
     const unknown = { kind: "unknown", reason: { kind: "expansion" } };
     expect(decision([], { argv: [unknown] })).toBe("defer");
@@ -73,11 +99,17 @@ describe("nix-prefetch-url read-only DSL policy", () => {
 
   test("defers modeled shell output, shell routing, and unsafe Nix configuration", () => {
     const args = ["https://example.test/source"];
-    expect(decision(args, { redirects: [{ kind: "output", target: { kind: "known", value: "synthetic-output" } }] })).toBe("defer");
+    expect(
+      decision(args, { redirects: [{ kind: "output", target: { kind: "known", value: "synthetic-output" } }] }),
+    ).toBe("defer");
     expect(decision(args, { assignments: { NIX_REMOTE: { kind: "known", value: "ssh" } } })).toBe("defer");
     expect(decision(args, { inPipeline: true })).toBe("defer");
     expect(decision(args, { executable: { kind: "known", value: "/usr/bin/nix-prefetch-url" } })).toBe("defer");
-    expect(decision(args, { environment: { "__SAFETY_CORE_BASH_FUNCTION_nix-prefetch-url": { kind: "known", value: "present" } } })).toBe("defer");
+    expect(
+      decision(args, {
+        environment: { "__SAFETY_CORE_BASH_FUNCTION_nix-prefetch-url": { kind: "known", value: "present" } },
+      }),
+    ).toBe("defer");
 
     for (const name of ["NIX_CONFIG", "NIX_CONF_DIR", "NIX_REMOTE", "NIX_USER_CONF_FILES"]) {
       expect(decision(args, { environment: { [name]: { kind: "known", value: "synthetic" } } }), name).toBe("defer");
@@ -95,7 +127,10 @@ describe("nix-prefetch-url read-only DSL policy", () => {
     });
     expect(resolved.decision).toBe("allow");
     expect(resolved.events).toHaveLength(1);
-    expect(resolved.events[0]).toMatchObject({ executable: { kind: "known", value: "nix-prefetch-url" }, argv: [{ kind: "known", value: "https://example.test/source.tar.gz" }] });
+    expect(resolved.events[0]).toMatchObject({
+      executable: { kind: "known", value: "nix-prefetch-url" },
+      argv: [{ kind: "known", value: "https://example.test/source.tar.gz" }],
+    });
 
     const unresolved = analyzeBashWithPolicies({
       source: 'nix-prefetch-url "$url"',

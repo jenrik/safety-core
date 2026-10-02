@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 const root = resolve(import.meta.dir, "..");
 const packageDirectories = ["core", "opencode-v1", "pi", "claude-code"] as const;
 const generatedTarballs: string[] = [];
-const packedTarballs = new Map<typeof packageDirectories[number], string>();
+const packedTarballs = new Map<(typeof packageDirectories)[number], string>();
 const patchedGrammarSha256 = "e9d5f7c623675e6c02b35973350f7be8d87d74f6a6ca1a40701654623af31a06";
 
 function run(command: string, args: readonly string[], cwd: string, input?: string): string {
@@ -19,7 +19,7 @@ function run(command: string, args: readonly string[], cwd: string, input?: stri
   return result.stdout;
 }
 
-function pack(packageName: typeof packageDirectories[number]): string {
+function pack(packageName: (typeof packageDirectories)[number]): string {
   const existing = packedTarballs.get(packageName);
   if (existing) return existing;
   const directory = join(root, "packages", packageName);
@@ -44,17 +44,29 @@ afterAll(() => {
 
 test("packed native packages exclude policy sources", () => {
   for (const packageName of packageDirectories) {
-    const entries = run("tar", ["-tf", pack(packageName)], root).trim().split("\n");
+    const entries = run("tar", ["-tf", pack(packageName)], root)
+      .trim()
+      .split("\n");
     expect(entries).not.toContain("package/policies/");
     expect(entries.some((entry) => /(^|\/)policies\/|\.policy\.(?:[cm]?[jt]s|json)$/u.test(entry))).toBe(false);
   }
 }, 30_000);
 
 test("Pi packages declare one native extension and keep host modules development-only", () => {
-  const manifest = JSON.parse(run("node", ["--input-type=module", "--eval", `
+  const manifest = JSON.parse(
+    run(
+      "node",
+      [
+        "--input-type=module",
+        "--eval",
+        `
     import manifest from "./packages/pi/package.json" with { type: "json" };
     console.log(JSON.stringify(manifest));
-  `], root));
+  `,
+      ],
+      root,
+    ),
+  );
   expect(manifest.pi).toEqual({ extensions: ["./extensions/extension.js"] });
   expect(manifest.dependencies).toEqual({ "@safety-core/core": "0.0.0" });
   expect(Object.keys(manifest.devDependencies).sort()).toEqual([
@@ -66,10 +78,20 @@ test("Pi packages declare one native extension and keep host modules development
 });
 
 test("core package declares the safety-core executable", () => {
-  const manifest = JSON.parse(run("node", ["--input-type=module", "--eval", `
+  const manifest = JSON.parse(
+    run(
+      "node",
+      [
+        "--input-type=module",
+        "--eval",
+        `
     import manifest from "./packages/core/package.json" with { type: "json" };
     console.log(JSON.stringify(manifest));
-  `], root));
+  `,
+      ],
+      root,
+    ),
+  );
   expect(manifest.bin).toEqual({ "safety-core": "./dist/cli.js" });
 });
 
@@ -87,7 +109,12 @@ test("packed packages install and expose the OpenCode v1 server and TUI forms; p
   try {
     run("npm", ["init", "--yes"], installation);
     run("npm", ["install", "--offline", "--ignore-scripts", core, opencode, pi, claude], installation);
-    const result = run("node", ["--input-type=module", "--eval", `
+    const result = run(
+      "node",
+      [
+        "--input-type=module",
+        "--eval",
+        `
       import server from "@safety-core/opencode-v1/server";
       import tui from "@safety-core/opencode-v1/tui";
       import { initBundledBashParser, parseBashProgram } from "@safety-core/core";
@@ -101,7 +128,10 @@ test("packed packages install and expose the OpenCode v1 server and TUI forms; p
         hasTool: "tool" in tui,
         parsed: parsed.kind,
       }));
-    `], installation);
+    `,
+      ],
+      installation,
+    );
     expect(JSON.parse(result)).toEqual({
       id: "safety-core.policy-reload",
       server: "function",
@@ -110,8 +140,17 @@ test("packed packages install and expose the OpenCode v1 server and TUI forms; p
       hasTool: false,
       parsed: "program",
     });
-    expect(run(join(installation, "node_modules", ".bin", "safety-core-claude-github-raw-redirect"), [], installation,
-      JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "WebFetch", tool_input: { url: "https://api.github.com/user" } })),
+    expect(
+      run(
+        join(installation, "node_modules", ".bin", "safety-core-claude-github-raw-redirect"),
+        [],
+        installation,
+        JSON.stringify({
+          hook_event_name: "PreToolUse",
+          tool_name: "WebFetch",
+          tool_input: { url: "https://api.github.com/user" },
+        }),
+      ),
     ).toContain('"permissionDecision":"deny"');
     const cli = spawnSync(join(installation, "node_modules", ".bin", "safety-core"), ["validate"], {
       cwd: installation,
@@ -121,26 +160,48 @@ test("packed packages install and expose the OpenCode v1 server and TUI forms; p
     expect(cli.status).toBe(1);
     expect(cli.stderr).toContain("config.json");
     const standalonePolicy = join(installation, "standalone.policy.json");
-    writeFileSync(standalonePolicy, JSON.stringify({
-      language: "safety-core/bash-policy-v1", layer: "permission", select: [{ kind: "invocation" }], registers: {}, start: "start",
-      states: { start: { cases: [], default: { decision: "ignore" }, end: { decision: "ignore" } } },
-    }));
-    const standaloneValidation = spawnSync(join(installation, "node_modules", ".bin", "safety-core"), ["policy", "validate", standalonePolicy], {
-      cwd: installation,
-      encoding: "utf8",
-      env: { PATH: process.env.PATH ?? "" },
-    });
+    writeFileSync(
+      standalonePolicy,
+      JSON.stringify({
+        language: "safety-core/bash-policy-v1",
+        layer: "permission",
+        select: [{ kind: "invocation" }],
+        registers: {},
+        start: "start",
+        states: { start: { cases: [], default: { decision: "ignore" }, end: { decision: "ignore" } } },
+      }),
+    );
+    const standaloneValidation = spawnSync(
+      join(installation, "node_modules", ".bin", "safety-core"),
+      ["policy", "validate", standalonePolicy],
+      {
+        cwd: installation,
+        encoding: "utf8",
+        env: { PATH: process.env.PATH ?? "" },
+      },
+    );
     expect(standaloneValidation.status).toBe(0);
     expect(standaloneValidation.stdout).toBe(`${standalonePolicy}: valid\n`);
     const bashHook = spawnSync(join(installation, "node_modules", ".bin", "safety-core-claude-bash-policy"), [], {
       cwd: installation,
       encoding: "utf8",
-      input: JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "printf package-installed" }, session_id: "missing", cwd: installation }),
+      input: JSON.stringify({
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "printf package-installed" },
+        session_id: "missing",
+        cwd: installation,
+      }),
     });
     expect(bashHook.status).toBe(2);
     expect(bashHook.stderr).toContain("SessionStart must establish it before PreToolUse");
 
-    run("node", ["--input-type=module", "--eval", `
+    run(
+      "node",
+      [
+        "--input-type=module",
+        "--eval",
+        `
       import { main } from "@safety-core/core/cli";
       for (let seed = 0; seed < 1024; seed++) {
         try {
@@ -150,7 +211,10 @@ test("packed packages install and expose the OpenCode v1 server and TUI forms; p
           if (!(error instanceof Error) || error.code !== "commander.unknownCommand") throw error;
         }
       }
-    `], installation);
+    `,
+      ],
+      installation,
+    );
   } finally {
     rmSync(installation, { force: true, recursive: true });
   }
@@ -164,7 +228,12 @@ test("packed Pi extension retains TUI-only settings and secret-read contracts", 
     run("npm", ["init", "--yes"], installation);
     run("npm", ["install", "--offline", "--ignore-scripts", core, pi], installation);
     writePiHostStubs(installation);
-    const result = run("node", ["--input-type=module", "--eval", `
+    const result = run(
+      "node",
+      [
+        "--input-type=module",
+        "--eval",
+        `
       import { createPiExtension, resolvePiSessionSettings } from "@safety-core/pi/extensions/extension.js";
       const handlers = new Map();
       const commands = new Map();
@@ -192,7 +261,10 @@ test("packed Pi extension retains TUI-only settings and secret-read contracts", 
         if (settings.autoApprove !== last.autoApprove || settings.judgeModel !== (last.judgeModel ?? undefined) || settings.showFullCommand !== last.showFullCommand) throw new Error("seed " + seed);
       }
       console.log(JSON.stringify({ tools, commands: [...commands.keys()], read, notices }));
-    `], installation);
+    `,
+      ],
+      installation,
+    );
     expect(JSON.parse(result)).toEqual({
       tools: ["bash"],
       commands: ["safety-core"],
@@ -217,18 +289,30 @@ test("property: both native OpenCode exports retain their distinct contracts acr
 });
 
 function writePiHostStubs(installation: string): void {
-  writeModule(installation, "@earendil-works/pi-coding-agent", `
+  writeModule(
+    installation,
+    "@earendil-works/pi-coding-agent",
+    `
     export const createBashTool = () => ({ execute() {} });
     export const getSettingsListTheme = () => ({});
-  `);
-  writeModule(installation, "@earendil-works/pi-tui", `
+  `,
+  );
+  writeModule(
+    installation,
+    "@earendil-works/pi-tui",
+    `
     export class Container { addChild() {} render() { return []; } invalidate() {} }
     export class SettingsList { constructor() {} handleInput() {} }
     export class Text {}
-  `);
-  writeModule(installation, "typebox", `
+  `,
+  );
+  writeModule(
+    installation,
+    "typebox",
+    `
     export const Type = { Object: (value) => value, String: () => ({}), Optional: (value) => value, Number: () => ({}) };
-  `);
+  `,
+  );
 }
 
 function writeModule(installation: string, name: string, source: string): void {

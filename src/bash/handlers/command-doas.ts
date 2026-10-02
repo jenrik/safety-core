@@ -10,7 +10,8 @@ function parseDoas(arguments_: readonly ResolvedWord[], context: StructuralDispa
   while (index < arguments_.length) {
     const argument = known(arguments_[index]!, context);
     if (typeof argument !== "string") return argument;
-    if (argument === "--") return taintWrapperResult(childInvocationFrom(arguments_, index + 1, context, undefined, "unknown"), context);
+    if (argument === "--")
+      return taintWrapperResult(childInvocationFrom(arguments_, index + 1, context, undefined, "unknown"), context);
     if (argument === "-n") {
       index++;
       continue;

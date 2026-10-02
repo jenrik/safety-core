@@ -41,8 +41,17 @@ export interface CompletedShellState extends BashShellStatePatch {
   readonly scope: BashShellScope;
 }
 
-export function initialShellState(environment: Environment, imported: readonly BashFunction[] = [], cwd: string | null = null): BashShellState {
-  return shellState(environment, new Map(imported.map((definition) => [definition.name, Object.freeze([definition])])), new Set(), cwd);
+export function initialShellState(
+  environment: Environment,
+  imported: readonly BashFunction[] = [],
+  cwd: string | null = null,
+): BashShellState {
+  return shellState(
+    environment,
+    new Map(imported.map((definition) => [definition.name, Object.freeze([definition])])),
+    new Set(),
+    cwd,
+  );
 }
 
 export function withShellEnvironment(state: BashShellState, environment: Environment): BashShellState {
@@ -62,9 +71,10 @@ export function defineShellFunction(state: BashShellState, definition: BashFunct
   // Bash replaces an inherited export with the new body. Its exact serialized
   // text is not derivable from our CST; never leave the old body in a child env.
   const previous = lookupBinding(state.environment, exportedName);
-  const environment = previous.value.kind !== "unset" && previous.exported
-    ? assignBinding(state.environment, exportedName, unknown({ kind: "redefined-exported-function" }))
-    : state.environment;
+  const environment =
+    previous.value.kind !== "unset" && previous.exported
+      ? assignBinding(state.environment, exportedName, unknown({ kind: "redefined-exported-function" }))
+      : state.environment;
   return shellState(environment, functions, missing, state.cwd);
 }
 
@@ -73,15 +83,25 @@ export function exportShellFunction(state: BashShellState, name: string): BashSh
   if (!state.functionCandidates.has(name) || state.missingFunctions.has(name)) return state;
   const exportedName = `BASH_FUNC_${name}%%`;
   const old = lookupBinding(state.environment, exportedName);
-  const environment = old.value.kind === "known" && old.exported ? state.environment
-    : setExported(assignBinding(state.environment, exportedName,
-      unknown({ kind: "exported-shell-function" })), exportedName, true);
+  const environment =
+    old.value.kind === "known" && old.exported
+      ? state.environment
+      : setExported(
+          assignBinding(state.environment, exportedName, unknown({ kind: "exported-shell-function" })),
+          exportedName,
+          true,
+        );
   return shellState(environment, state.functionCandidates, state.missingFunctions, state.cwd);
 }
 
 export function unexportShellFunction(state: BashShellState, name: string): BashShellState {
   const exportedName = `BASH_FUNC_${name}%%`;
-  return shellState(unsetBinding(state.environment, exportedName), state.functionCandidates, state.missingFunctions, state.cwd);
+  return shellState(
+    unsetBinding(state.environment, exportedName),
+    state.functionCandidates,
+    state.missingFunctions,
+    state.cwd,
+  );
 }
 
 /** Record that a function definition is definitely absent after `unset -f`. */
@@ -151,7 +171,9 @@ export function joinShellStates(
     }
   }
   for (const name of names) {
-    if (branches.some((branch) => !branch.state.functionCandidates.has(name) || branch.state.missingFunctions.has(name))) {
+    if (
+      branches.some((branch) => !branch.state.functionCandidates.has(name) || branch.state.missingFunctions.has(name))
+    ) {
       missing.add(name);
     }
   }
@@ -160,10 +182,7 @@ export function joinShellStates(
 }
 
 /** Current-scope children propagate complete state; subshell children leak none. */
-export function completeShellState(
-  parent: BashShellState,
-  children: readonly CompletedShellState[],
-): BashShellState {
+export function completeShellState(parent: BashShellState, children: readonly CompletedShellState[]): BashShellState {
   const current = children.filter((child) => child.scope === "current");
   return current.length === 0 ? parent : joinShellStates(forkShellState(parent), current);
 }

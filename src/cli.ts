@@ -22,7 +22,11 @@ export function createProgram(): Command {
     .name("safety-core")
     .description("Inspect the safety-core policy configuration and explain Bash policy decisions.")
     .option("--config <path>", "load global configuration from an explicit path", nonEmptyPath("--config"))
-    .option("--project-config <path>", "load project configuration from an explicit path", nonEmptyPath("--project-config"))
+    .option(
+      "--project-config <path>",
+      "load project configuration from an explicit path",
+      nonEmptyPath("--project-config"),
+    )
     .exitOverride();
 
   program
@@ -31,7 +35,8 @@ export function createProgram(): Command {
     .action(async () => {
       const options = program.opts<{ config?: string; projectConfig?: string }>();
       const runtime = await loadPolicyRuntime(process.cwd(), process.env, options.config, options.projectConfig);
-      for (const source of runtime.policySet.sources) process.stdout.write(`${source.sha256}  ${source.canonicalPath}\n`);
+      for (const source of runtime.policySet.sources)
+        process.stdout.write(`${source.sha256}  ${source.canonicalPath}\n`);
     });
 
   program
@@ -61,7 +66,12 @@ export function createProgram(): Command {
       const paths = program.opts<{ config?: string; projectConfig?: string }>();
       const runtime = await loadPolicyRuntime(process.cwd(), process.env, paths.config, paths.projectConfig);
       await initBundledBashParser();
-      const evaluation = evaluateLoadedPolicies(runtime, source, { kind: "verified", values: process.env as Record<string, string> }, { cwd: process.cwd(), executableFilesystem: nodeExecutableFilesystem });
+      const evaluation = evaluateLoadedPolicies(
+        runtime,
+        source,
+        { kind: "verified", values: process.env as Record<string, string> },
+        { cwd: process.cwd(), executableFilesystem: nodeExecutableFilesystem },
+      );
       process.stdout.write(renderExplainTrace(createExplainTrace(runtime, evaluation), options.json === true));
     });
 
@@ -76,7 +86,8 @@ function nonEmptyPath(option: string): (path: string) => string {
 }
 
 function canonicalPolicyPath(path: string): string {
-  if (!path.endsWith(".policy.json")) throw new PolicyStartupError(path, "declarative policy source must use the exact .policy.json extension");
+  if (!path.endsWith(".policy.json"))
+    throw new PolicyStartupError(path, "declarative policy source must use the exact .policy.json extension");
   try {
     return realpathSync(path);
   } catch (error) {
@@ -90,7 +101,8 @@ if (process.argv[1] && pathToFileURL(realpathSync(process.argv[1])).href === imp
       process.exitCode = error.exitCode;
       return;
     }
-    const message = error instanceof PolicyStartupError || error instanceof Error ? error.message : "safety-core failed";
+    const message =
+      error instanceof PolicyStartupError || error instanceof Error ? error.message : "safety-core failed";
     process.stderr.write(`safety-core: ${message}\n`);
     process.exitCode = 1;
   });

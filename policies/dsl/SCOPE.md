@@ -18,7 +18,7 @@ value-form apply options, `--dry-run=(client|server)`, and global selectors may
 appear before or after `apply` where kubectl v1.37.0 accepts them. Apply-local
 bare/no-value flags may appear only after `apply`:
 
-```
+```text
 kubectl [approved options] apply [approved options] --dry-run=(client|server) (-f INPUT | -k DIRECTORY)
 ```
 

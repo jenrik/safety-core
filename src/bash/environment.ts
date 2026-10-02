@@ -68,7 +68,7 @@ interface FrameState {
   readonly positionalParametersLocal: boolean;
 }
 
-interface TaintVersion {}
+type TaintVersion = {};
 type FrameKind = "shell" | "function" | "subshell" | "overlay";
 
 const frameStates = new WeakMap<Frame, FrameState>();
@@ -99,7 +99,12 @@ export function fromInitialEnvironment(
 ): Environment {
   const bindings = new Map<string, Binding>();
   for (const [name, value] of Object.entries(initial)) bindings.set(name, normalizeBinding(value));
-  return createEnvironment(createFrame(undefined, undefined, bindings), undefined, { ...DEFAULT_BUDGETS, ...budgets }, missingBindings);
+  return createEnvironment(
+    createFrame(undefined, undefined, bindings),
+    undefined,
+    { ...DEFAULT_BUDGETS, ...budgets },
+    missingBindings,
+  );
 }
 
 /** A complete, harness-verified process environment where absent names are unset. */
@@ -107,11 +112,16 @@ export function fromVerifiedInitialEnvironment(
   initial: Readonly<Record<string, string | Binding | BindingValue>> = {},
   budgets: Partial<Budgets> = {},
 ): Environment {
-  const exported = Object.fromEntries(Object.entries(initial).map(([name, value]) => [name, {
-    value: typeof value === "string" ? known(value) : "value" in value ? value.value : value,
-    exported: true,
-    readonly: false,
-  }])) as Readonly<Record<string, Binding>>;
+  const exported = Object.fromEntries(
+    Object.entries(initial).map(([name, value]) => [
+      name,
+      {
+        value: typeof value === "string" ? known(value) : "value" in value ? value.value : value,
+        exported: true,
+        readonly: false,
+      },
+    ]),
+  ) as Readonly<Record<string, Binding>>;
   return fromInitialEnvironment(exported, budgets, "unset");
 }
 
@@ -121,11 +131,16 @@ export function fromFilteredInitialEnvironment(
   unsetNames: readonly string[] = [],
   budgets: Partial<Budgets> = {},
 ): Environment {
-  const bindings = Object.fromEntries(Object.entries(initial).map(([name, value]) => [name, {
-    value: typeof value === "string" ? known(value) : "value" in value ? value.value : value,
-    exported: true,
-    readonly: false,
-  }])) as Record<string, Binding>;
+  const bindings = Object.fromEntries(
+    Object.entries(initial).map(([name, value]) => [
+      name,
+      {
+        value: typeof value === "string" ? known(value) : "value" in value ? value.value : value,
+        exported: true,
+        readonly: false,
+      },
+    ]),
+  ) as Record<string, Binding>;
   for (const name of unsetNames) {
     if (!(name in bindings)) bindings[name] = createBinding(unset(), false, false);
   }
@@ -133,8 +148,7 @@ export function fromFilteredInitialEnvironment(
 }
 
 export function lookupBinding(environment: Environment, name: string): Binding {
-  return lookupInFrame(environment.overlay ?? environment.frame, name)
-    ?? createBinding(unset(), false, false);
+  return lookupInFrame(environment.overlay ?? environment.frame, name) ?? createBinding(unset(), false, false);
 }
 
 /** Distinguishes an explicit `unset` from a name missing in an unavailable environment. */
@@ -188,27 +202,42 @@ export function assignNonLocalBinding(environment: Environment, name: string, va
   const destination = findNearestBindingScope(target, name) ?? outermostScope(target);
   const previous = lookupOwnBinding(destination, name) ?? createBinding(unset(), false, false);
   const updatedDestination = writeFrame(destination, name, createBinding(value, previous.exported, previous.readonly));
-  const updatedTarget = destination === target
-    ? updatedDestination
-    : replaceAncestorFrame(target, destination, updatedDestination);
+  const updatedTarget =
+    destination === target ? updatedDestination : replaceAncestorFrame(target, destination, updatedDestination);
   return replaceActiveFrame(environment, updatedTarget);
 }
 
 export function unsetBinding(environment: Environment, name: string): Environment {
-  return writeVisibleBinding(environment, name, (previous) => createBinding(unset(), previous.exported, previous.readonly));
+  return writeVisibleBinding(environment, name, (previous) =>
+    createBinding(unset(), previous.exported, previous.readonly),
+  );
 }
 
 export function setExported(environment: Environment, name: string, exported: boolean): Environment {
-  return writeVisibleBinding(environment, name, (previous) => createBinding(previous.value, exported, previous.readonly));
+  return writeVisibleBinding(environment, name, (previous) =>
+    createBinding(previous.value, exported, previous.readonly),
+  );
 }
 
 export function setReadonly(environment: Environment, name: string, readonly: boolean): Environment {
-  return writeVisibleBinding(environment, name, (previous) => createBinding(previous.value, previous.exported, readonly));
+  return writeVisibleBinding(environment, name, (previous) =>
+    createBinding(previous.value, previous.exported, readonly),
+  );
 }
 
 export function pushFunctionFrame(environment: Environment): Environment {
   return createEnvironment(
-    createFrame(environment.overlay ?? environment.frame, undefined, new Map(), undefined, new ImmutableSet(), undefined, "function", new ImmutableSet(), true),
+    createFrame(
+      environment.overlay ?? environment.frame,
+      undefined,
+      new Map(),
+      undefined,
+      new ImmutableSet(),
+      undefined,
+      "function",
+      new ImmutableSet(),
+      true,
+    ),
     undefined,
     environment.budgets,
     environment.missingBindings,
@@ -218,7 +247,17 @@ export function pushFunctionFrame(environment: Environment): Environment {
 /** Creates an interpreter-call boundary whose omitted `$N` values are unset. */
 export function pushPositionalFrame(environment: Environment): Environment {
   return createEnvironment(
-    createFrame(environment.overlay ?? environment.frame, undefined, new Map(), undefined, new ImmutableSet(), undefined, "subshell", new ImmutableSet(), true),
+    createFrame(
+      environment.overlay ?? environment.frame,
+      undefined,
+      new Map(),
+      undefined,
+      new ImmutableSet(),
+      undefined,
+      "subshell",
+      new ImmutableSet(),
+      true,
+    ),
     undefined,
     environment.budgets,
     environment.missingBindings,
@@ -227,7 +266,15 @@ export function pushPositionalFrame(environment: Environment): Environment {
 
 export function pushSubshellFrame(environment: Environment): Environment {
   return createEnvironment(
-    createFrame(environment.overlay ?? environment.frame, undefined, new Map(), undefined, new ImmutableSet(), undefined, "subshell"),
+    createFrame(
+      environment.overlay ?? environment.frame,
+      undefined,
+      new Map(),
+      undefined,
+      new ImmutableSet(),
+      undefined,
+      "subshell",
+    ),
     undefined,
     environment.budgets,
     environment.missingBindings,
@@ -254,7 +301,9 @@ export function beginCommandOverlay(environment: Environment): Environment {
 }
 
 export function endCommandOverlay(environment: Environment): Environment {
-  return environment.overlay ? createEnvironment(environment.frame, undefined, environment.budgets, environment.missingBindings) : environment;
+  return environment.overlay
+    ? createEnvironment(environment.frame, undefined, environment.budgets, environment.missingBindings)
+    : environment;
 }
 
 export function forkCheckpoint(base: Environment): BranchCheckpoint {
@@ -280,10 +329,10 @@ export function mergeCheckpoint(checkpoint: BranchCheckpoint, branches: readonly
     const next = bindings.every((binding) => bindingsEqual(binding, first))
       ? first
       : createBinding(
-        unknown({ kind: "branch-disagreement" }),
-        bindings.every((binding) => binding.exported),
-        bindings.every((binding) => binding.readonly),
-      );
+          unknown({ kind: "branch-disagreement" }),
+          bindings.every((binding) => binding.exported),
+          bindings.every((binding) => binding.readonly),
+        );
     merged = writeBinding(merged, name, next);
   }
 
@@ -291,7 +340,10 @@ export function mergeCheckpoint(checkpoint: BranchCheckpoint, branches: readonly
 }
 
 /** Conservatively weakens all existing and future implicit lookups in this frame. */
-export function taintFrame(environment: Environment, reason: UnknownReason = { kind: "arbitrary-mutation" }): Environment {
+export function taintFrame(
+  environment: Environment,
+  reason: UnknownReason = { kind: "arbitrary-mutation" },
+): Environment {
   const target = environment.overlay ?? environment.frame;
   const state = stateFor(target);
   const tainted = createFrame(
@@ -316,7 +368,12 @@ function createEnvironment(
   budgets: Budgets,
   missingBindings: Environment["missingBindings"],
 ): Environment {
-  return Object.freeze({ frame, ...(overlay ? { overlay } : {}), budgets: Object.freeze({ ...budgets }), missingBindings });
+  return Object.freeze({
+    frame,
+    ...(overlay ? { overlay } : {}),
+    budgets: Object.freeze({ ...budgets }),
+    missingBindings,
+  });
 }
 
 function writeBinding(environment: Environment, name: string, binding: Binding): Environment {
@@ -325,34 +382,37 @@ function writeBinding(environment: Environment, name: string, binding: Binding):
 }
 
 /** Builtin attributes and unset affect the nearest dynamically visible name. */
-function writeVisibleBinding(environment: Environment, name: string, update: (binding: Binding) => Binding): Environment {
+function writeVisibleBinding(
+  environment: Environment,
+  name: string,
+  update: (binding: Binding) => Binding,
+): Environment {
   const target = environment.overlay ?? environment.frame;
   const destination = findNearestBindingScope(target, name) ?? outermostScope(target);
   const previous = lookupOwnBinding(destination, name) ?? createBinding(unset(), false, false);
   const updatedDestination = writeFrame(destination, name, update(previous));
-  const updatedTarget = destination === target
-    ? updatedDestination
-    : replaceAncestorFrame(target, destination, updatedDestination);
+  const updatedTarget =
+    destination === target ? updatedDestination : replaceAncestorFrame(target, destination, updatedDestination);
   return replaceActiveFrame(environment, updatedTarget);
 }
 
 function writeFrame(frame: Frame, name: string, binding: Binding, markLocal = false): Frame {
   const state = stateFor(frame);
   const localNames = markLocal ? new ImmutableSet(state.localNames, name) : state.localNames;
-  const writesSinceTaint = state.taint
-    ? new ImmutableSet(state.writesSinceTaint, name)
-    : state.writesSinceTaint;
-  return maybeCompact(createFrame(
-    state.parent,
-    frame,
-    new Map([[name, binding]]),
-    state.taint,
-    writesSinceTaint,
-    state.taintVersion,
-    state.kind,
-    localNames,
-    state.positionalParametersLocal,
-  ));
+  const writesSinceTaint = state.taint ? new ImmutableSet(state.writesSinceTaint, name) : state.writesSinceTaint;
+  return maybeCompact(
+    createFrame(
+      state.parent,
+      frame,
+      new Map([[name, binding]]),
+      state.taint,
+      writesSinceTaint,
+      state.taintVersion,
+      state.kind,
+      localNames,
+      state.positionalParametersLocal,
+    ),
+  );
 }
 
 function replaceActiveFrame(environment: Environment, frame: Frame): Environment {
@@ -504,15 +564,15 @@ function freezeValue(value: BindingValue): BindingValue {
 }
 
 function freezeReason(reason: UnknownReason): UnknownReason {
-  return Object.freeze(reason.span
-    ? { kind: reason.kind, span: Object.freeze({ start: reason.span.start, end: reason.span.end }) }
-    : { kind: reason.kind });
+  return Object.freeze(
+    reason.span
+      ? { kind: reason.kind, span: Object.freeze({ start: reason.span.start, end: reason.span.end }) }
+      : { kind: reason.kind },
+  );
 }
 
 function bindingsEqual(left: Binding, right: Binding): boolean {
-  return left.exported === right.exported
-    && left.readonly === right.readonly
-    && valuesEqual(left.value, right.value);
+  return left.exported === right.exported && left.readonly === right.readonly && valuesEqual(left.value, right.value);
 }
 
 function isPositivePositionalParameter(name: string): boolean {
@@ -523,9 +583,11 @@ function valuesEqual(left: BindingValue, right: BindingValue): boolean {
   if (left.kind !== right.kind) return false;
   if (left.kind === "known" && right.kind === "known") return left.value === right.value;
   if (left.kind === "unknown" && right.kind === "unknown") {
-    return left.reason.kind === right.reason.kind
-      && left.reason.span?.start === right.reason.span?.start
-      && left.reason.span?.end === right.reason.span?.end;
+    return (
+      left.reason.kind === right.reason.kind &&
+      left.reason.span?.start === right.reason.span?.start &&
+      left.reason.span?.end === right.reason.span?.end
+    );
   }
   return true;
 }
@@ -545,15 +607,29 @@ class ImmutableSet<T> implements ReadonlySet<T> {
     Object.freeze(this);
   }
 
-  get size(): number { return this.#values.size; }
-  has(value: T): boolean { return this.#values.has(value); }
-  entries(): SetIterator<[T, T]> { return this.#values.entries(); }
-  keys(): SetIterator<T> { return this.#values.keys(); }
-  values(): SetIterator<T> { return this.#values.values(); }
-  forEach(callbackfn: (value: T, value2: T, set: ReadonlySet<T>) => void, thisArg?: unknown): void {
-    this.#values.forEach((value) => callbackfn.call(thisArg, value, value, this));
+  get size(): number {
+    return this.#values.size;
   }
-  [Symbol.iterator](): SetIterator<T> { return this.#values[Symbol.iterator](); }
+  has(value: T): boolean {
+    return this.#values.has(value);
+  }
+  entries(): SetIterator<[T, T]> {
+    return this.#values.entries();
+  }
+  keys(): SetIterator<T> {
+    return this.#values.keys();
+  }
+  values(): SetIterator<T> {
+    return this.#values.values();
+  }
+  forEach(callbackfn: (value: T, value2: T, set: ReadonlySet<T>) => void, thisArg?: unknown): void {
+    this.#values.forEach((value) => {
+      callbackfn.call(thisArg, value, value, this);
+    });
+  }
+  [Symbol.iterator](): SetIterator<T> {
+    return this.#values[Symbol.iterator]();
+  }
 }
 
 class ImmutableMap<K, V> implements ReadonlyMap<K, V> {
@@ -564,14 +640,30 @@ class ImmutableMap<K, V> implements ReadonlyMap<K, V> {
     Object.freeze(this);
   }
 
-  get size(): number { return this.#values.size; }
-  get(key: K): V | undefined { return this.#values.get(key); }
-  has(key: K): boolean { return this.#values.has(key); }
-  entries(): MapIterator<[K, V]> { return this.#values.entries(); }
-  keys(): MapIterator<K> { return this.#values.keys(); }
-  values(): MapIterator<V> { return this.#values.values(); }
-  forEach(callbackfn: (value: V, key: K, map: ReadonlyMap<K, V>) => void, thisArg?: unknown): void {
-    this.#values.forEach((value, key) => callbackfn.call(thisArg, value, key, this));
+  get size(): number {
+    return this.#values.size;
   }
-  [Symbol.iterator](): MapIterator<[K, V]> { return this.#values[Symbol.iterator](); }
+  get(key: K): V | undefined {
+    return this.#values.get(key);
+  }
+  has(key: K): boolean {
+    return this.#values.has(key);
+  }
+  entries(): MapIterator<[K, V]> {
+    return this.#values.entries();
+  }
+  keys(): MapIterator<K> {
+    return this.#values.keys();
+  }
+  values(): MapIterator<V> {
+    return this.#values.values();
+  }
+  forEach(callbackfn: (value: V, key: K, map: ReadonlyMap<K, V>) => void, thisArg?: unknown): void {
+    this.#values.forEach((value, key) => {
+      callbackfn.call(thisArg, value, key, this);
+    });
+  }
+  [Symbol.iterator](): MapIterator<[K, V]> {
+    return this.#values[Symbol.iterator]();
+  }
 }

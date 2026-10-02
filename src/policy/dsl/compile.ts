@@ -1,10 +1,4 @@
-import type {
-  Expression,
-  OptionDeclaration,
-  PolicyCase,
-  PolicyDocument,
-  TerminalAction,
-} from "./ast.js";
+import type { Expression, OptionDeclaration, PolicyCase, PolicyDocument, TerminalAction } from "./ast.js";
 import { POLICY_DOCUMENT_LIMITS } from "./validate.js";
 
 export interface CompiledTransitionAction {
@@ -40,7 +34,10 @@ export interface CompiledTerminalAction extends TerminalAction {
 }
 
 export type CompiledAction = CompiledTransitionAction | CompiledOptionAction | CompiledTerminalAction;
-export interface CompiledOptionPredicate { readonly kind: "option"; readonly option: string; }
+export interface CompiledOptionPredicate {
+  readonly kind: "option";
+  readonly option: string;
+}
 export interface CompiledCase {
   readonly when: Expression | CompiledOptionPredicate;
   readonly action: CompiledAction;
@@ -97,12 +94,14 @@ export function compilePolicyDocument(ast: PolicyDocument): CompiledPolicyProgra
   for (const [stateName, state] of Object.entries(ast.states)) {
     const lowered: CompiledCase[] = [];
     for (const option of applicableOptions(stateName, options)) {
-      lowered.push(Object.freeze({
-        when: Object.freeze({ kind: "option", option: option.name }),
-        action: optionAction(option, stateName),
-        origin: `option:${option.name}`,
-        source: `$.options.${option.name}`,
-      }));
+      lowered.push(
+        Object.freeze({
+          when: Object.freeze({ kind: "option", option: option.name }),
+          action: optionAction(option, stateName),
+          origin: `option:${option.name}`,
+          source: `$.options.${option.name}`,
+        }),
+      );
       transitions++;
     }
     for (const fragmentName of state.fragments) {
@@ -152,20 +151,33 @@ function optionAction(option: OrderedOption, state: string): CompiledOptionActio
 function lowerCase(policyCase: PolicyCase, origin: CompiledCase["origin"], source: string): CompiledCase {
   return Object.freeze({
     when: policyCase.when,
-    action: policyCase.action.kind === "terminal"
-      ? policyCase.action
-      : Object.freeze({ kind: "transition", consume: policyCase.action.consume, progress: 1, next: policyCase.action.next, set: policyCase.action.set, fold: policyCase.action.fold }),
+    action:
+      policyCase.action.kind === "terminal"
+        ? policyCase.action
+        : Object.freeze({
+            kind: "transition",
+            consume: policyCase.action.consume,
+            progress: 1,
+            next: policyCase.action.next,
+            set: policyCase.action.set,
+            fold: policyCase.action.fold,
+          }),
     origin,
     source,
   });
 }
 
-function expandFragment(ast: PolicyDocument, name: string): readonly { readonly policyCase: PolicyCase; readonly origin: string; readonly source: string }[] {
+function expandFragment(
+  ast: PolicyDocument,
+  name: string,
+): readonly { readonly policyCase: PolicyCase; readonly origin: string; readonly source: string }[] {
   const fragment = ast.fragments[name];
   if (!fragment) throw new TypeError(`cannot compile unknown fragment ${name}`);
   return Object.freeze([
     ...fragment.uses.flatMap((used) => expandFragment(ast, used)),
-    ...fragment.cases.map((policyCase, index) => Object.freeze({ policyCase, origin: name, source: `$.fragments.${name}.cases[${index}]` })),
+    ...fragment.cases.map((policyCase, index) =>
+      Object.freeze({ policyCase, origin: name, source: `$.fragments.${name}.cases[${index}]` }),
+    ),
   ]);
 }
 
@@ -243,7 +255,10 @@ function assertCompiledBounds(ast: PolicyDocument, fragments: FragmentPlan, opti
     transitions = saturatingAdd(transitions, state.cases.filter((entry) => entry.action.kind === "transition").length);
     for (const fragment of state.fragments) {
       cases = saturatingAdd(cases, fragments.cases.get(fragment) ?? POLICY_DOCUMENT_LIMITS.expandedCases + 1);
-      transitions = saturatingAdd(transitions, fragments.transitions.get(fragment) ?? POLICY_DOCUMENT_LIMITS.transitions + 1);
+      transitions = saturatingAdd(
+        transitions,
+        fragments.transitions.get(fragment) ?? POLICY_DOCUMENT_LIMITS.transitions + 1,
+      );
     }
   }
   if (cases > POLICY_DOCUMENT_LIMITS.expandedCases || transitions > POLICY_DOCUMENT_LIMITS.transitions) {
@@ -258,11 +273,18 @@ function saturatingAdd(left: number, right: number): number {
 
 function assertCompiledProgress(program: CompiledPolicyProgram): void {
   for (const [stateName, state] of Object.entries(program.states)) {
-    if (state.default.kind !== "terminal" || state.end.kind !== "terminal") throw new TypeError(`compiled state ${stateName} lacks terminal default/end behavior`);
+    if (state.default.kind !== "terminal" || state.end.kind !== "terminal")
+      throw new TypeError(`compiled state ${stateName} lacks terminal default/end behavior`);
     for (const [index, entry] of state.cases.entries()) {
-      if (entry.action.kind === "transition" && entry.action.progress !== 1) throw new TypeError(`compiled transition ${stateName}.cases[${index}] does not consume input`);
-      if (entry.action.kind === "option" && entry.action.minProgress !== 1) throw new TypeError(`compiled option ${stateName}.cases[${index}] does not consume input`);
-      if (entry.action.kind === "option" && entry.action.forms.includes("cluster") && !entry.action.clusterByteProgress) {
+      if (entry.action.kind === "transition" && entry.action.progress !== 1)
+        throw new TypeError(`compiled transition ${stateName}.cases[${index}] does not consume input`);
+      if (entry.action.kind === "option" && entry.action.minProgress !== 1)
+        throw new TypeError(`compiled option ${stateName}.cases[${index}] does not consume input`);
+      if (
+        entry.action.kind === "option" &&
+        entry.action.forms.includes("cluster") &&
+        !entry.action.clusterByteProgress
+      ) {
         throw new TypeError(`compiled cluster option ${stateName}.cases[${index}] does not consume a byte`);
       }
     }

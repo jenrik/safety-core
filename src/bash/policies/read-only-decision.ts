@@ -7,9 +7,16 @@ export type ReadOnlyInvocationDecision =
 
 export function readOnlyAllow(name: ReadOnlyPolicyName, tool: string): ReadOnlyInvocationDecision {
   const reason = `${tool} auto-allowed by the read-only profile`;
-  return Object.freeze({ kind: "allow", reason, evidence: Object.freeze({ name, decision: "allow", reason, readOnly: Object.freeze({ tool }) }) });
+  return Object.freeze({
+    kind: "allow",
+    reason,
+    evidence: Object.freeze({ name, decision: "allow", reason, readOnly: Object.freeze({ tool }) }),
+  });
 }
 
 export function readOnlyDefer(name: ReadOnlyPolicyName, tool: string): ReadOnlyInvocationDecision {
-  return Object.freeze({ kind: "defer", evidence: Object.freeze({ name, decision: "defer", readOnly: Object.freeze({ tool }) }) });
+  return Object.freeze({
+    kind: "defer",
+    evidence: Object.freeze({ name, decision: "defer", readOnly: Object.freeze({ tool }) }),
+  });
 }

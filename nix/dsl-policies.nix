@@ -10,7 +10,8 @@ let
       cp -r $src/. $out/
     '';
   };
-in {
+in
+{
   inherit policySources;
   dslPolicies = {
     secretRead = "${policySources}/secret-read.policy.json";

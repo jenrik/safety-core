@@ -5,7 +5,10 @@ import { buildGithubSuggestion, detectBlockedDomain } from "../../github.js";
 
 export type GithubHttpPolicyDecision =
   | { readonly kind: "allow"; readonly evidence: { readonly name: "github-http"; readonly decision: "allow" } }
-  | { readonly kind: "deny"; readonly evidence: { readonly name: "github-http"; readonly decision: "deny"; readonly reason: string } };
+  | {
+      readonly kind: "deny";
+      readonly evidence: { readonly name: "github-http"; readonly decision: "deny"; readonly reason: string };
+    };
 
 /** The pure HTTP classifier only needs the resolved argument vector. */
 export type GithubHttpInvocation = Pick<NormalizedCommand, "argv"> & {
@@ -19,9 +22,12 @@ export function analyzeGithubHttpInvocation(invocation: GithubHttpInvocation): G
       continue;
     }
     const domain = detectBlockedGithubDomain(argument.value);
-    if (domain) return deny(isBindingResolvedWord(argument)
-      ? "Blocked: direct GitHub HTTP request detected. Use the native gh command where possible."
-      : buildGithubSuggestion(argument.value));
+    if (domain)
+      return deny(
+        isBindingResolvedWord(argument)
+          ? "Blocked: direct GitHub HTTP request detected. Use the native gh command where possible."
+          : buildGithubSuggestion(argument.value),
+      );
   }
   return Object.freeze({ kind: "allow", evidence: Object.freeze({ name: "github-http", decision: "allow" }) });
 }

@@ -23,7 +23,10 @@ export interface HistoricalBashPolicyResult {
   readonly reason: string | null;
 }
 
-type OpenCodePlugin = Record<string, (input: Record<string, unknown>, output: Record<string, unknown>) => Promise<void>>;
+type OpenCodePlugin = Record<
+  string,
+  (input: Record<string, unknown>, output: Record<string, unknown>) => Promise<void>
+>;
 
 export async function replayHistoricalBashEvent(event: HistoricalBashEvent): Promise<HistoricalBashPolicyResult> {
   const [result] = await replayHistoricalBashEvents([event]);
@@ -51,7 +54,8 @@ export async function replayHistoricalBashEvents(
   if (!before || !permission) throw new Error("OpenCode plugin did not register required Bash hooks");
 
   const results: HistoricalBashPolicyResult[] = [];
-  for (const [index, event] of events.entries()) results.push(await replayWithPlugin(event, before, permission, plugin["tool.execute.after"], String(index)));
+  for (const [index, event] of events.entries())
+    results.push(await replayWithPlugin(event, before, permission, plugin["tool.execute.after"], String(index)));
   return Object.freeze(results);
 }
 
@@ -98,7 +102,9 @@ async function loadPlugin(): Promise<OpenCodePlugin> {
   const original = new Map(keys.map((key) => [key, process.env[key]]));
   try {
     for (const key of keys) delete process.env[key];
-    const plugin = await (await import("../adapters/opencode.ts")).createOpenCodePlugin({ executableFilesystem: unavailableExecutableFilesystem }) as OpenCodePlugin;
+    const plugin = (await (
+      await import("../adapters/opencode.ts")
+    ).createOpenCodePlugin({ executableFilesystem: unavailableExecutableFilesystem })) as OpenCodePlugin;
     setJudgeProvider(null);
     return plugin;
   } finally {

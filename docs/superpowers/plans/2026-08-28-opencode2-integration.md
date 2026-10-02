@@ -93,7 +93,7 @@ nix build .#checks.x86_64-linux.gh-api-hook-safety-core-config-home-override -L 
 ```
 
 Expected: build fails, with the check's own error printed:
-```
+```text
 expected SAFETY_CORE_CONFIG_HOME to take precedence over XDG_CONFIG_HOME, got:
 ```
 (The `gh_api_read_allow.mjs` hook currently reads only `XDG_CONFIG_HOME`, which points at the decoy config with `ghApiReadOnly: false`, so it emits no `"permissionDecision":"allow"` output — the `grep -q` fails.)

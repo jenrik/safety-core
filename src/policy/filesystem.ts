@@ -33,9 +33,14 @@ export const nodeExecutableFilesystem: ExecutableFilesystem = Object.freeze({
   lstat(path: string): ExecutableFilesystemLookup {
     try {
       const stat = lstatSync(path);
-      if (stat.isSymbolicLink()) return Object.freeze({ kind: "entry", entry: Object.freeze({ kind: "symlink", target: readlinkSync(path) }) });
+      if (stat.isSymbolicLink())
+        return Object.freeze({ kind: "entry", entry: Object.freeze({ kind: "symlink", target: readlinkSync(path) }) });
       if (stat.isDirectory()) return Object.freeze({ kind: "entry", entry: Object.freeze({ kind: "directory" }) });
-      if (stat.isFile()) return Object.freeze({ kind: "entry", entry: Object.freeze({ kind: "file", executable: (stat.mode & 0o111) !== 0 }) });
+      if (stat.isFile())
+        return Object.freeze({
+          kind: "entry",
+          entry: Object.freeze({ kind: "file", executable: (stat.mode & 0o111) !== 0 }),
+        });
       return Object.freeze({ kind: "entry", entry: Object.freeze({ kind: "file", executable: false }) });
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;

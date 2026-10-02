@@ -5,14 +5,49 @@ import type { BashDispatchResult } from "../walker.js";
 import { childInvocationFrom, isKnown, known, resolveLongOption, wrapperHandler } from "./wrapper-utils.js";
 
 const TIME_VALUE_OPTIONS = new Set(["-f", "--format", "-o", "--output"]);
-const TIME_FLAGS = new Set(["-a", "--append", "-p", "--portability", "-v", "--verbose", "--quiet", "-V", "--version", "--help"]);
+const TIME_FLAGS = new Set([
+  "-a",
+  "--append",
+  "-p",
+  "--portability",
+  "-v",
+  "--verbose",
+  "--quiet",
+  "-V",
+  "--version",
+  "--help",
+]);
 const TIME_LONG_OPTIONS = [...TIME_VALUE_OPTIONS, ...TIME_FLAGS].filter((option) => option.startsWith("--"));
 const WATCH_VALUE_OPTIONS = new Set(["-n", "--interval", "-q", "--equexit", "-s", "--shotsdir"]);
 const WATCH_FLAGS = new Set([
-  "-b", "--beep", "-c", "--color", "-C", "--no-color", "-d", "--differences", "-e", "--errexit",
-  "-f", "--follow", "-g", "--chgexit",
-  "-p", "--precise", "-r", "--no-rerun", "-t", "--no-title", "-w", "--no-wrap", "-x", "--exec",
-  "-h", "--help", "-v", "--version",
+  "-b",
+  "--beep",
+  "-c",
+  "--color",
+  "-C",
+  "--no-color",
+  "-d",
+  "--differences",
+  "-e",
+  "--errexit",
+  "-f",
+  "--follow",
+  "-g",
+  "--chgexit",
+  "-p",
+  "--precise",
+  "-r",
+  "--no-rerun",
+  "-t",
+  "--no-title",
+  "-w",
+  "--no-wrap",
+  "-x",
+  "--exec",
+  "-h",
+  "--help",
+  "-v",
+  "--version",
 ]);
 const WATCH_LONG_OPTIONS = [...WATCH_VALUE_OPTIONS, ...WATCH_FLAGS].filter((option) => option.startsWith("--"));
 
@@ -42,9 +77,7 @@ function parseTime(arguments_: readonly ResolvedWord[], context: StructuralDispa
       index += 2;
       continue;
     }
-    if (TIME_FLAGS.has(argument)
-      || argument.startsWith("--format=")
-      || argument.startsWith("--output=")) {
+    if (TIME_FLAGS.has(argument) || argument.startsWith("--format=") || argument.startsWith("--output=")) {
       index++;
       continue;
     }
@@ -105,17 +138,26 @@ function parseWatch(arguments_: readonly ResolvedWord[], context: StructuralDisp
   return dynamic(context);
 }
 
-function watchChild(arguments_: readonly ResolvedWord[], index: number, direct: boolean, context: StructuralDispatchContext): BashDispatchResult {
+function watchChild(
+  arguments_: readonly ResolvedWord[],
+  index: number,
+  direct: boolean,
+  context: StructuralDispatchContext,
+): BashDispatchResult {
   const child = arguments_.slice(index);
   if (child.length === 0 || child.some((argument) => argument.kind !== "known")) return dynamic(context);
   const result = direct
     ? childInvocationFrom(arguments_, index, context, undefined, "spawn-repeated")
-    : context.continueWithSource(child.map((argument) => argument.kind === "known" ? argument.value : "").join(" "), undefined, {
-      route: "shell-command",
-      sourceDerivedFromBinding: child.some(isBindingResolvedWord),
-      processEffect: "spawn-repeated",
-      newShell: "other",
-    });
+    : context.continueWithSource(
+        child.map((argument) => (argument.kind === "known" ? argument.value : "")).join(" "),
+        undefined,
+        {
+          route: "shell-command",
+          sourceDerivedFromBinding: child.some(isBindingResolvedWord),
+          processEffect: "spawn-repeated",
+          newShell: "other",
+        },
+      );
   return dynamic(context, result);
 }
 
@@ -126,9 +168,14 @@ function dynamic(context: StructuralDispatchContext, result?: BashDispatchResult
   return Object.freeze({ ...result, outcome: strongestOutcome([result.outcome, uncertain]) });
 }
 
-function continueExecutorChild(arguments_: readonly ResolvedWord[], index: number, context: StructuralDispatchContext): BashDispatchResult {
+function continueExecutorChild(
+  arguments_: readonly ResolvedWord[],
+  index: number,
+  context: StructuralDispatchContext,
+): BashDispatchResult {
   const child = arguments_.slice(index);
-  if (child.length === 0 || child.some((argument) => argument.kind !== "known")) return dynamicExecutableIndeterminate(context.span);
+  if (child.length === 0 || child.some((argument) => argument.kind !== "known"))
+    return dynamicExecutableIndeterminate(context.span);
   return context.continueWithInvocation(child, undefined, {
     route: "transparent-wrapper",
     processEffect: "spawn-and-wait",
@@ -148,7 +195,10 @@ function parseTimeShortOptions(argument: string, next: ResolvedWord | undefined)
   return 1;
 }
 
-function parseWatchShortOptions(argument: string, next: ResolvedWord | undefined): { readonly consumed: 1 | 2; readonly direct: boolean } | undefined {
+function parseWatchShortOptions(
+  argument: string,
+  next: ResolvedWord | undefined,
+): { readonly consumed: 1 | 2; readonly direct: boolean } | undefined {
   if (!argument.startsWith("-") || argument.startsWith("--") || argument.length < 2) return undefined;
   const options = argument.slice(1);
   let direct = false;
@@ -162,9 +212,7 @@ function parseWatchShortOptions(argument: string, next: ResolvedWord | undefined
     if ("bcCefghprtvwx".includes(option)) continue;
     if (!"nqs".includes(option)) return undefined;
     const attached = options.slice(index + 1);
-    return attached.length > 0
-      ? { consumed: 1, direct }
-      : isKnown(next) ? { consumed: 2, direct } : undefined;
+    return attached.length > 0 ? { consumed: 1, direct } : isKnown(next) ? { consumed: 2, direct } : undefined;
   }
   return { consumed: 1, direct };
 }

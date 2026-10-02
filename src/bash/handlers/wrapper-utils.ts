@@ -6,19 +6,21 @@ import type { ProcessEffect } from "../walker.js";
 import type { BashLookupDomain } from "../resolution.js";
 import { resolveLongOption as resolveDeclaredLongOption } from "../options.js";
 
-export type WrapperParser = (arguments_: readonly ResolvedWord[], context: StructuralDispatchContext) => BashDispatchResult;
+export type WrapperParser = (
+  arguments_: readonly ResolvedWord[],
+  context: StructuralDispatchContext,
+) => BashDispatchResult;
 
 export function wrapperHandler(name: string, parse: WrapperParser): CommandHandler {
   return Object.freeze({
     name,
     handle(cursor: InvocationCursor, context: StructuralDispatchContext): BashDispatchResult {
       const parsed = parse(cursor.invocation.argv, context);
-      const result = "kind" in parsed && (parsed.kind === "indeterminate" || parsed.kind === "failure")
-        ? opaqueWrapperResult(parsed, context)
-        : parsed;
-      return hasUnsafeWrapperEnvelope(cursor)
-        ? taintWrapperResult(result, context)
-        : result;
+      const result =
+        "kind" in parsed && (parsed.kind === "indeterminate" || parsed.kind === "failure")
+          ? opaqueWrapperResult(parsed, context)
+          : parsed;
+      return hasUnsafeWrapperEnvelope(cursor) ? taintWrapperResult(result, context) : result;
     },
   });
 }
@@ -33,9 +35,11 @@ export function opaqueWrapperResult(outcome: Outcome, context: StructuralDispatc
 
 export function hasUnsafeWrapperEnvelope(cursor: InvocationCursor): boolean {
   const executable = cursor.invocation.executable;
-  return (executable?.kind === "known" && executable.value.includes("/"))
-    || cursor.invocation.assignmentPatch.writes.size > 0
-    || cursor.invocation.redirects.length > 0;
+  return (
+    (executable?.kind === "known" && executable.value.includes("/")) ||
+    cursor.invocation.assignmentPatch.writes.size > 0 ||
+    cursor.invocation.redirects.length > 0
+  );
 }
 
 /** Preserve child analysis while preventing unsafe wrapper behavior from authorizing it. */
@@ -60,7 +64,8 @@ export function parseOptionChild(
     if (argument === "--") return childInvocationFrom(arguments_, index + 1, context, undefined, processEffect);
     const arity = valueOptions.get(argument);
     if (arity !== undefined) {
-      for (let offset = 1; offset <= arity; offset++) if (!isKnown(arguments_[index + offset])) return indeterminate(context.span);
+      for (let offset = 1; offset <= arity; offset++)
+        if (!isKnown(arguments_[index + offset])) return indeterminate(context.span);
       index += arity + 1;
       continue;
     }
@@ -96,11 +101,16 @@ export function known(argument: ResolvedWord | undefined, context: StructuralDis
   return argument?.kind === "known" ? argument.value : indeterminate(context.span);
 }
 
-export function isKnown(argument: ResolvedWord | undefined): argument is Extract<ResolvedWord, { readonly kind: "known" }> {
+export function isKnown(
+  argument: ResolvedWord | undefined,
+): argument is Extract<ResolvedWord, { readonly kind: "known" }> {
   return argument?.kind === "known";
 }
 
-export function resolveLongOption(argument: string, options: readonly string[]):
+export function resolveLongOption(
+  argument: string,
+  options: readonly string[],
+):
   | { readonly kind: "known"; readonly option: string; readonly value?: string }
   | { readonly kind: "ambiguous" }
   | undefined {

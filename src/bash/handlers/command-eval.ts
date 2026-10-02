@@ -15,15 +15,16 @@ export function evalArguments(
   invocationArguments: readonly ResolvedWord[],
   context: Parameters<CommandHandler["handle"]>[1],
 ) {
-  const args = invocationArguments[0]?.kind === "known" && invocationArguments[0].value === "--"
-    ? invocationArguments.slice(1)
-    : invocationArguments;
+  const args =
+    invocationArguments[0]?.kind === "known" && invocationArguments[0].value === "--"
+      ? invocationArguments.slice(1)
+      : invocationArguments;
   return args.every((argument) => argument.kind === "known")
     ? context.continueWithSource(args.map((argument) => argument.value).join(" "), undefined, {
-      isolate: false,
-      route: "eval",
-      sourceDerivedFromBinding: args.some(isBindingResolvedWord),
-      processEffect: "none",
-    })
+        isolate: false,
+        route: "eval",
+        sourceDerivedFromBinding: args.some(isBindingResolvedWord),
+        processEffect: "none",
+      })
     : dynamicExecutableIndeterminate(context.span);
 }

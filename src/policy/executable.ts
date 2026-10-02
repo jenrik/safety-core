@@ -1,9 +1,5 @@
 import type { BindingValue } from "../bash/environment.js";
-import type {
-  ExecutableFilesystem,
-  ExecutableFilesystemFailure,
-  ExecutableFilesystemLookup,
-} from "./filesystem.js";
+import type { ExecutableFilesystem, ExecutableFilesystemFailure, ExecutableFilesystemLookup } from "./filesystem.js";
 
 export type ExecutableIdentityFailure =
   | { readonly kind: "not-external" }
@@ -23,26 +19,26 @@ export type ExecutableIdentityFailure =
  */
 export type ExecutableIdentity =
   | {
-    readonly qualification: "known";
-    readonly spelling: string;
-    readonly basename: string;
-    readonly selectedPath: string;
-    readonly canonicalTarget: string;
-    /** Ordered symlink sources followed by the canonical target. */
-    readonly chain: readonly string[];
-  }
+      readonly qualification: "known";
+      readonly spelling: string;
+      readonly basename: string;
+      readonly selectedPath: string;
+      readonly canonicalTarget: string;
+      /** Ordered symlink sources followed by the canonical target. */
+      readonly chain: readonly string[];
+    }
   | {
-    readonly qualification: "incomplete";
-    readonly spelling: string;
-    readonly basename: string;
-    readonly selectedPath?: string;
-    readonly chain: readonly string[];
-    readonly failure: ExecutableIdentityFailure;
-  }
+      readonly qualification: "incomplete";
+      readonly spelling: string;
+      readonly basename: string;
+      readonly selectedPath?: string;
+      readonly chain: readonly string[];
+      readonly failure: ExecutableIdentityFailure;
+    }
   | {
-    readonly qualification: "unknown";
-    readonly reason: "unresolved-spelling";
-  };
+      readonly qualification: "unknown";
+      readonly reason: "unresolved-spelling";
+    };
 
 export const MAX_EXECUTABLE_SYMLINKS = 40;
 
@@ -62,14 +58,21 @@ export function resolveExecutableIdentity(
   for (const entry of path.value.split(":")) {
     const selectedPath = joinPath(entry === "" ? cwd : absoluteFrom(cwd, entry), spelling);
     const candidate = resolveCandidate(selectedPath, filesystem);
-    if (candidate.kind === "known") return known(spelling, basename, selectedPath, candidate.canonicalTarget, candidate.chain);
+    if (candidate.kind === "known")
+      return known(spelling, basename, selectedPath, candidate.canonicalTarget, candidate.chain);
     if (candidate.failure.kind === "filesystem") {
       // An earlier unresolved candidate may be the command the shell reaches.
-      return incomplete(spelling, basename, candidate.chain, {
-        kind: "path-candidate-incomplete",
-        path: selectedPath,
-        failure: candidate.failure.failure,
-      }, selectedPath);
+      return incomplete(
+        spelling,
+        basename,
+        candidate.chain,
+        {
+          kind: "path-candidate-incomplete",
+          path: selectedPath,
+          failure: candidate.failure.failure,
+        },
+        selectedPath,
+      );
     }
     if (candidate.failure.kind === "symlink-loop" || candidate.failure.kind === "symlink-depth") {
       // These are exact resolver outcomes, not generic filesystem uncertainty.
@@ -98,10 +101,14 @@ export function matchesExecutableSelector(
   const value = typeof selector.value === "string" ? selector.value : undefined;
   if (selector.kind === "executable") {
     const predicates: boolean[] = [];
-    if (typeof selector.basename === "string") predicates.push(identity.qualification !== "unknown" && identity.basename === selector.basename);
-    if (typeof selector.selectedPath === "string") predicates.push(identity.qualification === "known" && identity.selectedPath === selector.selectedPath);
-    if (typeof selector.canonicalTarget === "string") predicates.push(identity.qualification === "known" && identity.canonicalTarget === selector.canonicalTarget);
-    if (typeof selector.chainContains === "string") predicates.push(identity.qualification === "known" && identity.chain.includes(selector.chainContains));
+    if (typeof selector.basename === "string")
+      predicates.push(identity.qualification !== "unknown" && identity.basename === selector.basename);
+    if (typeof selector.selectedPath === "string")
+      predicates.push(identity.qualification === "known" && identity.selectedPath === selector.selectedPath);
+    if (typeof selector.canonicalTarget === "string")
+      predicates.push(identity.qualification === "known" && identity.canonicalTarget === selector.canonicalTarget);
+    if (typeof selector.chainContains === "string")
+      predicates.push(identity.qualification === "known" && identity.chain.includes(selector.chainContains));
     return predicates.length > 0 && predicates.every(Boolean);
   }
   if (selector.kind === "executable-basename") {
@@ -119,10 +126,16 @@ export function matchesExecutableSelector(
   return false;
 }
 
-function resolveDirect(spelling: string, basename: string, cwd: string, filesystem: ExecutableFilesystem): ExecutableIdentity {
+function resolveDirect(
+  spelling: string,
+  basename: string,
+  cwd: string,
+  filesystem: ExecutableFilesystem,
+): ExecutableIdentity {
   const selectedPath = absoluteFrom(cwd, spelling);
   const candidate = resolveCandidate(selectedPath, filesystem);
-  if (candidate.kind === "known") return known(spelling, basename, selectedPath, candidate.canonicalTarget, candidate.chain);
+  if (candidate.kind === "known")
+    return known(spelling, basename, selectedPath, candidate.canonicalTarget, candidate.chain);
   return incomplete(spelling, basename, candidate.chain, candidate.failure, selectedPath);
 }
 
@@ -151,7 +164,8 @@ function resolveCandidate(selectedPath: string, filesystem: ExecutableFilesystem
     }
     const path = pathFromComponents([...resolved, component]);
     const lookup = lookupPath(filesystem, path);
-    if (lookup.kind === "missing") return failure(chain, { kind: chain.length > 0 ? "broken-symlink" : "not-found", path });
+    if (lookup.kind === "missing")
+      return failure(chain, { kind: chain.length > 0 ? "broken-symlink" : "not-found", path });
     if (lookup.kind === "incomplete") return failure(chain, { kind: "filesystem", path, failure: lookup.failure });
     const isLast = !components.some((remaining) => remaining !== "" && remaining !== ".");
     if (lookup.entry.kind === "symlink") {
@@ -192,8 +206,21 @@ function lookupPath(filesystem: ExecutableFilesystem, path: string): ExecutableF
   }
 }
 
-function known(spelling: string, basename: string, selectedPath: string, canonicalTarget: string, chain: readonly string[]): ExecutableIdentity {
-  return Object.freeze({ qualification: "known", spelling, basename, selectedPath, canonicalTarget, chain: Object.freeze([...chain]) });
+function known(
+  spelling: string,
+  basename: string,
+  selectedPath: string,
+  canonicalTarget: string,
+  chain: readonly string[],
+): ExecutableIdentity {
+  return Object.freeze({
+    qualification: "known",
+    spelling,
+    basename,
+    selectedPath,
+    canonicalTarget,
+    chain: Object.freeze([...chain]),
+  });
 }
 
 function incomplete(
@@ -203,7 +230,14 @@ function incomplete(
   failure: ExecutableIdentityFailure,
   selectedPath?: string,
 ): ExecutableIdentity {
-  return Object.freeze({ qualification: "incomplete", spelling, basename, ...(selectedPath ? { selectedPath } : {}), chain: Object.freeze([...chain]), failure: Object.freeze(failure) });
+  return Object.freeze({
+    qualification: "incomplete",
+    spelling,
+    basename,
+    ...(selectedPath ? { selectedPath } : {}),
+    chain: Object.freeze([...chain]),
+    failure: Object.freeze(failure),
+  });
 }
 
 function failure(chain: readonly string[], failure: ExecutableIdentityFailure): CandidateResult {

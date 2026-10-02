@@ -1,19 +1,39 @@
-import { ignorePolicy, observePolicy, type PolicyObservation, type PolicyObserver, type InvocationCursor } from "../dispatch.js";
+import {
+  ignorePolicy,
+  observePolicy,
+  type PolicyObservation,
+  type PolicyObserver,
+  type InvocationCursor,
+} from "../dispatch.js";
 import { hasBinding, lookupBinding, type Environment } from "../environment.js";
-import { indeterminate, policyIndeterminate, policySafe, type Outcome } from "../outcome.js";
+import { policyIndeterminate, policySafe } from "../outcome.js";
 import {
   BASH_FUNCTIONS_CAPTURED_FACT,
   GH_DEFER_ENVIRONMENT_NAMES,
   GH_INHERITED_PAGER_FACT,
   inheritedBashFunctionFact,
 } from "../policy-environment.js";
-import { isSecretPath, readOnlyAllow, readOnlyDefer, type AllowedFlag, type ReadOnlyInvocationDecision } from "../policies/read-only.js";
+import {
+  isSecretPath,
+  readOnlyAllow,
+  readOnlyDefer,
+  type AllowedFlag,
+  type ReadOnlyInvocationDecision,
+} from "../policies/read-only.js";
 
 export type ReadOnlyPolicy = "generic-read-only" | "gh-read-only" | "strict-read-only";
 
 const UNSAFE_CONFIGURATION_BINDINGS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   docker: ["DOCKER_CONFIG"],
-  git: ["GIT_CONFIG_COUNT", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_SYSTEM", "GIT_EXTERNAL_DIFF", "GIT_PAGER", "PAGER"],
+  git: [
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_EXTERNAL_DIFF",
+    "GIT_PAGER",
+    "PAGER",
+  ],
   kubectl: ["KUBECONFIG"],
   oc: ["KUBECONFIG"],
 });
@@ -37,11 +57,17 @@ export function readOnlyHandler(
       if (cursor.invocation.assignmentPatch.writes.size > 0 || cursor.invocation.redirects.length > 0) {
         return observePolicy(policyIndeterminate(context.span, defer(policy, name).evidence));
       }
-      if (hasInheritedExecutableFunction(cursor, name)
-        || (name === "gh" ? hasUnsafeGhEnvironmentBinding(cursor) : hasUnsafeConfigurationBinding(cursor, name))) {
+      if (
+        hasInheritedExecutableFunction(cursor, name) ||
+        (name === "gh" ? hasUnsafeGhEnvironmentBinding(cursor) : hasUnsafeConfigurationBinding(cursor, name))
+      ) {
         return observePolicy(policyIndeterminate(context.span, defer(policy, name).evidence));
       }
-      return observePolicy(decision.kind === "allow" ? policySafe(decision.evidence) : policyIndeterminate(context.span, decision.evidence));
+      return observePolicy(
+        decision.kind === "allow"
+          ? policySafe(decision.evidence)
+          : policyIndeterminate(context.span, decision.evidence),
+      );
     },
   });
 }
@@ -69,7 +95,10 @@ export function parseAllowedFlags(args: readonly string[], specs: readonly Allow
   for (let index = 0; index < args.length; index++) {
     const argument = args[index]!;
     if (argument === "--") return undefined;
-    if (!argument.startsWith("-") || argument === "-") { positionals.push(argument); continue; }
+    if (!argument.startsWith("-") || argument === "-") {
+      positionals.push(argument);
+      continue;
+    }
     const exact = specs.find((spec) => argument === spec.long || argument === spec.short);
     if (exact) {
       if (!exact.takesValue) continue;
@@ -78,9 +107,17 @@ export function parseAllowedFlags(args: readonly string[], specs: readonly Allow
       continue;
     }
     const long = specs.find((spec) => spec.takesValue && spec.long && argument.startsWith(`${spec.long}=`));
-    if (long) { if (!argument.slice(argument.indexOf("=") + 1)) return undefined; continue; }
-    const short = specs.find((spec) => spec.takesValue && spec.short && argument.startsWith(spec.short) && argument.length > spec.short.length);
-    if (short) { if (!argument.slice(short.short!.length).replace(/^=/, "")) return undefined; continue; }
+    if (long) {
+      if (!argument.slice(argument.indexOf("=") + 1)) return undefined;
+      continue;
+    }
+    const short = specs.find(
+      (spec) => spec.takesValue && spec.short && argument.startsWith(spec.short) && argument.length > spec.short.length,
+    );
+    if (short) {
+      if (!argument.slice(short.short!.length).replace(/^=/, "")) return undefined;
+      continue;
+    }
     return undefined;
   }
   return positionals;
@@ -91,8 +128,17 @@ export function commandTokens(args: readonly string[], valueFlags: ReadonlySet<s
   for (let index = 0; index < args.length; index++) {
     const argument = args[index]!;
     if (argument === "--") return [...tokens, ...args.slice(index + 1)];
-    if (valueFlags.has(argument)) { index++; continue; }
-    if ([...valueFlags].some((flag) => argument.startsWith(`${flag}=`) || (flag.length === 2 && argument.startsWith(flag) && argument.length > 2))) continue;
+    if (valueFlags.has(argument)) {
+      index++;
+      continue;
+    }
+    if (
+      [...valueFlags].some(
+        (flag) =>
+          argument.startsWith(`${flag}=`) || (flag.length === 2 && argument.startsWith(flag) && argument.length > 2),
+      )
+    )
+      continue;
     if (!argument.startsWith("-")) tokens.push(argument);
   }
   return tokens;
@@ -122,7 +168,9 @@ export function hasDisabledGhPager(cursor: InvocationCursor): boolean {
   const environment = cursor.invocation.environment;
   if (!hasBinding(environment, "GH_PAGER")) return false;
   const binding = lookupBinding(environment, "GH_PAGER");
-  return binding.exported && binding.value.kind === "known" && (binding.value.value === "" || binding.value.value === "cat");
+  return (
+    binding.exported && binding.value.kind === "known" && (binding.value.value === "" || binding.value.value === "cat")
+  );
 }
 
 /** GitHub CLI treats any present GH_PROMPT_DISABLED value as disabling prompts. */
@@ -133,7 +181,10 @@ export function hasDisabledGhPrompts(cursor: InvocationCursor): boolean {
   return binding.exported && binding.value.kind === "known";
 }
 
-export function readOnlyStraceObservation(_cursor: InvocationCursor, span: Parameters<PolicyObserver["observe"]>[1]["span"]): PolicyObservation {
+export function readOnlyStraceObservation(
+  _cursor: InvocationCursor,
+  span: Parameters<PolicyObserver["observe"]>[1]["span"],
+): PolicyObservation {
   return observePolicy(policyIndeterminate(span, defer("generic-read-only", "strace").evidence));
 }
 

@@ -2,45 +2,85 @@ import { beforeAll, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { initBundledBashParser, loadPolicyRuntime, type LoadedPolicyRuntime, type ValidatedBashPolicy } from "../src/index.ts";
+import {
+  initBundledBashParser,
+  loadPolicyRuntime,
+  type LoadedPolicyRuntime,
+  type ValidatedBashPolicy,
+} from "../src/index.ts";
 import { evaluateClaudeBashPolicy } from "../adapters/claude-code/_bash_policy.ts";
 import { classifyKubectlSecretAudit } from "../adapters/claude-code/kubectl_secret_audit_log.ts";
-import { establishClaudeSessionRuntime, loadClaudeSessionRuntime, poisonClaudeSession } from "../adapters/claude-code/bash_policy.ts";
+import {
+  establishClaudeSessionRuntime,
+  loadClaudeSessionRuntime,
+  poisonClaudeSession,
+} from "../adapters/claude-code/bash_policy.ts";
 
 const policies: readonly ValidatedBashPolicy[] = [
-  { source: { canonicalPath: "/policy/guard" }, layer: "guard", select: [], evaluate: (event) =>
-    event.kind === "invocation" && event.executable.kind === "known" && event.executable.value === "cat"
-      ? { kind: "deny", reason: [{ kind: "literal", value: "protected read" }] }
-      : { kind: "ignore" } },
-  { source: { canonicalPath: "/policy/permission" }, layer: "permission", select: [{ kind: "invocation", environmentIndependent: true }], evaluate: (event) =>
-    event.kind === "invocation" && event.executable.kind === "known" && event.executable.value === "printf"
-      ? { kind: "allow", reason: [{ kind: "literal", value: "safe print" }] }
-      : { kind: "ignore" } },
+  {
+    source: { canonicalPath: "/policy/guard" },
+    layer: "guard",
+    select: [],
+    evaluate: (event) =>
+      event.kind === "invocation" && event.executable.kind === "known" && event.executable.value === "cat"
+        ? { kind: "deny", reason: [{ kind: "literal", value: "protected read" }] }
+        : { kind: "ignore" },
+  },
+  {
+    source: { canonicalPath: "/policy/permission" },
+    layer: "permission",
+    select: [{ kind: "invocation", environmentIndependent: true }],
+    evaluate: (event) =>
+      event.kind === "invocation" && event.executable.kind === "known" && event.executable.value === "printf"
+        ? { kind: "allow", reason: [{ kind: "literal", value: "safe print" }] }
+        : { kind: "ignore" },
+  },
 ] as const;
-const runtime = { config: { bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 } }, policySet: { policies, sources: [] }, limits: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 } } as unknown as LoadedPolicyRuntime;
-const event = (command: string) => ({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } }) as const;
+const runtime = {
+  config: { bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 } },
+  policySet: { policies, sources: [] },
+  limits: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 },
+} as unknown as LoadedPolicyRuntime;
+const event = (command: string) =>
+  ({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } }) as const;
 
 beforeAll(() => initBundledBashParser());
 
 test("Claude maps generic allow, deny, and defer without policy-name presentation", () => {
-  expect(evaluateClaudeBashPolicy(event("cat credentials.json"), { runtime })).toEqual({ kind: "deny", reason: "protected read" });
-  expect(evaluateClaudeBashPolicy(event("printf ok"), { runtime })).toEqual({ kind: "allow", reason: "Bash policy fully covers this command" });
+  expect(evaluateClaudeBashPolicy(event("cat credentials.json"), { runtime })).toEqual({
+    kind: "deny",
+    reason: "protected read",
+  });
+  expect(evaluateClaudeBashPolicy(event("printf ok"), { runtime })).toEqual({
+    kind: "allow",
+    reason: "Bash policy fully covers this command",
+  });
   expect(evaluateClaudeBashPolicy(event("unknown"), { runtime })).toBeUndefined();
 });
 
 test("Claude evaluation exceptions are observable to the fatal hook wrapper", () => {
-  expect(() => evaluateClaudeBashPolicy(event("printf ok"), { runtime, evaluatePolicies: () => { throw new Error("policy failure"); } })).toThrow("policy failure");
+  expect(() =>
+    evaluateClaudeBashPolicy(event("printf ok"), {
+      runtime,
+      evaluatePolicies: () => {
+        throw new Error("policy failure");
+      },
+    }),
+  ).toThrow("policy failure");
 });
 
 test("Claude supplies hook cwd and an explicit executable resolver", () => {
   let context: { readonly cwd?: string; readonly executableFilesystem?: unknown } | undefined;
-  evaluateClaudeBashPolicy({ ...event("printf ok"), cwd: "/workspace" }, {
-    runtime,
-    evaluatePolicies: (_runtime, _source, value) => {
-      context = value;
-      return { decision: "defer", analysis: { complete: false }, events: [], traces: [] };
+  evaluateClaudeBashPolicy(
+    { ...event("printf ok"), cwd: "/workspace" },
+    {
+      runtime,
+      evaluatePolicies: (_runtime, _source, value) => {
+        context = value;
+        return { decision: "defer", analysis: { complete: false }, events: [], traces: [] };
+      },
     },
-  });
+  );
   expect(context).toMatchObject({ cwd: "/workspace", executableFilesystem: expect.any(Object) });
 });
 
@@ -50,14 +90,26 @@ test("Claude supplies exact inherited environment values to a real DSL permissio
   const policy = join(root, "environment.policy.json");
   mkdirSync(join(home, "safety-core"), { recursive: true });
   writeFileSync(policy, JSON.stringify(environmentPermissionPolicy()));
-  writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [policy], projectPolicies: { mode: "disabled" }, bashAnalysis: runtime.limits }));
+  writeFileSync(
+    join(home, "safety-core", "config.json"),
+    JSON.stringify({
+      version: 1,
+      policies: [policy],
+      projectPolicies: { mode: "disabled" },
+      bashAnalysis: runtime.limits,
+    }),
+  );
   const loaded = await loadPolicyRuntime(root, { SAFETY_CORE_CONFIG_HOME: home });
   const previous = process.env.CANARY_INHERITED;
   try {
     process.env.CANARY_INHERITED = "exact-claude-inherited-value";
-    expect(evaluateClaudeBashPolicy(event("printf canary"), { runtime: loaded })).toEqual({ kind: "allow", reason: "Bash policy fully covers this command" });
+    expect(evaluateClaudeBashPolicy(event("printf canary"), { runtime: loaded })).toEqual({
+      kind: "allow",
+      reason: "Bash policy fully covers this command",
+    });
   } finally {
-    if (previous === undefined) delete process.env.CANARY_INHERITED; else process.env.CANARY_INHERITED = previous;
+    if (previous === undefined) delete process.env.CANARY_INHERITED;
+    else process.env.CANARY_INHERITED = previous;
   }
 });
 
@@ -67,20 +119,46 @@ test("Claude session manifests keep config immutable and reject changed source b
   const state = join(root, "state");
   const policy = join(root, "policy.policy.mjs");
   mkdirSync(join(home, "safety-core"), { recursive: true });
-  writeFileSync(policy, `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`);
-  const config = { version: 1, policies: [policy], projectPolicies: { mode: "disabled" }, bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 } };
+  writeFileSync(
+    policy,
+    `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`,
+  );
+  const config = {
+    version: 1,
+    policies: [policy],
+    projectPolicies: { mode: "disabled" },
+    bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 },
+  };
   writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify(config));
   const env = { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state };
   const first = await establishClaudeSessionRuntime("session", root, env);
-  writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [join(root, "missing.policy.mjs")], projectPolicies: { mode: "disabled" }, bashAnalysis: first.limits }));
-  await expect(loadClaudeSessionRuntime("session", root, env)).rejects.toThrow("configuration digest changed since session startup");
+  writeFileSync(
+    join(home, "safety-core", "config.json"),
+    JSON.stringify({
+      version: 1,
+      policies: [join(root, "missing.policy.mjs")],
+      projectPolicies: { mode: "disabled" },
+      bashAnalysis: first.limits,
+    }),
+  );
+  await expect(loadClaudeSessionRuntime("session", root, env)).rejects.toThrow(
+    "configuration digest changed since session startup",
+  );
   writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify(config));
   await expect(loadClaudeSessionRuntime("session", root, env)).rejects.toThrow("Safety policy failed:");
 
   await establishClaudeSessionRuntime("source-drift", root, env);
-  writeFileSync(policy, `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "defer" }) });\n`);
-  await expect(loadClaudeSessionRuntime("source-drift", root, env)).rejects.toThrow("policy source digest changed since session startup");
-  writeFileSync(policy, `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`);
+  writeFileSync(
+    policy,
+    `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "defer" }) });\n`,
+  );
+  await expect(loadClaudeSessionRuntime("source-drift", root, env)).rejects.toThrow(
+    "policy source digest changed since session startup",
+  );
+  writeFileSync(
+    policy,
+    `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`,
+  );
   await expect(loadClaudeSessionRuntime("source-drift", root, env)).rejects.toThrow("Safety policy failed:");
 });
 
@@ -88,17 +166,37 @@ test("Claude startup rejects missing configured policy sources", async () => {
   const root = mkdtempSync(join(tmpdir(), "safety-core-claude-failure-"));
   const home = join(root, "home");
   mkdirSync(join(home, "safety-core"), { recursive: true });
-  writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [join(root, "missing.policy.mjs")], projectPolicies: { mode: "disabled" }, bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 } }));
-  await expect(establishClaudeSessionRuntime("failed", root, { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: join(root, "state") })).rejects.toThrow("cannot canonicalize policy source");
+  writeFileSync(
+    join(home, "safety-core", "config.json"),
+    JSON.stringify({
+      version: 1,
+      policies: [join(root, "missing.policy.mjs")],
+      projectPolicies: { mode: "disabled" },
+      bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 },
+    }),
+  );
+  await expect(
+    establishClaudeSessionRuntime("failed", root, {
+      SAFETY_CORE_CONFIG_HOME: home,
+      SAFETY_CORE_STATE_HOME: join(root, "state"),
+    }),
+  ).rejects.toThrow("cannot canonicalize policy source");
 });
 
 test("Claude PreToolUse runtime loading requires an established SessionStart manifest", async () => {
   const root = mkdtempSync(join(tmpdir(), "safety-core-claude-missing-session-"));
   const home = join(root, "home");
   mkdirSync(join(home, "safety-core"), { recursive: true });
-  writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [], projectPolicies: { mode: "disabled" }, bashAnalysis: runtime.limits }));
-  await expect(loadClaudeSessionRuntime("missing", root, { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: join(root, "state") }))
-    .rejects.toThrow("SessionStart must establish it before PreToolUse");
+  writeFileSync(
+    join(home, "safety-core", "config.json"),
+    JSON.stringify({ version: 1, policies: [], projectPolicies: { mode: "disabled" }, bashAnalysis: runtime.limits }),
+  );
+  await expect(
+    loadClaudeSessionRuntime("missing", root, {
+      SAFETY_CORE_CONFIG_HOME: home,
+      SAFETY_CORE_STATE_HOME: join(root, "state"),
+    }),
+  ).rejects.toThrow("SessionStart must establish it before PreToolUse");
 });
 
 test("Claude persists runtime policy failures for the rest of the session", async () => {
@@ -107,13 +205,26 @@ test("Claude persists runtime policy failures for the rest of the session", asyn
   const state = join(root, "state");
   const policy = join(root, "policy.policy.mjs");
   mkdirSync(join(home, "safety-core"), { recursive: true });
-  writeFileSync(policy, `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`);
-  writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [policy], projectPolicies: { mode: "disabled" }, bashAnalysis: runtime.limits }));
+  writeFileSync(
+    policy,
+    `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`,
+  );
+  writeFileSync(
+    join(home, "safety-core", "config.json"),
+    JSON.stringify({
+      version: 1,
+      policies: [policy],
+      projectPolicies: { mode: "disabled" },
+      bashAnalysis: runtime.limits,
+    }),
+  );
   const env = { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state };
 
   await establishClaudeSessionRuntime("poisoned", root, env);
   poisonClaudeSession("poisoned", root, new Error("evaluation failure"), env);
-  await expect(loadClaudeSessionRuntime("poisoned", root, env)).rejects.toThrow("Safety policy failed: evaluation failure");
+  await expect(loadClaudeSessionRuntime("poisoned", root, env)).rejects.toThrow(
+    "Safety policy failed: evaluation failure",
+  );
 });
 
 test("Claude project snapshots verify selected project configuration bytes before reloading", async () => {
@@ -125,18 +236,35 @@ test("Claude project snapshots verify selected project configuration bytes befor
   mkdirSync(join(home, "safety-core"), { recursive: true });
   mkdirSync(join(project, ".safety-core"), { recursive: true });
   const limits = { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 };
-  writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [], projectPolicies: { mode: "all" }, bashAnalysis: limits }));
-  writeFileSync(join(project, ".safety-core", "config.json"), JSON.stringify({ version: 1, policies: ["project.policy.json"] }));
-  writeFileSync(policy, JSON.stringify({
-    language: "safety-core/bash-policy-v1", layer: "permission", select: [{ kind: "invocation" }], registers: {}, start: "start",
-    states: { start: { cases: [], default: { decision: "ignore" }, end: { decision: "allow", reason: ["project allow"] } } },
-  }));
+  writeFileSync(
+    join(home, "safety-core", "config.json"),
+    JSON.stringify({ version: 1, policies: [], projectPolicies: { mode: "all" }, bashAnalysis: limits }),
+  );
+  writeFileSync(
+    join(project, ".safety-core", "config.json"),
+    JSON.stringify({ version: 1, policies: ["project.policy.json"] }),
+  );
+  writeFileSync(
+    policy,
+    JSON.stringify({
+      language: "safety-core/bash-policy-v1",
+      layer: "permission",
+      select: [{ kind: "invocation" }],
+      registers: {},
+      start: "start",
+      states: {
+        start: { cases: [], default: { decision: "ignore" }, end: { decision: "allow", reason: ["project allow"] } },
+      },
+    }),
+  );
   const env = { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state };
 
   const runtime = await establishClaudeSessionRuntime("project", project, env);
   expect(runtime.projectRoot).toBe(project);
   writeFileSync(join(project, ".safety-core", "config.json"), JSON.stringify({ version: 1, policies: [] }));
-  await expect(loadClaudeSessionRuntime("project", project, env)).rejects.toThrow("configuration digest changed since session startup");
+  await expect(loadClaudeSessionRuntime("project", project, env)).rejects.toThrow(
+    "configuration digest changed since session startup",
+  );
 });
 
 test("Claude concurrent first hooks establish exactly one immutable manifest", async () => {
@@ -146,19 +274,42 @@ test("Claude concurrent first hooks establish exactly one immutable manifest", a
   const firstPolicy = join(root, "first.policy.mjs");
   const limits = { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 };
   mkdirSync(join(home, "safety-core"), { recursive: true });
-  writeFileSync(firstPolicy, `await new Promise((resolve) => setTimeout(resolve, 100)); export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`);
+  writeFileSync(
+    firstPolicy,
+    `await new Promise((resolve) => setTimeout(resolve, 100)); export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`,
+  );
   const configPath = join(home, "safety-core", "config.json");
-  writeFileSync(configPath, JSON.stringify({ version: 1, policies: [firstPolicy], projectPolicies: { mode: "disabled" }, bashAnalysis: limits }));
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      version: 1,
+      policies: [firstPolicy],
+      projectPolicies: { mode: "disabled" },
+      bashAnalysis: limits,
+    }),
+  );
   const env = { SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state };
   const first = establishClaudeSessionRuntime("race", root, env);
   await new Promise((resolve) => setTimeout(resolve, 20));
-  const runtimes = await Promise.all([first, ...Array.from({ length: 8 }, () => establishClaudeSessionRuntime("race", root, env))]);
-  for (const runtime of runtimes) expect(runtime.policySet.sources.map((source) => source.canonicalPath)).toEqual([firstPolicy]);
+  const runtimes = await Promise.all([
+    first,
+    ...Array.from({ length: 8 }, () => establishClaudeSessionRuntime("race", root, env)),
+  ]);
+  for (const runtime of runtimes)
+    expect(runtime.policySet.sources.map((source) => source.canonicalPath)).toEqual([firstPolicy]);
 });
 
 test("Claude audit classifies Kubectl Secret activity without policy reload", () => {
-  expect(classifyKubectlSecretAudit("kubectl get Secret application")).toEqual({ kubectl_subcommand: "get", resource: "secret", command_length: "kubectl get Secret application".length });
-  expect(classifyKubectlSecretAudit("kubectl get pods; kubectl get secret application")).toEqual({ kubectl_subcommand: "get", resource: "secret", command_length: "kubectl get pods; kubectl get secret application".length });
+  expect(classifyKubectlSecretAudit("kubectl get Secret application")).toEqual({
+    kubectl_subcommand: "get",
+    resource: "secret",
+    command_length: "kubectl get Secret application".length,
+  });
+  expect(classifyKubectlSecretAudit("kubectl get pods; kubectl get secret application")).toEqual({
+    kubectl_subcommand: "get",
+    resource: "secret",
+    command_length: "kubectl get pods; kubectl get secret application".length,
+  });
 });
 
 function environmentPermissionPolicy(): Record<string, unknown> {
@@ -166,13 +317,19 @@ function environmentPermissionPolicy(): Record<string, unknown> {
     language: "safety-core/bash-policy-v1",
     layer: "permission",
     select: [{ kind: "invocation" }],
-    registers: {}, folds: {}, options: {}, fragments: {}, start: "start",
+    registers: {},
+    folds: {},
+    options: {},
+    fragments: {},
+    start: "start",
     states: {
       start: {
-        cases: [{
-          when: { call: "environmentIsKnown", args: [{ call: "environmentLookup", args: ["CANARY_INHERITED"] }] },
-          action: { decision: "allow", reason: ["inherited environment canary"] },
-        }],
+        cases: [
+          {
+            when: { call: "environmentIsKnown", args: [{ call: "environmentLookup", args: ["CANARY_INHERITED"] }] },
+            action: { decision: "allow", reason: ["inherited environment canary"] },
+          },
+        ],
         default: { decision: "defer" },
         end: { decision: "defer" },
       },

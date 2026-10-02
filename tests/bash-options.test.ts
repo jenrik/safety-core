@@ -8,9 +8,31 @@ const GRAMMAR: OptionGrammar = Object.freeze({
   longResolution: "unique-prefix",
   options: Object.freeze([
     Object.freeze({ id: "flag", short: Object.freeze(["f"]), long: Object.freeze(["--flag"]), value: "none" }),
-    Object.freeze({ id: "name", short: Object.freeze(["a"]), long: Object.freeze(["--name"]), value: "required", attached: true, equals: true }),
-    Object.freeze({ id: "command", short: Object.freeze(["c"]), long: Object.freeze(["--command"]), value: "required", attached: true, equals: true, terminal: "immediate" }),
-    Object.freeze({ id: "init-command", short: Object.freeze(["C"]), long: Object.freeze(["--init-command"]), value: "required", attached: true, equals: true }),
+    Object.freeze({
+      id: "name",
+      short: Object.freeze(["a"]),
+      long: Object.freeze(["--name"]),
+      value: "required",
+      attached: true,
+      equals: true,
+    }),
+    Object.freeze({
+      id: "command",
+      short: Object.freeze(["c"]),
+      long: Object.freeze(["--command"]),
+      value: "required",
+      attached: true,
+      equals: true,
+      terminal: "immediate",
+    }),
+    Object.freeze({
+      id: "init-command",
+      short: Object.freeze(["C"]),
+      long: Object.freeze(["--init-command"]),
+      value: "required",
+      attached: true,
+      equals: true,
+    }),
     Object.freeze({ id: "color", long: Object.freeze(["--color"]), value: "none" }),
   ]),
 });
@@ -52,9 +74,16 @@ describe("declarative option scanner", () => {
   });
 
   test("terminal options stop with attached or separate values", () => {
-    for (const argv of [["-cscript", "ignored"], ["-c", "script", "ignored"], ["--command=script", "ignored"]]) {
+    for (const argv of [
+      ["-cscript", "ignored"],
+      ["-c", "script", "ignored"],
+      ["--command=script", "ignored"],
+    ]) {
       const result = scanOptions(words(argv), GRAMMAR);
-      expect(result).toMatchObject({ kind: "parsed", terminal: { id: "command", value: { kind: "known", value: "script" } } });
+      expect(result).toMatchObject({
+        kind: "parsed",
+        terminal: { id: "command", value: { kind: "known", value: "script" } },
+      });
     }
   });
 
@@ -65,14 +94,21 @@ describe("declarative option scanner", () => {
     [["-cO", "extglob", "script", "arg"], ["command", "named-option"], 3],
     [["-e", "-c", "script", "arg"], ["flag", "command"], 3],
     [["-o", "pipefail", "-cx", "script", "arg"], ["named-option", "command", "flag"], 4],
-  ] as const)("defers a terminal source until the short cluster and its values are consumed: %o", (argv, ids, operandIndex) => {
-    const result = scanOptions(words(argv), DEFERRED_TERMINAL_GRAMMAR);
-    expect(result.kind).toBe("parsed");
-    if (result.kind !== "parsed") return;
-    expect(result.options.map((option) => option.id)).toEqual(ids);
-    expect(result.terminal).toMatchObject({ id: "command", attached: false, value: { kind: "known", value: "script" } });
-    expect(result.operandIndex).toBe(operandIndex);
-  });
+  ] as const)(
+    "defers a terminal source until the short cluster and its values are consumed: %o",
+    (argv, ids, operandIndex) => {
+      const result = scanOptions(words(argv), DEFERRED_TERMINAL_GRAMMAR);
+      expect(result.kind).toBe("parsed");
+      if (result.kind !== "parsed") return;
+      expect(result.options.map((option) => option.id)).toEqual(ids);
+      expect(result.terminal).toMatchObject({
+        id: "command",
+        attached: false,
+        value: { kind: "known", value: "script" },
+      });
+      expect(result.operandIndex).toBe(operandIndex);
+    },
+  );
 
   test("rejects attached source for a deferred terminal option", () => {
     for (const argv of [["-cscript"], ["-cscript", "operand"]]) {
@@ -94,9 +130,15 @@ describe("declarative option scanner", () => {
 
   test("reports redacted typed failures for malformed and ambiguous forms", () => {
     expect(scanOptions(words(["--co"]), GRAMMAR)).toEqual({ kind: "failure", reason: "ambiguous-long-option" });
-    expect(scanOptions(words(["--flag=value"]), GRAMMAR)).toEqual({ kind: "failure", reason: "unexpected-option-value" });
+    expect(scanOptions(words(["--flag=value"]), GRAMMAR)).toEqual({
+      kind: "failure",
+      reason: "unexpected-option-value",
+    });
     expect(scanOptions(words(["-a"]), GRAMMAR)).toEqual({ kind: "failure", reason: "missing-option-value" });
-    expect(scanOptions([{ kind: "unknown", reason: { kind: "generated" } }], GRAMMAR)).toEqual({ kind: "failure", reason: "dynamic-option" });
+    expect(scanOptions([{ kind: "unknown", reason: { kind: "generated" } }], GRAMMAR)).toEqual({
+      kind: "failure",
+      reason: "dynamic-option",
+    });
   });
 
   test("retains a recognized required option when its separate value is dynamic", () => {
@@ -137,7 +179,9 @@ describe("declarative option scanner", () => {
       const result = scanOptions([symbolic(source)], GRAMMAR);
       expect(result.kind, source).toBe("parsed");
       if (result.kind === "parsed") {
-        expect(result.options, source).toContainEqual(expect.objectContaining({ id, value: expect.objectContaining({ kind: "unknown" }) }));
+        expect(result.options, source).toContainEqual(
+          expect.objectContaining({ id, value: expect.objectContaining({ kind: "unknown" }) }),
+        );
         expect(result.terminal?.id === id, source).toBe(terminal);
       }
     }
@@ -155,7 +199,10 @@ describe("declarative option scanner", () => {
       const result = scanOptions([symbolic(`${prefix}$(opaque-${index})`)], GRAMMAR);
       expect(result.kind, prefix).toBe("parsed");
       if (result.kind === "parsed") {
-        expect(result.options.some((option) => ["command", "init-command"].includes(option.id)), prefix).toBeTrue();
+        expect(
+          result.options.some((option) => ["command", "init-command"].includes(option.id)),
+          prefix,
+        ).toBeTrue();
         expect(result.options.at(-1)?.value?.kind, prefix).toBe("unknown");
       }
     }
@@ -166,13 +213,24 @@ describe("declarative option scanner", () => {
       longResolution: "exact",
       shortPrefixes: Object.freeze(["-", "+"]),
       options: Object.freeze([
-        Object.freeze({ id: "interactive", short: Object.freeze(["i"]), shortPrefixes: Object.freeze(["-"]), value: "none" }),
+        Object.freeze({
+          id: "interactive",
+          short: Object.freeze(["i"]),
+          shortPrefixes: Object.freeze(["-"]),
+          value: "none",
+        }),
         Object.freeze({ id: "no-rcs", exact: Object.freeze(["+-RCS", "--no-rcs"]), value: "none" }),
       ]),
     });
 
-    expect(scanOptions(words(["-i"]), grammar)).toMatchObject({ kind: "parsed", options: [{ id: "interactive", spelling: "-i" }] });
-    expect(scanOptions(words(["+-RCS"]), grammar)).toMatchObject({ kind: "parsed", options: [{ id: "no-rcs", spelling: "+-RCS" }] });
+    expect(scanOptions(words(["-i"]), grammar)).toMatchObject({
+      kind: "parsed",
+      options: [{ id: "interactive", spelling: "-i" }],
+    });
+    expect(scanOptions(words(["+-RCS"]), grammar)).toMatchObject({
+      kind: "parsed",
+      options: [{ id: "no-rcs", spelling: "+-RCS" }],
+    });
     expect(scanOptions(words(["+i"]), grammar)).toEqual({ kind: "failure", reason: "unknown-option" });
   });
 
@@ -197,6 +255,7 @@ function symbolic(text: string): ResolvedWord {
 
 function permutations<T>(values: readonly T[]): T[][] {
   if (values.length <= 1) return [[...values]];
-  return values.flatMap((value, index) => permutations([...values.slice(0, index), ...values.slice(index + 1)])
-    .map((rest) => [value, ...rest]));
+  return values.flatMap((value, index) =>
+    permutations([...values.slice(0, index), ...values.slice(index + 1)]).map((rest) => [value, ...rest]),
+  );
 }

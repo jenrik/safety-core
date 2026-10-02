@@ -18,12 +18,12 @@ export type ParsedGhCommandLine =
   | { readonly kind: "root-help" }
   | { readonly kind: "help-topic"; readonly topic: string; readonly disposition: "allow" | "defer" }
   | {
-    readonly kind: "command";
-    readonly rule: GhCommandRule;
-    readonly matchedPath: readonly string[];
-    readonly operands: readonly string[];
-    readonly options: readonly ParsedGhOption[];
-  }
+      readonly kind: "command";
+      readonly rule: GhCommandRule;
+      readonly matchedPath: readonly string[];
+      readonly operands: readonly string[];
+      readonly options: readonly ParsedGhOption[];
+    }
   | { readonly kind: "invalid" };
 
 const ROOT_VALUE_OPTIONS: readonly GhFlagGrammar[] = Object.freeze([
@@ -31,16 +31,43 @@ const ROOT_VALUE_OPTIONS: readonly GhFlagGrammar[] = Object.freeze([
   Object.freeze({ long: "--hostname", takesValue: true, forms: ["separate", "equals"] as const }),
 ]);
 const API_DISCOVERY_FLAGS: readonly GhFlagGrammar[] = Object.freeze([
-  Object.freeze({ long: "--method", short: "-X", takesValue: true, forms: ["separate", "equals", "attached"] as const }),
-  Object.freeze({ long: "--raw-field", short: "-f", takesValue: true, forms: ["separate", "equals", "attached"] as const }),
+  Object.freeze({
+    long: "--method",
+    short: "-X",
+    takesValue: true,
+    forms: ["separate", "equals", "attached"] as const,
+  }),
+  Object.freeze({
+    long: "--raw-field",
+    short: "-f",
+    takesValue: true,
+    forms: ["separate", "equals", "attached"] as const,
+  }),
   Object.freeze({ long: "--field", short: "-F", takesValue: true, forms: ["separate", "equals", "attached"] as const }),
-  Object.freeze({ long: "--header", short: "-H", takesValue: true, forms: ["separate", "equals", "attached"] as const }),
+  Object.freeze({
+    long: "--header",
+    short: "-H",
+    takesValue: true,
+    forms: ["separate", "equals", "attached"] as const,
+  }),
   Object.freeze({ long: "--input", takesValue: true, forms: ["separate", "equals"] as const }),
   Object.freeze({ long: "--cache", takesValue: true, forms: ["separate", "equals"] as const }),
-  Object.freeze({ long: "--preview", short: "-p", takesValue: true, forms: ["separate", "equals", "attached"] as const }),
+  Object.freeze({
+    long: "--preview",
+    short: "-p",
+    takesValue: true,
+    forms: ["separate", "equals", "attached"] as const,
+  }),
   Object.freeze({ long: "--jq", short: "-q", takesValue: true, forms: ["separate", "equals", "attached"] as const }),
-  Object.freeze({ long: "--template", short: "-t", takesValue: true, forms: ["separate", "equals", "attached"] as const }),
-  ...["--include", "--paginate", "--slurp", "--silent", "--verbose", "--allow-escape-sequences"].map((long) => Object.freeze({ long, takesValue: false, forms: ["separate"] as const })),
+  Object.freeze({
+    long: "--template",
+    short: "-t",
+    takesValue: true,
+    forms: ["separate", "equals", "attached"] as const,
+  }),
+  ...["--include", "--paginate", "--slurp", "--silent", "--verbose", "--allow-escape-sequences"].map((long) =>
+    Object.freeze({ long, takesValue: false, forms: ["separate"] as const }),
+  ),
   Object.freeze({ short: "-i", takesValue: false, forms: ["separate"] as const }),
 ]);
 
@@ -114,7 +141,9 @@ export function ghCommandGrammarMatches(parsed: Extract<ParsedGhCommandLine, { k
     counts.set(option.identity, count);
     if (grammar.values && (!option.value || !grammar.values.includes(option.value))) return false;
   }
-  return rule.flags.every((flag) => !flag.required || [...counts.keys()].some((name) => name === flag.long || name === flag.short));
+  return rule.flags.every(
+    (flag) => !flag.required || [...counts.keys()].some((name) => name === flag.long || name === flag.short),
+  );
 }
 
 export function isGhPrCreateCommand(args: readonly string[]): boolean {
@@ -125,16 +154,29 @@ export function isGhPrCreateCommand(args: readonly string[]): boolean {
 /** Validate the exact non-interactive PR creation grammar and return its targets. */
 export function ghPrCreateRepositoryValues(args: readonly string[]): readonly string[] | undefined {
   const parsed = parseGhCommandLine(args);
-  if (parsed.kind !== "command" || parsed.rule.path.join(" ") !== "pr create" || parsed.operands.length > 0) return undefined;
+  if (parsed.kind !== "command" || parsed.rule.path.join(" ") !== "pr create" || parsed.operands.length > 0)
+    return undefined;
 
   const repositories: string[] = [];
   const counts = new Map<string, number>();
   const repeatable = new Set(["--reviewer", "--assignee", "--label", "--project"]);
   const unsafe = new Set(["--body-file", "--editor", "--web", "--recover", "--template", "--dry-run", "--attach"]);
   const identities = new Map<string, string>([
-    ["-R", "--repo"], ["-d", "--draft"], ["-t", "--title"], ["-b", "--body"], ["-F", "--body-file"],
-    ["-B", "--base"], ["-H", "--head"], ["-e", "--editor"], ["-w", "--web"], ["-f", "--fill"],
-    ["-r", "--reviewer"], ["-a", "--assignee"], ["-l", "--label"], ["-p", "--project"], ["-m", "--milestone"],
+    ["-R", "--repo"],
+    ["-d", "--draft"],
+    ["-t", "--title"],
+    ["-b", "--body"],
+    ["-F", "--body-file"],
+    ["-B", "--base"],
+    ["-H", "--head"],
+    ["-e", "--editor"],
+    ["-w", "--web"],
+    ["-f", "--fill"],
+    ["-r", "--reviewer"],
+    ["-a", "--assignee"],
+    ["-l", "--label"],
+    ["-p", "--project"],
+    ["-m", "--milestone"],
     ["-T", "--template"],
   ]);
 
@@ -159,7 +201,9 @@ export function ghPrCreateRepositoryValues(args: readonly string[]): readonly st
 }
 
 export function isKnownGhTopLevel(name: string): boolean {
-  return COMMAND_FORMS.some((form) => form.words[0] === name) || GH_HELP_TOPIC_RULE_BY_NAME.has(name) || name === "help";
+  return (
+    COMMAND_FORMS.some((form) => form.words[0] === name) || GH_HELP_TOPIC_RULE_BY_NAME.has(name) || name === "help"
+  );
 }
 
 /** A configured alias can be installed beneath any native command group. */
@@ -235,10 +279,11 @@ function parseOption(
   for (const flag of grammar) {
     for (const identity of [flag.long, flag.short].filter((value): value is string => !!value)) {
       if (argument === identity) {
-        if (!flag.takesValue) return {
-          option: Object.freeze({ identity, spelling: argument, position: index, scope }),
-          lastIndex: index,
-        };
+        if (!flag.takesValue)
+          return {
+            option: Object.freeze({ identity, spelling: argument, position: index, scope }),
+            lastIndex: index,
+          };
         if (!flag.forms.includes("separate")) continue;
         const value = args[index + 1];
         if (!value || value.startsWith("-")) return undefined;
@@ -251,11 +296,23 @@ function parseOption(
         const value = argument.slice(identity.length + 1);
         if (!value) return undefined;
         return {
-          option: Object.freeze({ identity, spelling: argument.slice(0, identity.length + 1), value, position: index, scope }),
+          option: Object.freeze({
+            identity,
+            spelling: argument.slice(0, identity.length + 1),
+            value,
+            position: index,
+            scope,
+          }),
           lastIndex: index,
         };
       }
-      if (flag.forms.includes("attached") && identity.startsWith("-") && !identity.startsWith("--") && argument.startsWith(identity) && argument.length > identity.length) {
+      if (
+        flag.forms.includes("attached") &&
+        identity.startsWith("-") &&
+        !identity.startsWith("--") &&
+        argument.startsWith(identity) &&
+        argument.length > identity.length
+      ) {
         const value = argument.slice(identity.length).replace(/^=/, "");
         if (!value) return undefined;
         return {
@@ -305,7 +362,9 @@ function parseLeadingCommandOption(
   args: readonly string[],
   index: number,
   forms: readonly CommandForm[],
-): { readonly options: readonly ParsedGhOption[]; readonly lastIndex: number; readonly forms: readonly CommandForm[] } | undefined {
+):
+  | { readonly options: readonly ParsedGhOption[]; readonly lastIndex: number; readonly forms: readonly CommandForm[] }
+  | undefined {
   const matches: Array<{ readonly form: CommandForm; readonly parsed: ReturnType<typeof parseOptions> }> = [];
   for (const form of forms) {
     const grammar = form.rule.path.join(" ") === "api" ? API_DISCOVERY_FLAGS : form.rule.flags;
@@ -314,10 +373,16 @@ function parseLeadingCommandOption(
   }
   if (matches.length === 0) return undefined;
   const first = matches[0]!.parsed!;
-  const compatible = matches.filter(({ parsed }) => parsed!.lastIndex === first.lastIndex
-    && JSON.stringify(parsed!.options) === JSON.stringify(first.options));
+  const compatible = matches.filter(
+    ({ parsed }) =>
+      parsed!.lastIndex === first.lastIndex && JSON.stringify(parsed!.options) === JSON.stringify(first.options),
+  );
   if (compatible.length !== matches.length) return undefined;
-  return Object.freeze({ options: first.options, lastIndex: first.lastIndex, forms: Object.freeze(compatible.map(({ form }) => form)) });
+  return Object.freeze({
+    options: first.options,
+    lastIndex: first.lastIndex,
+    forms: Object.freeze(compatible.map(({ form }) => form)),
+  });
 }
 
 function buildCommandForms(): readonly CommandForm[] {
@@ -358,7 +423,9 @@ function addForm(forms: Map<string, CommandForm>, words: readonly string[], rule
 }
 
 function hasLongerForm(words: readonly string[], rule: GhCommandRule): boolean {
-  return COMMAND_FORMS.some((form) => form.rule !== rule && form.words.length > words.length && isPrefix(words, form.words));
+  return COMMAND_FORMS.some(
+    (form) => form.rule !== rule && form.words.length > words.length && isPrefix(words, form.words),
+  );
 }
 
 function isPrefix(prefix: readonly string[], value: readonly string[]): boolean {

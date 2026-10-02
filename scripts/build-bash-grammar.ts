@@ -63,7 +63,9 @@ export function parseUnifiedPatch(patch: string): readonly PatchFile[] {
           // The preserved patch has one unprefixed trailing context line.
           // Interpret it as an empty context line only when its hunk header
           // still requires an original source line.
-          if (hunkLines.filter((candidate) => candidate.startsWith(" ") || candidate.startsWith("-")).length < oldCount) {
+          if (
+            hunkLines.filter((candidate) => candidate.startsWith(" ") || candidate.startsWith("-")).length < oldCount
+          ) {
             hunkLines.push(" ");
           }
           continue;
@@ -86,7 +88,10 @@ export function applyPatchFile(source: string, file: PatchFile): string {
     const expected = hunk.lines
       .filter((line) => line.startsWith(" ") || line.startsWith("-"))
       .map((line) => line.slice(1));
-    if (expected.length !== hunk.oldCount || sourceLines.slice(start, start + expected.length).some((line, index) => line !== expected[index])) {
+    if (
+      expected.length !== hunk.oldCount ||
+      sourceLines.slice(start, start + expected.length).some((line, index) => line !== expected[index])
+    ) {
       throw new Error(`grammar patch no longer applies cleanly to ${file.path} hunk at line ${hunk.oldStart}`);
     }
     const replacement = hunk.lines
@@ -100,11 +105,15 @@ export function applyPatchFile(source: string, file: PatchFile): string {
 
 async function run(command: readonly string[], cwd: string): Promise<void> {
   const process = Bun.spawn(command, { cwd, stderr: "inherit", stdout: "inherit" });
-  if (await process.exited !== 0) throw new Error(`${command.join(" ")} failed`);
+  if ((await process.exited) !== 0) throw new Error(`${command.join(" ")} failed`);
 }
 
 export async function buildPatchedBashGrammar(root: string, outputPath: string): Promise<void> {
-  if (existsSync(outputPath) && createHash("sha256").update(readFileSync(outputPath)).digest("hex") === patchedGrammarSha256) return;
+  if (
+    existsSync(outputPath) &&
+    createHash("sha256").update(readFileSync(outputPath)).digest("hex") === patchedGrammarSha256
+  )
+    return;
   rmSync(outputPath, { force: true });
   const grammarPackage = resolve(root, "node_modules", "tree-sitter-bash");
   const patch = readFileSync(resolve(root, "patches", "tree-sitter-bash-time-coproc.patch"), "utf8");

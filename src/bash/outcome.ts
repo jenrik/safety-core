@@ -1,10 +1,6 @@
 import type { SourceSpan } from "./cst.js";
 
-export type AnalysisBudget =
-  | "max-function-depth"
-  | "max-nested-script-depth"
-  | "max-steps"
-  | "max-work-items";
+export type AnalysisBudget = "max-function-depth" | "max-nested-script-depth" | "max-steps" | "max-work-items";
 
 export interface SafeOutcome {
   readonly kind: "safe";
@@ -39,7 +35,16 @@ export type Outcome = SafeOutcome | IndeterminateOutcome | FailureOutcome | Deny
 
 /** Vetted policy metadata; never carry raw argv, environments, or source text. */
 export interface PolicyEvidence {
-  readonly name: "secret-read" | "github-http" | "kubectl" | "unsupported-shell-source" | "gh-api" | "gh-pr-create" | "generic-read-only" | "gh-read-only" | "strict-read-only";
+  readonly name:
+    | "secret-read"
+    | "github-http"
+    | "kubectl"
+    | "unsupported-shell-source"
+    | "gh-api"
+    | "gh-pr-create"
+    | "generic-read-only"
+    | "gh-read-only"
+    | "strict-read-only";
   readonly decision: "allow" | "deny" | "defer";
   readonly reason?: string;
   /** Redacted source coordinates identify the observed invocation, never its text. */
@@ -109,11 +114,12 @@ export function mergeOutcomeSummaries(summaries: Iterable<OutcomeSummary>): Outc
   if (strongest === SAFE && events.length === 0) return EMPTY_OUTCOME_SUMMARY;
   return freeze({
     strongest,
-    events: events.length === 0
-      ? EMPTY_OUTCOME_LOG
-      : events.length === 1
-        ? events[0]!
-        : freeze({ kind: "concat", parts: Object.freeze(events) }),
+    events:
+      events.length === 0
+        ? EMPTY_OUTCOME_LOG
+        : events.length === 1
+          ? events[0]!
+          : freeze({ kind: "concat", parts: Object.freeze(events) }),
   });
 }
 
@@ -183,14 +189,20 @@ export function withPolicySpan(outcome: Outcome, span: SourceSpan): Outcome {
 export function redactOutcome(outcome: Outcome): Outcome {
   const policies = redactPolicies(outcome);
   switch (outcome.kind) {
-    case "safe": return withPolicies(outcome.policy ? policySafe(outcome.policy) : SAFE, policies);
-    case "indeterminate": return withPolicies(outcome.policy
-      ? policyIndeterminate(outcome.span, outcome.policy)
-      : indeterminate(outcome.span), policies);
-    case "failure": return withPolicies(isAnalysisBudget(outcome.budget)
-      ? analysisFailure(outcome.budget, outcome.span)
-      : failure(outcome.span), policies);
-    case "deny": return withPolicies(outcome.policy ? policyDeny(outcome.span, outcome.policy) : deny(outcome.span), policies);
+    case "safe":
+      return withPolicies(outcome.policy ? policySafe(outcome.policy) : SAFE, policies);
+    case "indeterminate":
+      return withPolicies(
+        outcome.policy ? policyIndeterminate(outcome.span, outcome.policy) : indeterminate(outcome.span),
+        policies,
+      );
+    case "failure":
+      return withPolicies(
+        isAnalysisBudget(outcome.budget) ? analysisFailure(outcome.budget, outcome.span) : failure(outcome.span),
+        policies,
+      );
+    case "deny":
+      return withPolicies(outcome.policy ? policyDeny(outcome.span, outcome.policy) : deny(outcome.span), policies);
   }
 }
 
@@ -201,7 +213,11 @@ export function strongestOutcome(outcomes: Iterable<Outcome>): Outcome {
   for (const outcome of outcomes) {
     const redacted = redactOutcome(outcome);
     policies.push(...(redacted.policies ?? []));
-    if (rank(redacted) > rank(strongest) || (rank(redacted) === rank(strongest) && "policy" in redacted && redacted.policy)) strongest = redacted;
+    if (
+      rank(redacted) > rank(strongest) ||
+      (rank(redacted) === rank(strongest) && "policy" in redacted && redacted.policy)
+    )
+      strongest = redacted;
   }
   return withPolicies(strongest, policies);
 }
@@ -214,17 +230,21 @@ export function finalize(outcomes: Iterable<Outcome>): AuthorizationVerdict {
 
 function rank(outcome: Outcome): number {
   switch (outcome.kind) {
-    case "safe": return 0;
-    case "indeterminate": return 1;
-    case "failure": return 2;
-    case "deny": return 3;
+    case "safe":
+      return 0;
+    case "indeterminate":
+      return 1;
+    case "failure":
+      return 2;
+    case "deny":
+      return 3;
   }
 }
 
 function selectStrongest(current: Outcome, candidate: Outcome): Outcome {
   if (candidate.kind === "deny") return candidate;
-  return rank(candidate) > rank(current)
-    || (rank(candidate) === rank(current) && "policy" in candidate && candidate.policy)
+  return rank(candidate) > rank(current) ||
+    (rank(candidate) === rank(current) && "policy" in candidate && candidate.policy)
     ? candidate
     : current;
 }
@@ -265,14 +285,16 @@ function redactPolicy(policy: PolicyEvidence): PolicyEvidence {
     decision: policy.decision,
     ...(policy.reason ? { reason: policy.reason } : {}),
     ...(policy.span ? { span: copySpan(policy.span) } : {}),
-    ...(policy.kubectl ? {
-      kubectl: freeze({
-        subcommand: policy.kubectl.subcommand,
-        resource: policy.kubectl.resource,
-        secretReview: policy.kubectl.secretReview,
-        mentionsSecret: policy.kubectl.mentionsSecret,
-      }),
-    } : {}),
+    ...(policy.kubectl
+      ? {
+          kubectl: freeze({
+            subcommand: policy.kubectl.subcommand,
+            resource: policy.kubectl.resource,
+            secretReview: policy.kubectl.secretReview,
+            mentionsSecret: policy.kubectl.mentionsSecret,
+          }),
+        }
+      : {}),
     ...(policy.readOnly ? { readOnly: freeze({ tool: policy.readOnly.tool }) } : {}),
   });
 }
@@ -283,16 +305,16 @@ function redactPolicies(outcome: Outcome): readonly PolicyEvidence[] {
 }
 
 function withPolicies<T extends Outcome>(outcome: T, policies: readonly PolicyEvidence[]): T {
-  return policies.length === 0
-    ? outcome
-    : freeze({ ...outcome, policies: Object.freeze([...policies]) }) as T;
+  return policies.length === 0 ? outcome : (freeze({ ...outcome, policies: Object.freeze([...policies]) }) as T);
 }
 
 function isAnalysisBudget(value: unknown): value is AnalysisBudget {
-  return value === "max-function-depth"
-    || value === "max-nested-script-depth"
-    || value === "max-steps"
-    || value === "max-work-items";
+  return (
+    value === "max-function-depth" ||
+    value === "max-nested-script-depth" ||
+    value === "max-steps" ||
+    value === "max-work-items"
+  );
 }
 
 function freeze<T extends object>(value: T): T {

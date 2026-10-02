@@ -30,7 +30,11 @@ import {
   openCodeBashPermissionStatus,
 } from "../src/index.js";
 
-type PolicyEvaluator = (runtime: LoadedPolicyRuntime, source: string, context?: { readonly cwd?: string; readonly executableFilesystem?: ExecutableFilesystem }) => BashPolicyEvaluation;
+type PolicyEvaluator = (
+  runtime: LoadedPolicyRuntime,
+  source: string,
+  context?: { readonly cwd?: string; readonly executableFilesystem?: ExecutableFilesystem },
+) => BashPolicyEvaluation;
 
 export interface OpenCodeV2PluginDependencies {
   readonly runtime?: LoadedPolicyRuntime;
@@ -54,17 +58,26 @@ export async function createOpenCodeV2Plugin(
   );
   await runtime.ensure(cwd);
   const executableFilesystem = dependencies.executableFilesystem ?? nodeExecutableFilesystem;
-  const evaluate = dependencies.evaluatePolicies ?? ((loaded, source, context) => evaluateLoadedPolicies(loaded, source, completePolicyInitialEnvironment(process.env), context));
+  const evaluate =
+    dependencies.evaluatePolicies ??
+    ((loaded, source, context) =>
+      evaluateLoadedPolicies(loaded, source, completePolicyInitialEnvironment(process.env), context));
   const preflights = createOpenCodeBashPreflights();
   let poisoned: string | undefined;
   setJudgeProvider(buildJudgeProvider());
 
   const evaluateCommand = async (source: string, input: Record<string, unknown> = {}, workdir = cwd) => {
-    const context: OpenCodeFilePermissionContext = { directory: cwd, worktree,
+    const context: OpenCodeFilePermissionContext = {
+      directory: cwd,
+      worktree,
       sessionID: typeof input.sessionID === "string" ? input.sessionID : undefined,
-      callID: typeof input.callID === "string" ? input.callID : undefined };
-    return checkBashFilePermissions(evaluate(runtime.current()!, source, { cwd: workdir, executableFilesystem }),
-      dependencies.filePermissions?.(context) ?? createOpenCodeFilePermissions(client as unknown as OpenCodePermissionClient, context));
+      callID: typeof input.callID === "string" ? input.callID : undefined,
+    };
+    return checkBashFilePermissions(
+      evaluate(runtime.current()!, source, { cwd: workdir, executableFilesystem }),
+      dependencies.filePermissions?.(context) ??
+        createOpenCodeFilePermissions(client as unknown as OpenCodePermissionClient, context),
+    );
   };
   const poison = (error: unknown) => {
     const reason = error instanceof Error ? `Safety policy failed: ${error.message}` : "Safety policy failed";
@@ -118,7 +131,10 @@ export async function createOpenCodeV2Plugin(
         output.status = "deny";
         return;
       }
-      output.status = openCodeBashPermissionStatus(preflights.get(input as unknown as Record<string, unknown>), output.status);
+      output.status = openCodeBashPermissionStatus(
+        preflights.get(input as unknown as Record<string, unknown>),
+        output.status,
+      );
     },
     event: async ({ event }) => {
       if (event.type === "tui.command.execute" && event.properties.command === OPENCODE_POLICY_RELOAD_COMMAND) {
@@ -129,13 +145,24 @@ export async function createOpenCodeV2Plugin(
           notifyPolicyReload(client, cwd, "Safety policies reloaded", "success");
         } catch (error) {
           // Keep the known-good runtime active when the replacement is invalid.
-          notifyPolicyReload(client, cwd, error instanceof Error ? `Safety policy reload failed: ${error.message}` : "Safety policy reload failed", "error");
+          notifyPolicyReload(
+            client,
+            cwd,
+            error instanceof Error ? `Safety policy reload failed: ${error.message}` : "Safety policy reload failed",
+            "error",
+          );
         }
         return;
       }
-      if (event.type === "message.part.updated" && event.properties.part.type === "tool"
-        && ["completed", "error"].includes(event.properties.part.state.status)) {
-        preflights.finish(event.properties.part as unknown as Record<string, unknown>, event.properties.part.state.input);
+      if (
+        event.type === "message.part.updated" &&
+        event.properties.part.type === "tool" &&
+        ["completed", "error"].includes(event.properties.part.state.status)
+      ) {
+        preflights.finish(
+          event.properties.part as unknown as Record<string, unknown>,
+          event.properties.part.state.input,
+        );
         return;
       }
       if (event.type === "session.deleted") {
@@ -145,7 +172,12 @@ export async function createOpenCodeV2Plugin(
       if (!client || event.type !== "permission.asked" || event.properties.permission !== "bash") return;
       const existingPoison = poisoned;
       if (existingPoison) {
-        await client.permission.reply({ directory, requestID: event.properties.id, reply: "reject", message: existingPoison });
+        await client.permission.reply({
+          directory,
+          requestID: event.properties.id,
+          reply: "reject",
+          message: existingPoison,
+        });
         return;
       }
       const tool = event.properties.tool;
@@ -155,7 +187,12 @@ export async function createOpenCodeV2Plugin(
       if (result.decision === "allow") {
         await client.permission.reply({ directory, requestID: event.properties.id, reply: "once" });
       } else if (result.decision === "deny") {
-        await client.permission.reply({ directory, requestID: event.properties.id, reply: "reject", message: blockReason(result) });
+        await client.permission.reply({
+          directory,
+          requestID: event.properties.id,
+          reply: "reject",
+          message: blockReason(result),
+        });
       }
     },
     "tool.execute.after": async (input, _output) => {
@@ -165,12 +202,16 @@ export async function createOpenCodeV2Plugin(
   } satisfies Plugin;
 }
 
-export default async (input?: PluginInput) => createOpenCodeV2Plugin({}, input?.client, input?.directory, input?.worktree);
+export default async (input?: PluginInput) =>
+  createOpenCodeV2Plugin({}, input?.client, input?.directory, input?.worktree);
 
 export function blockReason(result: BashPolicyEvaluation): string {
-  if (result.filePermissionChecks?.some((check) => check.decision === "deny")) return "Blocked by safety policy: harness denied shell redirect file access";
+  if (result.filePermissionChecks?.some((check) => check.decision === "deny"))
+    return "Blocked by safety policy: harness denied shell redirect file access";
   const denial = result.traces.find((trace) => trace.decision.kind === "deny");
-  const reason = denial?.decision.reason?.map((part) => part.kind === "literal" ? part.value : String(part.value)).join("") ?? "Bash policy denied this command";
+  const reason =
+    denial?.decision.reason?.map((part) => (part.kind === "literal" ? part.value : String(part.value))).join("") ??
+    "Bash policy denied this command";
   return `Blocked by safety policy: ${reason}`;
 }
 
@@ -186,12 +227,25 @@ function notifyPolicyReload(
   message: string,
   variant: "success" | "error",
 ): void {
-  const tui = (client as unknown as { tui?: { showToast?: (options: { query: { directory: string }; body: { title: string; message: string; variant: string } }) => Promise<unknown> } } | undefined)?.tui;
+  const tui = (
+    client as unknown as
+      | {
+          tui?: {
+            showToast?: (options: {
+              query: { directory: string };
+              body: { title: string; message: string; variant: string };
+            }) => Promise<unknown>;
+          };
+        }
+      | undefined
+  )?.tui;
   try {
-    void Promise.resolve(tui?.showToast?.({
-      query: { directory },
-      body: { title: "Safety policy reload", message, variant },
-    })).catch(() => {});
+    void Promise.resolve(
+      tui?.showToast?.({
+        query: { directory },
+        body: { title: "Safety policy reload", message, variant },
+      }),
+    ).catch(() => {});
   } catch {
     // A toast failure must not change the policy decision path.
   }

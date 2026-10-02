@@ -16,24 +16,36 @@ function runHook(path: string, input: unknown, env: NodeJS.ProcessEnv = process.
 test("Claude secrets handler retains session context and direct Read exit-2 blocks", () => {
   const home = mkdtempSync(join(tmpdir(), "safety-core-claude-secrets-"));
   try {
-    const session = runHook("adapters/claude-code/secrets_policy.ts", { hook_event_name: "SessionStart" }, { ...process.env, HOME: home });
+    const session = runHook(
+      "adapters/claude-code/secrets_policy.ts",
+      { hook_event_name: "SessionStart" },
+      { ...process.env, HOME: home },
+    );
     expect(session.status).toBe(0);
     expect(session.stdout).toContain("secret");
 
-    const read = runHook("adapters/claude-code/secrets_policy.ts", {
-      hook_event_name: "PreToolUse",
-      tool_name: "Read",
-      tool_input: { file_path: "credentials.json" },
-    }, { ...process.env, HOME: home });
+    const read = runHook(
+      "adapters/claude-code/secrets_policy.ts",
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: "Read",
+        tool_input: { file_path: "credentials.json" },
+      },
+      { ...process.env, HOME: home },
+    );
     expect(read.status).toBe(2);
     expect(read.stdout).toBe("");
     expect(read.stderr).toContain("credentials.json");
 
-    const bash = runHook("adapters/claude-code/secrets_policy.ts", {
-      hook_event_name: "PreToolUse",
-      tool_name: "Bash",
-      tool_input: { command: "cat credentials.json" },
-    }, { ...process.env, HOME: home });
+    const bash = runHook(
+      "adapters/claude-code/secrets_policy.ts",
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "cat credentials.json" },
+      },
+      { ...process.env, HOME: home },
+    );
     expect(bash.status).toBe(0);
     expect(bash.stdout).toBe("");
   } finally {
@@ -48,27 +60,41 @@ test("Claude SessionStart creates the immutable policy manifest before Bash call
   const policy = join(root, "policy.policy.mjs");
   try {
     mkdirSync(join(home, "safety-core"), { recursive: true });
-    writeFileSync(policy, `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`);
-    writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({
-      version: 1,
-      policies: [policy],
-      projectPolicies: { mode: "disabled" },
-      bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 },
-    }));
-    const preToolUse = runHook("adapters/claude-code/bash_policy.ts", {
-      hook_event_name: "PreToolUse",
-      tool_name: "Bash",
-      tool_input: { command: "cat credentials.json" },
-      session_id: "session-start",
-      cwd: root,
-    }, { ...process.env, SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state });
+    writeFileSync(
+      policy,
+      `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`,
+    );
+    writeFileSync(
+      join(home, "safety-core", "config.json"),
+      JSON.stringify({
+        version: 1,
+        policies: [policy],
+        projectPolicies: { mode: "disabled" },
+        bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 },
+      }),
+    );
+    const preToolUse = runHook(
+      "adapters/claude-code/bash_policy.ts",
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "cat credentials.json" },
+        session_id: "session-start",
+        cwd: root,
+      },
+      { ...process.env, SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state },
+    );
     expect(preToolUse.status).toBe(2);
     expect(preToolUse.stderr).toContain("SessionStart must establish it before PreToolUse");
-    const session = runHook("adapters/claude-code/bash_policy.ts", {
-      hook_event_name: "SessionStart",
-      session_id: "session-start",
-      cwd: root,
-    }, { ...process.env, SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state });
+    const session = runHook(
+      "adapters/claude-code/bash_policy.ts",
+      {
+        hook_event_name: "SessionStart",
+        session_id: "session-start",
+        cwd: root,
+      },
+      { ...process.env, SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state },
+    );
     expect(session.status).toBe(0);
     const manifests = join(state, "safety-core", "claude-policy-sessions");
     expect(existsSync(manifests)).toBeTrue();
@@ -81,13 +107,17 @@ test("Claude SessionStart creates the immutable policy manifest before Bash call
       configurations: [{ canonicalPath: join(home, "safety-core", "config.json"), sha256: expect.any(String) }],
       sources: [{ canonicalPath: policy, sha256: expect.any(String) }],
     });
-    const establishedPreToolUse = runHook("adapters/claude-code/bash_policy.ts", {
-      hook_event_name: "PreToolUse",
-      tool_name: "Bash",
-      tool_input: { command: "cat credentials.json" },
-      session_id: "session-start",
-      cwd: root,
-    }, { ...process.env, SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state });
+    const establishedPreToolUse = runHook(
+      "adapters/claude-code/bash_policy.ts",
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "cat credentials.json" },
+        session_id: "session-start",
+        cwd: root,
+      },
+      { ...process.env, SAFETY_CORE_CONFIG_HOME: home, SAFETY_CORE_STATE_HOME: state },
+    );
     expect(establishedPreToolUse.status).toBe(0);
     expect(establishedPreToolUse.stdout).toBe("");
   } finally {

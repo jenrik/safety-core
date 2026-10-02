@@ -33,10 +33,7 @@ beforeAll(async () => {
       : join(process.cwd(), "node_modules", "tree-sitter-bash", "tree-sitter-bash.wasm"),
     join(wasmDir, "tree-sitter-bash.wasm"),
   );
-  symlinkSync(
-    join(process.cwd(), "node_modules", "web-tree-sitter"),
-    join(wasmDir, "node_modules", "web-tree-sitter"),
-  );
+  symlinkSync(join(process.cwd(), "node_modules", "web-tree-sitter"), join(wasmDir, "node_modules", "web-tree-sitter"));
   await initBashParser(wasmDir);
 });
 
@@ -45,7 +42,9 @@ afterAll(() => rmSync(wasmDir, { force: true, recursive: true }));
 describe("named Bash command dispatch", () => {
   test("routes a strace child to only the registered executable handler", () => {
     const invocations: InvocationCursor[] = [];
-    const result = analyze("strace -f gh pr create --repo github.com/acme/widgets", [recordingHandler("gh", invocations)]);
+    const result = analyze("strace -f gh pr create --repo github.com/acme/widgets", [
+      recordingHandler("gh", invocations),
+    ]);
 
     expect(result.completed.verdict).toEqual({ kind: "allow" });
     expect(invocations).toHaveLength(1);
@@ -65,7 +64,11 @@ describe("named Bash command dispatch", () => {
 
   test("gives every named handler a frozen cursor and frozen options", () => {
     let cursor: InvocationCursor | undefined;
-    const result = analyze("gh pr create", [recordingHandler("gh", [], (received) => { cursor = received; })]);
+    const result = analyze("gh pr create", [
+      recordingHandler("gh", [], (received) => {
+        cursor = received;
+      }),
+    ]);
 
     expect(result.completed.verdict).toEqual({ kind: "allow" });
     expect(cursor).toBeDefined();
@@ -136,7 +139,11 @@ describe("named Bash command dispatch", () => {
   test("property: documented wrapper option orderings preserve child denials", () => {
     const random = lcg(0x51a7_2ce9);
     const wrappers = [
-      { prefix: "strace", options: ["--follow-forks", "--output=trace.log", "--trace=process"], suffix: "denied-command" },
+      {
+        prefix: "strace",
+        options: ["--follow-forks", "--output=trace.log", "--trace=process"],
+        suffix: "denied-command",
+      },
       { prefix: "timeout", options: ["--verbose", "--foreground", "--kill-after=1s"], suffix: "5s denied-command" },
       { prefix: "env", options: ["--argv0=alias", "--ignore-environment"], suffix: "MODE=test denied-command" },
       { prefix: "strace", options: ["-fo trace.log", "--trace=process"], suffix: "denied-command" },
@@ -153,7 +160,9 @@ describe("named Bash command dispatch", () => {
     for (const wrapper of wrappers) {
       for (let iteration = 0; iteration < 32; iteration++) {
         const source = `${wrapper.prefix} ${shuffle(wrapper.options, random).join(" ")} ${wrapper.suffix}`;
-        expect(analyze(source, [denyHandler("denied-command")]).completed.verdict, source).toMatchObject({ kind: "deny" });
+        expect(analyze(source, [denyHandler("denied-command")]).completed.verdict, source).toMatchObject({
+          kind: "deny",
+        });
       }
     }
   });
@@ -166,7 +175,7 @@ describe("named Bash command dispatch", () => {
     "bash -euxo pipefail -c 'denied-command'",
     "bash +O extglob -c 'denied-command'",
     "bash -co pipefail 'denied-command'",
-    "bash -c \"denied-command\"",
+    'bash -c "denied-command"',
     "bash -Ec 'denied-command'",
     "bash -Tc 'denied-command'",
     "bash --debug -c 'denied-command'",
@@ -180,14 +189,18 @@ describe("named Bash command dispatch", () => {
     for (let iteration = 0; iteration < 64; iteration++) {
       const options = shuffle(["-l", "--noprofile", "-x", "-euo pipefail", "+O extglob"], random);
       const source = `bash ${options.join(" ")} -c 'denied-command'`;
-      expect(analyze(source, [denyHandler("denied-command")]).completed.verdict, source).toMatchObject({ kind: "deny" });
+      expect(analyze(source, [denyHandler("denied-command")]).completed.verdict, source).toMatchObject({
+        kind: "deny",
+      });
     }
   });
 
   test("property: non-empty double-quoted scripts preserve nested denials", () => {
     for (let iteration = 0; iteration < 64; iteration++) {
       const source = `bash -c "denied-command argument-${iteration}"`;
-      expect(analyze(source, [denyHandler("denied-command")]).completed.verdict, source).toMatchObject({ kind: "deny" });
+      expect(analyze(source, [denyHandler("denied-command")]).completed.verdict, source).toMatchObject({
+        kind: "deny",
+      });
     }
   });
 
@@ -196,14 +209,29 @@ describe("named Bash command dispatch", () => {
     for (let iteration = 0; iteration < 64; iteration++) {
       const flags = shuffle(["d", "f", "E", "T", "x"], random).join("");
       const source = `zsh -${flags}c 'denied-command'`;
-      expect(analyze(source, [denyHandler("denied-command")]).completed.verdict, source).toMatchObject({ kind: "deny" });
+      expect(analyze(source, [denyHandler("denied-command")]).completed.verdict, source).toMatchObject({
+        kind: "deny",
+      });
     }
   });
 
   test("property: best-effort zsh named options preserve nested denials", () => {
-    for (const option of ["--no-rcs", "--no-global-rcs", "--no_rcs", "--GLOBAL_RCS", "+-RCS", "+-no-RCS", "--rcs", "--global-rcs", "--interactive", "--login"]) {
+    for (const option of [
+      "--no-rcs",
+      "--no-global-rcs",
+      "--no_rcs",
+      "--GLOBAL_RCS",
+      "+-RCS",
+      "+-no-RCS",
+      "--rcs",
+      "--global-rcs",
+      "--interactive",
+      "--login",
+    ]) {
       const source = `zsh ${option} -c 'denied-command'`;
-      expect(analyze(source, [denyHandler("denied-command")]).completed.verdict, source).toMatchObject({ kind: "deny" });
+      expect(analyze(source, [denyHandler("denied-command")]).completed.verdict, source).toMatchObject({
+        kind: "deny",
+      });
     }
   });
 
@@ -225,10 +253,12 @@ describe("named Bash command dispatch", () => {
   });
 
   test("uses unknown-command only when every matching policy observer ignores the invocation", () => {
-    const ignored = analyze("gh pr list", [{
-      name: "gh",
-      observe: () => ignorePolicy(),
-    }]);
+    const ignored = analyze("gh pr list", [
+      {
+        name: "gh",
+        observe: () => ignorePolicy(),
+      },
+    ]);
     const observed = analyze("gh pr list", [recordingHandler("gh", [])]);
 
     expect(ignored.completed.verdict).toEqual({ kind: "neutral" });
@@ -237,13 +267,15 @@ describe("named Bash command dispatch", () => {
 
   test("schedules and observes each literal shell child exactly once", () => {
     let observations = 0;
-    const result = analyze("bash -c 'gh pr create --repo github.com/acme/widgets --fill'", [{
-      name: "gh",
-      observe: () => {
-        observations++;
-        return observePolicy(safe());
+    const result = analyze("bash -c 'gh pr create --repo github.com/acme/widgets --fill'", [
+      {
+        name: "gh",
+        observe: () => {
+          observations++;
+          return observePolicy(safe());
+        },
       },
-    }]);
+    ]);
 
     expect(result.completed.verdict).toEqual({ kind: "neutral" });
     expect(observations).toBe(1);
@@ -266,7 +298,8 @@ describe("named Bash command dispatch", () => {
       ["eval", "eval 'gh pr create'"],
       ["shell", "bash -c 'gh pr create'"],
       ["binding", `SCRIPT='gh pr create ${marker}'; bash -c "$SCRIPT"`],
-    ] as const) analyze(source, [observeRoute(name)]);
+    ] as const)
+      analyze(source, [observeRoute(name)]);
 
     expect(routes).toEqual({
       direct: { route: ["direct"] },
@@ -377,22 +410,23 @@ describe("named Bash command dispatch", () => {
 
   test("continues through dynamic non-command option values to inspect static command source", () => {
     const environment = fromInitialEnvironment({ OPTION: unknown({ kind: "ambient" }) });
-    expect(analyze('bash -o "$OPTION" -c denied-command', [denyHandler("denied-command")], environment).completed.verdict)
-      .toMatchObject({ kind: "deny" });
-    expect(analyze('zsh -o "$OPTION" -c denied-command', [denyHandler("denied-command")], environment).completed.verdict)
-      .toMatchObject({ kind: "deny" });
-    expect(analyze('fish -d "$OPTION" -c true', [], environment).completed.verdict)
-      .toMatchObject({ kind: "deny" });
+    expect(
+      analyze('bash -o "$OPTION" -c denied-command', [denyHandler("denied-command")], environment).completed.verdict,
+    ).toMatchObject({ kind: "deny" });
+    expect(
+      analyze('zsh -o "$OPTION" -c denied-command', [denyHandler("denied-command")], environment).completed.verdict,
+    ).toMatchObject({ kind: "deny" });
+    expect(analyze('fish -d "$OPTION" -c true', [], environment).completed.verdict).toMatchObject({ kind: "deny" });
   });
 
   test("walks a statically known sh -c script only through a source child", () => {
     const invocations: InvocationCursor[] = [];
-    const result = analyze("sh -c 'gh pr create --repo github.com/acme/widgets'", [recordingHandler("gh", invocations)]);
+    const result = analyze("sh -c 'gh pr create --repo github.com/acme/widgets'", [
+      recordingHandler("gh", invocations),
+    ]);
 
     expect(result.completed.verdict).toEqual({ kind: "neutral" });
-    expect(invocations.map(renderInvocation)).toEqual([[
-      "gh", "pr", "create", "--repo", "github.com/acme/widgets",
-    ]]);
+    expect(invocations.map(renderInvocation)).toEqual([["gh", "pr", "create", "--repo", "github.com/acme/widgets"]]);
   });
 
   test("schedules direct source builtins as opaque current-scope execution", () => {
@@ -416,18 +450,19 @@ describe("named Bash command dispatch", () => {
   });
 
   test("walks malformed nested script prefixes for every source target route", () => {
-    for (const source of [
-      "eval 'denied-command; if'",
-      "bash -c 'denied-command; if'",
-      "watch 'denied-command; if'",
-    ]) {
-      expect(analyze(source, [denyHandler("denied-command")]).completed.outcome, source).toMatchObject({ kind: "deny" });
+    for (const source of ["eval 'denied-command; if'", "bash -c 'denied-command; if'", "watch 'denied-command; if'"]) {
+      expect(analyze(source, [denyHandler("denied-command")]).completed.outcome, source).toMatchObject({
+        kind: "deny",
+      });
     }
   });
 
   test("reports malformed-only nested scripts as profile-independent failure", () => {
     for (const source of ["eval 'if'", "bash -c 'if'", "watch 'if'"]) {
-      expect(analyze(source, []).completed.outcome, source).toMatchObject({ kind: "failure", reason: "analysis-failure" });
+      expect(analyze(source, []).completed.outcome, source).toMatchObject({
+        kind: "failure",
+        reason: "analysis-failure",
+      });
     }
   });
 
@@ -441,7 +476,10 @@ describe("named Bash command dispatch", () => {
       ["sh -c true", fromInitialEnvironment({ ENV: "setup.sh" })],
       ["zsh -c true", fromInitialEnvironment({ ZDOTDIR: "/tmp/zsh" })],
     ] as const) {
-      expect(analyze(source, [], environment).completed.outcome, source).toMatchObject({ kind: "failure", reason: "analysis-failure" });
+      expect(analyze(source, [], environment).completed.outcome, source).toMatchObject({
+        kind: "failure",
+        reason: "analysis-failure",
+      });
     }
   });
 
@@ -490,10 +528,14 @@ describe("named Bash command dispatch", () => {
       const suppressor = interactive ? "--norc" : "--noprofile";
       const irrelevant = interactive ? "--noprofile" : "--norc";
       const before = iteration % 2 === 0 ? [suppressor, "-T"] : ["-T", suppressor];
-      expect(directWrapperDispatch("bash", [...before, cluster, "true"], environment).targets, String(iteration))
-        .toEqual(["source"]);
-      expect(directWrapperDispatch("bash", [irrelevant, cluster, "true"], environment).targets, String(iteration))
-        .toEqual(["source", "opaque"]);
+      expect(
+        directWrapperDispatch("bash", [...before, cluster, "true"], environment).targets,
+        String(iteration),
+      ).toEqual(["source"]);
+      expect(
+        directWrapperDispatch("bash", [irrelevant, cluster, "true"], environment).targets,
+        String(iteration),
+      ).toEqual(["source", "opaque"]);
     }
   });
 
@@ -522,7 +564,9 @@ describe("named Bash command dispatch", () => {
 
   test("clears omitted positional parameters for sh -c beneath a function call", () => {
     const invocations: InvocationCursor[] = [];
-    const result = analyze("outer(){ sh -c 'run \"$1\" \"$2\"'; }; outer caller-one caller-two", [recordingHandler("run", invocations)]);
+    const result = analyze('outer(){ sh -c \'run "$1" "$2"\'; }; outer caller-one caller-two', [
+      recordingHandler("run", invocations),
+    ]);
 
     expect(result.completed.verdict).toEqual({ kind: "neutral" });
     expect(invocations.map(renderInvocation)).toEqual([["run", "", ""]]);
@@ -541,14 +585,14 @@ describe("named Bash command dispatch", () => {
     expect(invocations.map(renderInvocation)).toEqual([["gh", "pr", "create"]]);
   });
 
-  test.each([
-    "sh -xc denied-command",
-    "sh -o xtrace -c denied-command",
-  ])("walks %s rather than allowing a combined or value-taking shell option", (source) => {
-    const result = analyze(source, [denyHandler("denied-command")]);
+  test.each(["sh -xc denied-command", "sh -o xtrace -c denied-command"])(
+    "walks %s rather than allowing a combined or value-taking shell option",
+    (source) => {
+      const result = analyze(source, [denyHandler("denied-command")]);
 
-    expect(result.completed.verdict).toMatchObject({ kind: "deny" });
-  });
+      expect(result.completed.verdict).toMatchObject({ kind: "deny" });
+    },
+  );
 
   test("returns neutral for an ambient sh -c script rather than treating it as an executable", () => {
     const result = analyze("sh -c '$COMMAND'", [], { COMMAND: unknown({ kind: "ambient" }) });
@@ -568,7 +612,9 @@ describe("named Bash command dispatch", () => {
 
   test("dispatches static find and xargs command templates while tainting dynamic input", () => {
     const invocations: InvocationCursor[] = [];
-    const find = analyze("find . -type f -exec gh pr create --repo github.com/acme/widgets \\;", [recordingHandler("gh", invocations)]);
+    const find = analyze("find . -type f -exec gh pr create --repo github.com/acme/widgets \\;", [
+      recordingHandler("gh", invocations),
+    ]);
     const xargs = analyze("xargs -n 1 gh pr create", [recordingHandler("gh", invocations)]);
 
     expect(find.completed.verdict).toEqual({ kind: "allow" });
@@ -583,7 +629,9 @@ describe("named Bash command dispatch", () => {
     for (let index = 0; index < 64; index++) {
       const arguments_ = Array.from({ length: index % 8 }, (_, argument) => `arg-${argument}`);
       const source = `find . -maxdepth 0 -exec denied-command ${arguments_.join(" ")} {} \\;`;
-      expect(analyze(source, [denyHandler("denied-command")]).completed.verdict, source).toMatchObject({ kind: "deny" });
+      expect(analyze(source, [denyHandler("denied-command")]).completed.verdict, source).toMatchObject({
+        kind: "deny",
+      });
     }
   });
 
@@ -607,7 +655,10 @@ describe("named Bash command dispatch", () => {
       const direct = directWrapperDispatch("find", argv);
       expect(direct.targets, JSON.stringify(argv)).toContain("invocation");
       expect(direct.targets, JSON.stringify(argv)).toContain("opaque");
-      expect(direct.effects.every((effect) => effect === "spawn-repeated"), JSON.stringify(argv)).toBeTrue();
+      expect(
+        direct.effects.every((effect) => effect === "spawn-repeated"),
+        JSON.stringify(argv),
+      ).toBeTrue();
     }
 
     const runtime = analyze("find . -exec allowed-command \\; -exec $UNKNOWN \\;", [], {
@@ -641,17 +692,51 @@ describe("named Bash command dispatch", () => {
 
   test("property: reviewed fixed-arity find operands are never reinterpreted as actions", () => {
     const unary = [
-      "-amin", "-anewer", "-atime", "-cmin", "-cnewer", "-ctime", "-fls", "-fprint", "-fprint0",
-      "-fstype", "-gid", "-group", "-ilname", "-iname", "-inum", "-ipath", "-iregex", "-links",
-      "-lname", "-maxdepth", "-mindepth", "-mmin", "-mtime", "-name", "-newer", "-path", "-perm",
-      "-printf", "-regextype", "-samefile", "-size", "-type", "-uid", "-used", "-user", "-wholename", "-xtype",
+      "-amin",
+      "-anewer",
+      "-atime",
+      "-cmin",
+      "-cnewer",
+      "-ctime",
+      "-fls",
+      "-fprint",
+      "-fprint0",
+      "-fstype",
+      "-gid",
+      "-group",
+      "-ilname",
+      "-iname",
+      "-inum",
+      "-ipath",
+      "-iregex",
+      "-links",
+      "-lname",
+      "-maxdepth",
+      "-mindepth",
+      "-mmin",
+      "-mtime",
+      "-name",
+      "-newer",
+      "-path",
+      "-perm",
+      "-printf",
+      "-regextype",
+      "-samefile",
+      "-size",
+      "-type",
+      "-uid",
+      "-used",
+      "-user",
+      "-wholename",
+      "-xtype",
     ];
     for (const primary of unary) {
       const result = directWrapperDispatch("find", [".", primary, "-exec", "canary", ";"]);
       expect(result.targets, primary).not.toContain("invocation");
     }
-    expect(directWrapperDispatch("find", [".", "-fprintf", "-exec", "format", "canary", ";"]).targets)
-      .not.toContain("invocation");
+    expect(directWrapperDispatch("find", [".", "-fprintf", "-exec", "format", "canary", ";"]).targets).not.toContain(
+      "invocation",
+    );
   });
 
   test("keeps unresolved find primary and action positions opaque beside concrete siblings", () => {
@@ -668,7 +753,13 @@ describe("named Bash command dispatch", () => {
 
   test("inspects actions exposed by a possible dynamic find terminator", () => {
     const result = directWrapperDispatch("find", [
-      ".", "-exec", "unknown-command", undefined, "-exec", "known-command", ";",
+      ".",
+      "-exec",
+      "unknown-command",
+      undefined,
+      "-exec",
+      "known-command",
+      ";",
     ]);
     expect(result.targets).toContain("opaque");
     expect(result.targets).toContain("invocation");
@@ -683,9 +774,16 @@ describe("named Bash command dispatch", () => {
 
   test("keeps nested indeterminacy and nested-depth failures sticky through wrapper chains", () => {
     const indeterminate = analyze("strace -f sh -c '$UNKNOWN'", [], { UNKNOWN: unknown({ kind: "ambient" }) });
-    const exhausted = analyze("strace -f sh -c 'allowed-command'", [recordingHandler("allowed-command", [])], fromInitialEnvironment({}, {
-      nestedScriptDepth: 0,
-    }));
+    const exhausted = analyze(
+      "strace -f sh -c 'allowed-command'",
+      [recordingHandler("allowed-command", [])],
+      fromInitialEnvironment(
+        {},
+        {
+          nestedScriptDepth: 0,
+        },
+      ),
+    );
 
     expect(indeterminate.completed.verdict).toEqual({ kind: "neutral" });
     expect(exhausted.completed.outcome).toMatchObject({ kind: "failure", budget: "max-nested-script-depth" });
@@ -722,14 +820,16 @@ describe("named Bash command dispatch", () => {
     for (const { wrap, verdict } of wrappers) {
       let observations = 0;
       let provenance: unknown;
-      const result = analyze(wrap("gh pr create"), [{
-        name: "gh",
-        observe: (_cursor, context) => {
-          observations++;
-          provenance = context.provenance;
-          return observePolicy(safe());
+      const result = analyze(wrap("gh pr create"), [
+        {
+          name: "gh",
+          observe: (_cursor, context) => {
+            observations++;
+            provenance = context.provenance;
+            return observePolicy(safe());
+          },
         },
-      }]);
+      ]);
       expect(result.completed.verdict, wrap.name).toEqual({ kind: verdict });
       expect(observations, wrap.name).toBe(1);
       expect(provenance, wrap.name).toEqual({ route: ["direct", "transparent-wrapper"] });
@@ -747,8 +847,20 @@ describe("named Bash command dispatch", () => {
       { name: "nohup", prefix: "nohup", flags: ["--"], child: "gh pr create", verdict: "neutral" },
       { name: "setsid", prefix: "setsid", flags: ["--fork", "--wait"], child: "gh pr create", verdict: "allow" },
       { name: "stdbuf", prefix: "stdbuf", flags: ["-oL", "-e0"], child: "gh pr create", verdict: "allow" },
-      { name: "timeout", prefix: "timeout", flags: ["-k 5s", "--foreground"], child: "10s gh pr create", verdict: "allow" },
-      { name: "strace", prefix: "strace", flags: ["-f", "-o trace.log", "-e trace=process"], child: "gh pr create", verdict: "neutral" },
+      {
+        name: "timeout",
+        prefix: "timeout",
+        flags: ["-k 5s", "--foreground"],
+        child: "10s gh pr create",
+        verdict: "allow",
+      },
+      {
+        name: "strace",
+        prefix: "strace",
+        flags: ["-f", "-o trace.log", "-e trace=process"],
+        child: "gh pr create",
+        verdict: "neutral",
+      },
       { name: "sh", prefix: "sh", flags: ["-x", "-v"], child: "-c 'gh pr create'", verdict: "neutral" },
     ];
 
@@ -756,9 +868,10 @@ describe("named Bash command dispatch", () => {
       for (let iteration = 0; iteration < 32; iteration++) {
         const invocations: InvocationCursor[] = [];
         const flags = shuffle(wrapper.flags, random).join(" ");
-        const source = wrapper.name === "env"
-          ? `${wrapper.prefix} ${flags} MODE=test ${wrapper.child}`
-          : `${wrapper.prefix} ${flags} ${wrapper.child}`;
+        const source =
+          wrapper.name === "env"
+            ? `${wrapper.prefix} ${flags} MODE=test ${wrapper.child}`
+            : `${wrapper.prefix} ${flags} ${wrapper.child}`;
         const result = analyze(source, [recordingHandler("gh", invocations)]);
 
         expect(result.completed.verdict, `${wrapper.name}: ${source}`).toEqual({ kind: wrapper.verdict });
@@ -786,7 +899,9 @@ describe("named Bash command dispatch", () => {
     for (const { wrap, verdict } of wrappers) {
       const baselineInvocations: InvocationCursor[] = [];
       const baseline = analyze(wrap("gh"), [recordingHandler("gh", baselineInvocations)]);
-      const result = analyze(wrap('"$UNKNOWN"'), [recordingHandler("gh", [])], { UNKNOWN: unknown({ kind: "ambient" }) });
+      const result = analyze(wrap('"$UNKNOWN"'), [recordingHandler("gh", [])], {
+        UNKNOWN: unknown({ kind: "ambient" }),
+      });
 
       expect(baseline.completed.verdict, wrap.name).toEqual({ kind: verdict });
       expect(baselineInvocations.map(renderInvocation), wrap.name).toEqual([["gh"]]);
@@ -832,13 +947,31 @@ describe("named Bash command dispatch", () => {
   });
 
   test("routes every registered executable name only to its matching caller handler", () => {
-    const names = ["env", "command", "doas", "exec", "nice", "nohup", "setsid", "stdbuf", "timeout", "strace", "sudo", "sudoedit", "xargs", "find", "sh"];
+    const names = [
+      "env",
+      "command",
+      "doas",
+      "exec",
+      "nice",
+      "nohup",
+      "setsid",
+      "stdbuf",
+      "timeout",
+      "strace",
+      "sudo",
+      "sudoedit",
+      "xargs",
+      "find",
+      "sh",
+    ];
     const invocations: InvocationCursor[] = [];
     const handlers = names.map((name) => recordingHandler(name, invocations));
 
     for (const name of names) analyze(name, handlers);
 
-    expect(invocations.map((cursor) => cursor.invocation.executable)).toEqual(names.map((name) => ({ kind: "known", value: name })));
+    expect(invocations.map((cursor) => cursor.invocation.executable)).toEqual(
+      names.map((name) => ({ kind: "known", value: name })),
+    );
   });
 
   test("treats an empty known executable name as unknown-command", () => {
@@ -848,11 +981,7 @@ describe("named Bash command dispatch", () => {
   });
 });
 
-function analyze(
-  source: string,
-  handlers: readonly PolicyObserver[],
-  environment = fromInitialEnvironment(),
-) {
+function analyze(source: string, handlers: readonly PolicyObserver[], environment = fromInitialEnvironment()) {
   const program = parseBashProgram(source);
   expect(program.kind).toBe("program");
   if (program.kind !== "program") throw new Error(program.reason);
@@ -901,9 +1030,11 @@ function directWrapperDispatch(
   const request: BashDispatchRequest = {
     command: {
       executable: { kind: "known", value: executable },
-      argv: argv.map((value) => value === undefined
-        ? { kind: "unknown", reason: { kind: "property", span: { start: 0, end: 0 } } }
-        : { kind: "known", value }),
+      argv: argv.map((value) =>
+        value === undefined
+          ? { kind: "unknown", reason: { kind: "property", span: { start: 0, end: 0 } } }
+          : { kind: "known", value },
+      ),
       redirects: [],
       environment,
       assignmentPatch: { environment, writes: new Set() },
@@ -921,21 +1052,23 @@ function directWrapperDispatch(
       effects.push(options?.processEffect ?? "spawn-and-wait");
       return {
         outcome: safe(),
-        children: [{
-          target: { kind: "source", source, dialect: "bash", sourceDerivedFromBinding: false },
-          processEffect: "spawn-and-wait",
-          environment,
-          functionDepth: 0,
-          nestedScriptDepth: 1,
-          inPipeline: false,
-          isolate: true,
-          environmentExplicit: false,
-          provenance: { route: ["direct"] },
-        }],
+        children: [
+          {
+            target: { kind: "source", source, dialect: "bash", sourceDerivedFromBinding: false },
+            processEffect: "spawn-and-wait",
+            environment,
+            functionDepth: 0,
+            nestedScriptDepth: 1,
+            inPipeline: false,
+            isolate: true,
+            environmentExplicit: false,
+            provenance: { route: ["direct"] },
+          },
+        ],
       };
     },
     continueWithInvocation: (words, _environment, options) => {
-      scheduled.push(words.map((word) => word.kind === "known" ? word.value : "<unknown>").join(" "));
+      scheduled.push(words.map((word) => (word.kind === "known" ? word.value : "<unknown>")).join(" "));
       targets.push("invocation");
       effects.push(options?.processEffect ?? "exec-replace");
       return {
@@ -959,10 +1092,13 @@ function dispatchOutcome(result: BashDispatchResult) {
 function renderInvocation(cursor: InvocationCursor): string[] {
   const executable = cursor.invocation.executable;
   if (executable?.kind !== "known") throw new Error("expected known invocation executable");
-  return [executable.value, ...cursor.invocation.argv.map((argument) => {
-    if (argument.kind !== "known") throw new Error("expected known invocation argument");
-    return argument.value;
-  })];
+  return [
+    executable.value,
+    ...cursor.invocation.argv.map((argument) => {
+      if (argument.kind !== "known") throw new Error("expected known invocation argument");
+      return argument.value;
+    }),
+  ];
 }
 
 function lcg(seed: number): () => number {

@@ -12,9 +12,23 @@ export type PolicyDiagnosticPart =
 export type PolicyTemplateValue = readonly PolicyDiagnosticPart[];
 
 export type PolicyDecision =
-  | { readonly kind: "allow"; readonly reason: PolicyTemplateValue; readonly suggestion?: PolicyTemplateValue; readonly audit?: Readonly<Record<string, unknown>> }
-  | { readonly kind: "deny"; readonly reason: PolicyTemplateValue; readonly suggestion?: PolicyTemplateValue; readonly audit?: Readonly<Record<string, unknown>> }
-  | { readonly kind: "defer"; readonly reason?: PolicyTemplateValue; readonly audit?: Readonly<Record<string, unknown>> }
+  | {
+      readonly kind: "allow";
+      readonly reason: PolicyTemplateValue;
+      readonly suggestion?: PolicyTemplateValue;
+      readonly audit?: Readonly<Record<string, unknown>>;
+    }
+  | {
+      readonly kind: "deny";
+      readonly reason: PolicyTemplateValue;
+      readonly suggestion?: PolicyTemplateValue;
+      readonly audit?: Readonly<Record<string, unknown>>;
+    }
+  | {
+      readonly kind: "defer";
+      readonly reason?: PolicyTemplateValue;
+      readonly audit?: Readonly<Record<string, unknown>>;
+    }
   | { readonly kind: "ignore" };
 
 /**
@@ -39,12 +53,12 @@ export type ExecutablePolicySelector =
   | { readonly kind: "executable-canonical-target"; readonly value: string }
   | { readonly kind: "executable-chain-contains"; readonly value: string }
   | {
-    readonly kind: "executable";
-    readonly basename?: string;
-    readonly selectedPath?: string;
-    readonly canonicalTarget?: string;
-    readonly chainContains?: string;
-  };
+      readonly kind: "executable";
+      readonly basename?: string;
+      readonly selectedPath?: string;
+      readonly canonicalTarget?: string;
+      readonly chainContains?: string;
+    };
 
 /** One fully modeled command invocation, including executable-less redirect forms. */
 export interface InvocationView {
@@ -120,7 +134,10 @@ export interface DslPolicyTraceStep {
 }
 
 export interface TraceableLoadedBashPolicy extends LoadedBashPolicy {
-  evaluateWithTrace(event: BashPolicyEvent): { readonly decision: PolicyDecision; readonly steps: readonly DslPolicyTraceStep[] };
+  evaluateWithTrace(event: BashPolicyEvent): {
+    readonly decision: PolicyDecision;
+    readonly steps: readonly DslPolicyTraceStep[];
+  };
 }
 
 /** A guard may never grant permission. */

@@ -3,7 +3,11 @@ import { lookupBinding, modeledBindings, type Environment } from "../bash/enviro
 import type { BashExecutionProvenance, ProcessEffect } from "../bash/walker.js";
 import type { SourceSpan } from "../bash/cst.js";
 import type { BashPolicyEvent, ExecutionGapView, InvocationView } from "./types.js";
-import { nonExternalExecutableIdentity, resolveExecutableIdentity, unresolvedExecutableIdentity } from "./executable.js";
+import {
+  nonExternalExecutableIdentity,
+  resolveExecutableIdentity,
+  unresolvedExecutableIdentity,
+} from "./executable.js";
 import { unavailableExecutableFilesystem, type ExecutableFilesystem } from "./filesystem.js";
 import type { BashExecutionTargetKind } from "../bash/resolution.js";
 import { inheritedBashIo, redirectBashIo } from "../bash/io.js";
@@ -22,17 +26,31 @@ export interface BashPolicyEventContext {
 /** Project the walker model into a complete, immutable policy-facing event. */
 export function projectInvocationEvent(command: NormalizedCommand, context: BashPolicyEventContext): InvocationView {
   const environment = modeledBindings(command.environment);
-  const assignments = immutableBindings(Object.fromEntries([...command.assignmentPatch.writes]
-    .map((name) => [name, lookupBinding(command.assignmentPatch.environment, name).value])));
+  const assignments = immutableBindings(
+    Object.fromEntries(
+      [...command.assignmentPatch.writes].map((name) => [
+        name,
+        lookupBinding(command.assignmentPatch.environment, name).value,
+      ]),
+    ),
+  );
   return Object.freeze({
     kind: "invocation",
     executable: command.executable,
     executionTarget: context.executionTarget ?? "unresolved",
-    executableIdentity: command.executable?.kind === "known"
-      ? context.executionTarget === "builtin" || context.executionTarget === "shell-function" || context.executionTarget === "unresolved"
-        ? nonExternalExecutableIdentity(command.executable.value)
-        : resolveExecutableIdentity(command.executable.value, environment.values, context.cwd ?? "/", context.executableFilesystem ?? unavailableExecutableFilesystem)
-      : unresolvedExecutableIdentity(),
+    executableIdentity:
+      command.executable?.kind === "known"
+        ? context.executionTarget === "builtin" ||
+          context.executionTarget === "shell-function" ||
+          context.executionTarget === "unresolved"
+          ? nonExternalExecutableIdentity(command.executable.value)
+          : resolveExecutableIdentity(
+              command.executable.value,
+              environment.values,
+              context.cwd ?? "/",
+              context.executableFilesystem ?? unavailableExecutableFilesystem,
+            )
+        : unresolvedExecutableIdentity(),
     argv: Object.freeze([...command.argv]),
     environment: immutableBindings(environment.values),
     exportedEnvironment: immutableExports(command.environment, environment.values),
@@ -40,7 +58,7 @@ export function projectInvocationEvent(command: NormalizedCommand, context: Bash
     redirects: Object.freeze([...(command.inheritedRedirects ?? []), ...command.redirects]),
     ownRedirects: Object.freeze([...command.redirects]),
     io: command.io ?? redirectBashIo(inheritedBashIo(), command.redirects, command.cwd ?? context.cwd ?? null),
-    cwd: command.cwd === undefined ? context.cwd ?? null : command.cwd,
+    cwd: command.cwd === undefined ? (context.cwd ?? null) : command.cwd,
     assignments: Object.freeze(assignments),
     span: copySpan(context.span),
     provenance: copyProvenance(context.provenance),
@@ -76,22 +94,35 @@ function copyProvenance(provenance: BashExecutionProvenance): BashExecutionProve
   return Object.freeze({ route: Object.freeze([...provenance.route]) });
 }
 
-function immutableBindings(bindings: Readonly<Record<string, import("../bash/environment.js").BindingValue>>): Readonly<Record<string, import("../bash/environment.js").BindingValue>> {
-  return Object.freeze(Object.fromEntries(Object.entries(bindings).map(([name, value]) => [name, copyBindingValue(value)])));
+function immutableBindings(
+  bindings: Readonly<Record<string, import("../bash/environment.js").BindingValue>>,
+): Readonly<Record<string, import("../bash/environment.js").BindingValue>> {
+  return Object.freeze(
+    Object.fromEntries(Object.entries(bindings).map(([name, value]) => [name, copyBindingValue(value)])),
+  );
 }
 
-function immutableExports(environment: Environment, bindings: Readonly<Record<string, import("../bash/environment.js").BindingValue>>): Readonly<Record<string, boolean>> {
-  return Object.freeze(Object.fromEntries(Object.keys(bindings).map((name) => [name, lookupBinding(environment, name).exported])));
+function immutableExports(
+  environment: Environment,
+  bindings: Readonly<Record<string, import("../bash/environment.js").BindingValue>>,
+): Readonly<Record<string, boolean>> {
+  return Object.freeze(
+    Object.fromEntries(Object.keys(bindings).map((name) => [name, lookupBinding(environment, name).exported])),
+  );
 }
 
-function copyBindingValue(value: import("../bash/environment.js").BindingValue): import("../bash/environment.js").BindingValue {
+function copyBindingValue(
+  value: import("../bash/environment.js").BindingValue,
+): import("../bash/environment.js").BindingValue {
   if (value.kind === "known") return Object.freeze({ kind: "known", value: value.value });
   if (value.kind === "unset") return Object.freeze({ kind: "unset" });
   return Object.freeze({
     kind: "unknown",
     reason: Object.freeze({
       kind: value.reason.kind,
-      ...(value.reason.span ? { span: Object.freeze({ start: value.reason.span.start, end: value.reason.span.end }) } : {}),
+      ...(value.reason.span
+        ? { span: Object.freeze({ start: value.reason.span.start, end: value.reason.span.end }) }
+        : {}),
     }),
   });
 }

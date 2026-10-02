@@ -7,7 +7,8 @@ export const ghReadOnlyHandler: PolicyObserver = readOnlyHandler("gh", "gh-read-
   const parsed = parseGhCommandLine(args);
   if (parsed.kind === "root-version") return defer("gh-read-only", "gh");
   if (parsed.kind === "root-help" || parsed.kind === "invalid") return defer("gh-read-only", "gh");
-  if (parsed.kind === "help-topic") return parsed.disposition === "allow" ? allow("gh-read-only", "gh") : defer("gh-read-only", "gh");
+  if (parsed.kind === "help-topic")
+    return parsed.disposition === "allow" ? allow("gh-read-only", "gh") : defer("gh-read-only", "gh");
   if (parsed.rule.path.join(" ") === "api") return { kind: "ignore" };
   if (parsed.rule.disposition !== "allow" || !ghCommandGrammarMatches(parsed)) return defer("gh-read-only", "gh");
   return allow("gh-read-only", "gh");

@@ -15,14 +15,20 @@ export function analyzeGhPrCreateInvocation(
   policy: GhPrCreatePolicy,
 ): GhPrCreateInvocationDecision {
   if (!repositories || repositories.length === 0) {
-    return deny("Pull-request creation is blocked: provide an explicit --repo HOST/OWNER/REPO target that is allowlisted by the ghPrCreate profile");
+    return deny(
+      "Pull-request creation is blocked: provide an explicit --repo HOST/OWNER/REPO target that is allowlisted by the ghPrCreate profile",
+    );
   }
   for (const repository of repositories) {
     if (!hasExplicitHost(repository)) {
-      return deny("Pull-request creation is blocked: use an explicit --repo HOST/OWNER/REPO target so the allowlist cannot be redirected by GH_HOST");
+      return deny(
+        "Pull-request creation is blocked: use an explicit --repo HOST/OWNER/REPO target so the allowlist cannot be redirected by GH_HOST",
+      );
     }
     if (!isAllowedRepository(repository, policy)) {
-      return deny("Pull-request creation is blocked: the requested repository is not allowlisted by the ghPrCreate profile");
+      return deny(
+        "Pull-request creation is blocked: the requested repository is not allowlisted by the ghPrCreate profile",
+      );
     }
   }
   return allow("gh pr create auto-allowed for an allowlisted repository");
@@ -32,8 +38,15 @@ export function denyGhPrCreate(reason: string): GhPrCreateInvocationDecision {
   return deny(reason);
 }
 
-interface RepositoryIdentifier { readonly host: string; readonly owner: string; readonly name: string }
-interface OrganizationIdentifier { readonly host: string; readonly owner: string }
+interface RepositoryIdentifier {
+  readonly host: string;
+  readonly owner: string;
+  readonly name: string;
+}
+interface OrganizationIdentifier {
+  readonly host: string;
+  readonly owner: string;
+}
 
 function hasExplicitHost(repository: string): boolean {
   return repository.trim().split("/").length === 3;
@@ -42,13 +55,16 @@ function hasExplicitHost(repository: string): boolean {
 function isAllowedRepository(repository: string, policy: GhPrCreatePolicy): boolean {
   const target = normalizeRepository(repository);
   if (!target) return false;
-  return policy.allowedRepositories.some((candidate) => {
-    const allowed = normalizeRepository(candidate);
-    return allowed !== undefined && repositoriesEqual(target, allowed);
-  }) || policy.allowedOrganizations.some((candidate) => {
-    const allowed = normalizeOrganization(candidate);
-    return allowed !== undefined && target.host === allowed.host && target.owner === allowed.owner;
-  });
+  return (
+    policy.allowedRepositories.some((candidate) => {
+      const allowed = normalizeRepository(candidate);
+      return allowed !== undefined && repositoriesEqual(target, allowed);
+    }) ||
+    policy.allowedOrganizations.some((candidate) => {
+      const allowed = normalizeOrganization(candidate);
+      return allowed !== undefined && target.host === allowed.host && target.owner === allowed.owner;
+    })
+  );
 }
 
 function normalizeRepository(value: string): RepositoryIdentifier | undefined {

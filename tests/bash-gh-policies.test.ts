@@ -11,7 +11,11 @@ import {
   type BashProfileSnapshot,
   type GhPrCreatePolicy,
 } from "../src/index.ts";
-import { GH_API_DEFER_ENVIRONMENT_NAMES, GH_GLOBAL_DEFER_ENVIRONMENT_NAMES, policyInitialEnvironment } from "../src/bash/policy-environment.ts";
+import {
+  GH_API_DEFER_ENVIRONMENT_NAMES,
+  GH_GLOBAL_DEFER_ENVIRONMENT_NAMES,
+  policyInitialEnvironment,
+} from "../src/bash/policy-environment.ts";
 
 const policy: GhPrCreatePolicy = {
   enabled: true,
@@ -41,15 +45,25 @@ function snapshot(overrides: Partial<BashProfileSnapshot> = {}): BashProfileSnap
     readOnlyBash: false,
     ghApiReadOnly: false,
     ghReadOnly: false,
-    strictProfiles: Object.freeze(Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false]))) as BashProfileSnapshot["strictProfiles"],
-    ghPrCreate: Object.freeze({ enabled: false, allowedRepositories: Object.freeze([]), allowedOrganizations: Object.freeze([]) }),
+    strictProfiles: Object.freeze(
+      Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false])),
+    ) as BashProfileSnapshot["strictProfiles"],
+    ghPrCreate: Object.freeze({
+      enabled: false,
+      allowedRepositories: Object.freeze([]),
+      allowedOrganizations: Object.freeze([]),
+    }),
     limits: Object.freeze({ maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 7_500, maxWorkItems: 10_000 }),
     ...overrides,
   });
 }
 
 function configured(source: string, profiles: BashProfileSnapshot, values: Readonly<Record<string, string>> = {}) {
-  return evaluateConfiguredBash({ source, initialEnvironment: { kind: "verified", values }, profileSnapshot: profiles });
+  return evaluateConfiguredBash({
+    source,
+    initialEnvironment: { kind: "verified", values },
+    profileSnapshot: profiles,
+  });
 }
 
 function ghApi(source: string): string {
@@ -57,18 +71,21 @@ function ghApi(source: string): string {
 }
 
 function ghPrCreate(source: string, activePolicy: GhPrCreatePolicy = policy): string {
-  return configured(source, snapshot({ ghPrCreate: Object.freeze(activePolicy) }), { GH_PROMPT_DISABLED: "1" }).permission.kind;
+  return configured(source, snapshot({ ghPrCreate: Object.freeze(activePolicy) }), { GH_PROMPT_DISABLED: "1" })
+    .permission.kind;
 }
 
 function ghReadOnly(source: string): string {
   return configured(source, snapshot({ ghReadOnly: true })).permission.kind;
 }
 
-
 function strictReadOnly(source: string, profile: "dockerReadOnly" | "kubectlReadOnly"): string {
-  return configured(source, snapshot({
-    strictProfiles: Object.freeze({ ...snapshot().strictProfiles, [profile]: true }),
-  })).permission.kind;
+  return configured(
+    source,
+    snapshot({
+      strictProfiles: Object.freeze({ ...snapshot().strictProfiles, [profile]: true }),
+    }),
+  ).permission.kind;
 }
 
 describe("walker-backed gh policy compatibility", () => {
@@ -107,13 +124,23 @@ describe("walker-backed gh policy compatibility", () => {
     for (const source of staticRoutes) {
       const result = configured(source, profiles, { GH_PAGER: "", GH_PROMPT_DISABLED: "1" });
       expect(result.permission, source).toMatchObject({ kind: "defer" });
-      expect(Object.values(result.profiles).every((decision) => decision.kind === "defer"), source).toBeTrue();
+      expect(
+        Object.values(result.profiles).every((decision) => decision.kind === "defer"),
+        source,
+      ).toBeTrue();
     }
 
     for (const source of ['eval "$SCRIPT"', 'bash -c "$SCRIPT"']) {
-      const result = evaluateConfiguredBash({ source, initialEnvironment: { kind: "unavailable" }, profileSnapshot: profiles });
+      const result = evaluateConfiguredBash({
+        source,
+        initialEnvironment: { kind: "unavailable" },
+        profileSnapshot: profiles,
+      });
       expect(result.permission, source).toMatchObject({ kind: "defer" });
-      expect(Object.values(result.profiles).every((decision) => decision.kind === "defer"), source).toBeTrue();
+      expect(
+        Object.values(result.profiles).every((decision) => decision.kind === "defer"),
+        source,
+      ).toBeTrue();
     }
   });
 
@@ -145,14 +172,21 @@ describe("walker-backed gh policy compatibility", () => {
       ["kubectl get pods", kubectlProfile, { "BASH_FUNC_kubectl%%": "() { credential-canary; }" }],
     ] as const;
     for (const [source, profile, environment] of cases) {
-      const result = evaluateConfiguredBash({ source, initialEnvironment: policyInitialEnvironment(environment), profileSnapshot: profile });
+      const result = evaluateConfiguredBash({
+        source,
+        initialEnvironment: policyInitialEnvironment(environment),
+        profileSnapshot: profile,
+      });
       expect(result.permission.kind, source).toBe("defer");
       expect(JSON.stringify(result)).not.toContain("credential-canary");
     }
 
     const pr = evaluateConfiguredBash({
       source: "gh pr create --repo github.com/acme/widgets --fill",
-      initialEnvironment: policyInitialEnvironment({ GH_PROMPT_DISABLED: "1", "BASH_FUNC_gh%%": "() { credential-canary; }" }),
+      initialEnvironment: policyInitialEnvironment({
+        GH_PROMPT_DISABLED: "1",
+        "BASH_FUNC_gh%%": "() { credential-canary; }",
+      }),
       profileSnapshot: snapshot({ ghPrCreate: Object.freeze(policy) }),
     });
     expect(pr.permission).toMatchObject({ kind: "deny", profile: "ghPrCreate" });
@@ -160,10 +194,7 @@ describe("walker-backed gh policy compatibility", () => {
   });
 
   test("keeps allowlisted native PR creation prompt-gated through transparent wrappers", () => {
-    expect(ghPrCreate(
-      "TOOL=gh; strace $TOOL pr create --repo github.com/acme/widgets --fill",
-      policy,
-    )).toBe("defer");
+    expect(ghPrCreate("TOOL=gh; strace $TOOL pr create --repo github.com/acme/widgets --fill", policy)).toBe("defer");
   });
 
   test("preserves nested GH denials through builtin eval", () => {
@@ -236,7 +267,10 @@ describe("walker-backed gh policy compatibility", () => {
     ];
     for (const wrap of wrappers) {
       expect(ghApi(wrap("gh api user -X POST")), wrap("gh api user -X POST")).toBe("deny");
-      expect(ghPrCreate(wrap("gh pr create --repo github.com/attacker/widgets --fill")), wrap("gh pr create --repo github.com/attacker/widgets --fill")).toBe("deny");
+      expect(
+        ghPrCreate(wrap("gh pr create --repo github.com/attacker/widgets --fill")),
+        wrap("gh pr create --repo github.com/attacker/widgets --fill"),
+      ).toBe("deny");
     }
   });
 
@@ -294,24 +328,29 @@ describe("walker-backed gh policy compatibility", () => {
           `gh api -X${method} ${endpoint}`,
           `gh -X${method} api ${endpoint}`,
           `gh --method=${method} api ${endpoint}`,
-        ]) expect(ghApi(source), source).toBe("deny");
+        ])
+          expect(ghApi(source), source).toBe("deny");
       }
     }
-    expect(configured(
-      "gh api $ENDPOINT -X GET",
-      snapshot({ ghApiReadOnly: true }),
-      { GH_PAGER: "", ENDPOINT: "graphql?query=query" },
-    ).permission.kind).toBe("deny");
-    expect(evaluateConfiguredBash({
-      source: 'gh api graphql -X "$METHOD"',
-      initialEnvironment: { kind: "unavailable" },
-      profileSnapshot: snapshot({ ghApiReadOnly: true }),
-    }).permission.kind).toBe("deny");
+    expect(
+      configured("gh api $ENDPOINT -X GET", snapshot({ ghApiReadOnly: true }), {
+        GH_PAGER: "",
+        ENDPOINT: "graphql?query=query",
+      }).permission.kind,
+    ).toBe("deny");
+    expect(
+      evaluateConfiguredBash({
+        source: 'gh api graphql -X "$METHOD"',
+        initialEnvironment: { kind: "unavailable" },
+        profileSnapshot: snapshot({ ghApiReadOnly: true }),
+      }).permission.kind,
+    ).toBe("deny");
     for (const source of [
       "gh api 'graphql#section' -X GET",
       "gh api '/graphql#section' -X HEAD",
       "gh api 'https://api.github.com/graphql#section' -X GET",
-    ]) expect(ghApi(source), source).toBe("deny");
+    ])
+      expect(ghApi(source), source).toBe("deny");
   });
 
   test("property: PR flag placement and short clusters preserve repository ownership", () => {
@@ -331,17 +370,13 @@ describe("walker-backed gh policy compatibility", () => {
   });
 
   test("requires an explicit host after stateful assignment resolution", () => {
-    expect(ghPrCreate(
-      "REPO=acme/widgets; gh pr create --repo $REPO --fill",
-      policy,
-    )).toBe("deny");
+    expect(ghPrCreate("REPO=acme/widgets; gh pr create --repo $REPO --fill", policy)).toBe("deny");
   });
 
   test("defers non-PR gh invocations beside an allowlisted PR creation", () => {
-    expect(ghPrCreate(
-      "gh pr create --repo github.com/acme/widgets --fill; gh repo delete acme/widgets",
-      policy,
-    )).toBe("defer");
+    expect(ghPrCreate("gh pr create --repo github.com/acme/widgets --fill; gh repo delete acme/widgets", policy)).toBe(
+      "defer",
+    );
   });
 
   test("does not activate unrelated credential-safe profiles", () => {
@@ -375,13 +410,20 @@ describe("walker-backed gh policy compatibility", () => {
       "./gh api user",
       "gh api user > response.json",
       "UNRELATED=value gh api user",
-    ]) expect(ghApi(command), command).toBe("defer");
+    ])
+      expect(ghApi(command), command).toBe("defer");
   });
 
   test("property: unsafe gh api options defer at every argument boundary", () => {
     const unsafe = [
-      ["--hostname", "attacker.example"], ["--input", "body.json"], ["-H", "Authorization:value"],
-      ["--cache", "1h"], ["--verbose"], ["--include"], ["--allow-escape-sequences"], ["--unknown"],
+      ["--hostname", "attacker.example"],
+      ["--input", "body.json"],
+      ["-H", "Authorization:value"],
+      ["--cache", "1h"],
+      ["--verbose"],
+      ["--include"],
+      ["--allow-escape-sequences"],
+      ["--unknown"],
     ];
     const safe = [["-X", "GET"], ["user"]];
     for (const option of unsafe) {
@@ -403,7 +445,7 @@ describe("walker-backed gh policy compatibility", () => {
       "gh api user --method PUT -X DELETE",
       "bash -lc 'gh api user -X POST'",
       "bash -euo pipefail -c 'gh api user -X POST'",
-      "bash -c \"gh api user -X POST\"",
+      'bash -c "gh api user -X POST"',
       "bash +O extglob -c 'gh api user -X POST'",
       "bash -co pipefail 'gh api user -X POST'",
       "bash -Ec 'gh api user -X POST'",
@@ -419,7 +461,8 @@ describe("walker-backed gh policy compatibility", () => {
       "timeout -vk1s 30s gh api user -X POST",
       "gh api -iXPOST user",
       "gh api -iX POST user",
-    ]) expect(ghApi(command), command).toBe("deny");
+    ])
+      expect(ghApi(command), command).toBe("deny");
   });
 
   test("denies mutating gh commands through the best-effort zsh alias", () => {
@@ -427,7 +470,8 @@ describe("walker-backed gh policy compatibility", () => {
       "zsh -dfc 'gh api user -X POST'",
       "zsh --no-global-rcs -c 'gh api user -X POST'",
       "zsh +-no-RCS -c 'gh api user -X POST'",
-    ]) expect(ghApi(command), command).toBe("deny");
+    ])
+      expect(ghApi(command), command).toBe("deny");
   });
 
   test("blocks fish command source before profile evaluation", () => {
@@ -437,10 +481,11 @@ describe("walker-backed gh policy compatibility", () => {
       "fish --init-cmd true -c 'gh api user -X POST'",
       "fish --private -c 'gh api user -X POST'",
       "fish --interactive -c 'gh api user -X POST'",
-    ]) expect(configured(command, snapshot({ ghApiReadOnly: true })).guards, command).toMatchObject({
-      kind: "block",
-      policy: { name: "unsupported-shell-source", decision: "deny" },
-    });
+    ])
+      expect(configured(command, snapshot({ ghApiReadOnly: true })).guards, command).toMatchObject({
+        kind: "block",
+        policy: { name: "unsupported-shell-source", decision: "deny" },
+      });
   });
 
   test("uses the last repeated method value, matching gh scalar flag parsing", () => {
@@ -478,10 +523,7 @@ describe("walker-backed gh policy compatibility", () => {
   });
 
   test("does not let a PR option value masquerade as a repository selector", () => {
-    expect(ghPrCreate(
-      "gh pr create --title --repo=github.com/acme/widgets --fill",
-      policy,
-    )).toBe("deny");
+    expect(ghPrCreate("gh pr create --title --repo=github.com/acme/widgets --fill", policy)).toBe("deny");
   });
 
   test("blocks unknown nested preview commands because they may be configured aliases", () => {
@@ -489,10 +531,7 @@ describe("walker-backed gh policy compatibility", () => {
   });
 
   test("does not deny quoted gh policy examples that are not executed", () => {
-    expect(ghPrCreate(
-      "printf '%s' 'gh alias set create-pr pr create'",
-      policy,
-    )).toBe("ignore");
+    expect(ghPrCreate("printf '%s' 'gh alias set create-pr pr create'", policy)).toBe("ignore");
   });
 
   test("keeps unknown shell children neutral rather than approving a compound invocation", () => {
@@ -535,10 +574,28 @@ describe("walker-backed gh policy compatibility", () => {
     expect(configured(pr, prProfile, { GH_PROMPT_DISABLED: "1", GH_PATH: "/tmp/gh" }).permission.kind).toBe("deny");
     expect(configured(api, apiProfile, { GH_TELEMETRY_SAMPLE_RATE: "100" }).permission.kind).toBe("defer");
 
-    expect(evaluateConfiguredBash({ source: api, initialEnvironment: { kind: "unavailable" }, profileSnapshot: apiProfile }).permission.kind).toBe("defer");
-    expect(evaluateConfiguredBash({ source: pr, initialEnvironment: { kind: "unavailable" }, profileSnapshot: prProfile }).permission.kind).toBe("deny");
-    expect(evaluateConfiguredBash({ source: "gh api \"$ENDPOINT\"", initialEnvironment: { kind: "unavailable" }, profileSnapshot: prProfile }).permission.kind).toBe("deny");
-    expect(evaluateConfiguredBash({ source: "gh issue view \"$NUMBER\"", initialEnvironment: { kind: "unavailable" }, profileSnapshot: prProfile }).permission.kind).toBe("ignore");
+    expect(
+      evaluateConfiguredBash({ source: api, initialEnvironment: { kind: "unavailable" }, profileSnapshot: apiProfile })
+        .permission.kind,
+    ).toBe("defer");
+    expect(
+      evaluateConfiguredBash({ source: pr, initialEnvironment: { kind: "unavailable" }, profileSnapshot: prProfile })
+        .permission.kind,
+    ).toBe("deny");
+    expect(
+      evaluateConfiguredBash({
+        source: 'gh api "$ENDPOINT"',
+        initialEnvironment: { kind: "unavailable" },
+        profileSnapshot: prProfile,
+      }).permission.kind,
+    ).toBe("deny");
+    expect(
+      evaluateConfiguredBash({
+        source: 'gh issue view "$NUMBER"',
+        initialEnvironment: { kind: "unavailable" },
+        profileSnapshot: prProfile,
+      }).permission.kind,
+    ).toBe("ignore");
   });
 
   test("defers inherited executable and argument variables omitted from the filtered snapshot", () => {
@@ -560,21 +617,27 @@ describe("walker-backed gh policy compatibility", () => {
   test("retains GH ownership when pre-subcommand flags contain unresolved values", () => {
     const apiProfile = snapshot({ ghApiReadOnly: true });
     const prProfile = snapshot({ ghPrCreate: Object.freeze(policy) });
-    expect(evaluateConfiguredBash({
-      source: 'gh -X POST api "$ENDPOINT"',
-      initialEnvironment: policyInitialEnvironment({ GH_PAGER: "" }),
-      profileSnapshot: apiProfile,
-    }).permission.kind).toBe("deny");
-    expect(evaluateConfiguredBash({
-      source: 'gh -X "$METHOD" api user',
-      initialEnvironment: policyInitialEnvironment({ GH_PAGER: "" }),
-      profileSnapshot: apiProfile,
-    }).permission.kind).toBe("defer");
-    expect(evaluateConfiguredBash({
-      source: 'gh pr -t "$TITLE" create -b y -Rgithub.com/attacker/widgets',
-      initialEnvironment: policyInitialEnvironment({ GH_PROMPT_DISABLED: "1" }),
-      profileSnapshot: prProfile,
-    }).permission.kind).toBe("deny");
+    expect(
+      evaluateConfiguredBash({
+        source: 'gh -X POST api "$ENDPOINT"',
+        initialEnvironment: policyInitialEnvironment({ GH_PAGER: "" }),
+        profileSnapshot: apiProfile,
+      }).permission.kind,
+    ).toBe("deny");
+    expect(
+      evaluateConfiguredBash({
+        source: 'gh -X "$METHOD" api user',
+        initialEnvironment: policyInitialEnvironment({ GH_PAGER: "" }),
+        profileSnapshot: apiProfile,
+      }).permission.kind,
+    ).toBe("defer");
+    expect(
+      evaluateConfiguredBash({
+        source: 'gh pr -t "$TITLE" create -b y -Rgithub.com/attacker/widgets',
+        initialEnvironment: policyInitialEnvironment({ GH_PROMPT_DISABLED: "1" }),
+        profileSnapshot: prProfile,
+      }).permission.kind,
+    ).toBe("deny");
   });
 
   test("property: unresolved values cannot erase known GH ownership", () => {
@@ -587,16 +650,21 @@ describe("walker-backed gh policy compatibility", () => {
       'gh -H "$HEADER" -X POST api user',
       'gh "$COMMAND" user',
     ]) {
-      expect(evaluateConfiguredBash({ source, initialEnvironment: environment, profileSnapshot: apiProfile }).permission.kind, source)
-        .not.toBe("ignore");
+      expect(
+        evaluateConfiguredBash({ source, initialEnvironment: environment, profileSnapshot: apiProfile }).permission
+          .kind,
+        source,
+      ).not.toBe("ignore");
     }
     for (const source of [
       'gh pr -t "$TITLE" create -b y -Rgithub.com/attacker/widgets',
       'gh -t "$TITLE" pr create -b y -Rgithub.com/attacker/widgets',
       'gh pr -df create -R"$REPOSITORY"',
     ]) {
-      expect(evaluateConfiguredBash({ source, initialEnvironment: environment, profileSnapshot: prProfile }).permission.kind, source)
-        .toBe("deny");
+      expect(
+        evaluateConfiguredBash({ source, initialEnvironment: environment, profileSnapshot: prProfile }).permission.kind,
+        source,
+      ).toBe("deny");
     }
   });
 
@@ -606,7 +674,11 @@ describe("walker-backed gh policy compatibility", () => {
       "bash --noprofile --rcfile credentials.json -ic true",
       "bash --init-file credentials.json -ic true",
       "BASH_ENV=credentials.json bash -c true",
-    ]) expect(evaluateBashGuards({ source }), source).toMatchObject({ kind: "block", policy: { name: "secret-read", decision: "deny" } });
+    ])
+      expect(evaluateBashGuards({ source }), source).toMatchObject({
+        kind: "block",
+        policy: { name: "secret-read", decision: "deny" },
+      });
 
     for (const [source, environment] of [
       ["bash --rcfile setup.sh -ic true", policyInitialEnvironment({})],
@@ -614,8 +686,11 @@ describe("walker-backed gh policy compatibility", () => {
       ["sh -c true", policyInitialEnvironment({ ENV: "setup.sh" })],
       ["zsh -c true", policyInitialEnvironment({ ZDOTDIR: "/tmp/zsh" })],
     ] as const) {
-      expect(evaluateConfiguredBash({ source, initialEnvironment: environment, profileSnapshot: apiProfile }).permission.kind, source)
-        .toBe("defer");
+      expect(
+        evaluateConfiguredBash({ source, initialEnvironment: environment, profileSnapshot: apiProfile }).permission
+          .kind,
+        source,
+      ).toBe("defer");
     }
   });
 
@@ -627,13 +702,23 @@ describe("walker-backed gh policy compatibility", () => {
         `bash --rcfile=${path} -ic true`,
         `bash --init-file ${path} -ic true`,
         `BASH_ENV=${path} bash -c true`,
-      ]) expect(evaluateBashGuards({ source }), source).toMatchObject({ kind: "block", policy: { name: "secret-read", decision: "deny" } });
+      ])
+        expect(evaluateBashGuards({ source }), source).toMatchObject({
+          kind: "block",
+          policy: { name: "secret-read", decision: "deny" },
+        });
     }
     for (let index = 0; index < 64; index++) {
       const path = `startup-${index}.sh`;
       const source = index % 2 === 0 ? `bash --rcfile=${path} -ic true` : `bash --init-file ${path} -ic true`;
-      expect(evaluateConfiguredBash({ source, initialEnvironment: policyInitialEnvironment({}), profileSnapshot: apiProfile }).permission.kind, source)
-        .toBe("defer");
+      expect(
+        evaluateConfiguredBash({
+          source,
+          initialEnvironment: policyInitialEnvironment({}),
+          profileSnapshot: apiProfile,
+        }).permission.kind,
+        source,
+      ).toBe("defer");
     }
   });
 
@@ -668,14 +753,30 @@ describe("walker-backed gh policy compatibility", () => {
     const pr = "gh pr create --repo github.com/acme/widgets --fill";
 
     for (const value of ["", "cat"]) {
-      expect(configured(`GH_PAGER=${value}; gh api user`, apiProfile).permission.kind, `unexported pager ${value}`).toBe("defer");
-      expect(configured(`export GH_PAGER=${value}; gh api user`, apiProfile).permission.kind, `exported pager ${value}`).toBe("defer");
-      expect(configured(`GH_PAGER=${value} gh api user`, apiProfile).permission.kind, `prefix pager ${value}`).toBe("defer");
+      expect(
+        configured(`GH_PAGER=${value}; gh api user`, apiProfile).permission.kind,
+        `unexported pager ${value}`,
+      ).toBe("defer");
+      expect(
+        configured(`export GH_PAGER=${value}; gh api user`, apiProfile).permission.kind,
+        `exported pager ${value}`,
+      ).toBe("defer");
+      expect(configured(`GH_PAGER=${value} gh api user`, apiProfile).permission.kind, `prefix pager ${value}`).toBe(
+        "defer",
+      );
     }
     for (const value of ["", "0", "1", "false"]) {
-      expect(configured(`GH_PROMPT_DISABLED=${value}; ${pr}`, prProfile).permission.kind, `unexported prompt ${value}`).toBe("deny");
-      expect(configured(`export GH_PROMPT_DISABLED=${value}; ${pr}`, prProfile).permission.kind, `exported prompt ${value}`).toBe("defer");
-      expect(configured(`GH_PROMPT_DISABLED=${value} ${pr}`, prProfile).permission.kind, `prefix prompt ${value}`).toBe("defer");
+      expect(
+        configured(`GH_PROMPT_DISABLED=${value}; ${pr}`, prProfile).permission.kind,
+        `unexported prompt ${value}`,
+      ).toBe("deny");
+      expect(
+        configured(`export GH_PROMPT_DISABLED=${value}; ${pr}`, prProfile).permission.kind,
+        `exported prompt ${value}`,
+      ).toBe("defer");
+      expect(configured(`GH_PROMPT_DISABLED=${value} ${pr}`, prProfile).permission.kind, `prefix prompt ${value}`).toBe(
+        "defer",
+      );
     }
   });
 
@@ -683,12 +784,28 @@ describe("walker-backed gh policy compatibility", () => {
     const apiProfile = snapshot({ ghApiReadOnly: true });
     const prProfile = snapshot({ ghPrCreate: Object.freeze(policy) });
     for (const name of GH_API_DEFER_ENVIRONMENT_NAMES) {
-      expect(configured("gh api user", apiProfile, { GH_PAGER: "", [name]: "policy-test" }).permission.kind, name).toBe("defer");
-      expect(configured("gh api user", apiProfile, { GH_PAGER: "", [name]: "" }).permission.kind, `${name} empty`).toBe("defer");
+      expect(configured("gh api user", apiProfile, { GH_PAGER: "", [name]: "policy-test" }).permission.kind, name).toBe(
+        "defer",
+      );
+      expect(configured("gh api user", apiProfile, { GH_PAGER: "", [name]: "" }).permission.kind, `${name} empty`).toBe(
+        "defer",
+      );
     }
     for (const name of GH_GLOBAL_DEFER_ENVIRONMENT_NAMES) {
-      expect(configured("gh pr create --repo github.com/acme/widgets --fill", prProfile, { GH_PROMPT_DISABLED: "1", [name]: "policy-test" }).permission.kind, name).toBe("deny");
-      expect(configured("gh pr create --repo github.com/acme/widgets --fill", prProfile, { GH_PROMPT_DISABLED: "1", [name]: "" }).permission.kind, `${name} empty`).toBe("defer");
+      expect(
+        configured("gh pr create --repo github.com/acme/widgets --fill", prProfile, {
+          GH_PROMPT_DISABLED: "1",
+          [name]: "policy-test",
+        }).permission.kind,
+        name,
+      ).toBe("deny");
+      expect(
+        configured("gh pr create --repo github.com/acme/widgets --fill", prProfile, {
+          GH_PROMPT_DISABLED: "1",
+          [name]: "",
+        }).permission.kind,
+        `${name} empty`,
+      ).toBe("defer");
     }
   });
 
@@ -719,10 +836,7 @@ describe("walker-backed gh policy compatibility", () => {
     const titleForms = ["--title", "-t", "--body", "-b"];
     for (let index = 0; index < 64; index++) {
       const title = titleForms[index % titleForms.length]!;
-      expect(ghPrCreate(
-        `strace gh pr create ${title} --repo=github.com/acme/widgets --fill`,
-        policy,
-      )).toBe("deny");
+      expect(ghPrCreate(`strace gh pr create ${title} --repo=github.com/acme/widgets --fill`, policy)).toBe("deny");
     }
   });
 
@@ -731,7 +845,8 @@ describe("walker-backed gh policy compatibility", () => {
     const second = ["-X", "--method", "-X=", "--method="];
     for (const left of first) {
       for (const right of second) {
-        const render = (flag: string, method: string): string[] => flag.endsWith("=") ? [`${flag}${method}`] : [flag, method];
+        const render = (flag: string, method: string): string[] =>
+          flag.endsWith("=") ? [`${flag}${method}`] : [flag, method];
         const args = [...render(left, "GET"), ...render(right, "GET"), "user"];
         expect(ghApi(`strace gh api ${args.join(" ")}`), args.join(" ")).toBe("defer");
       }
@@ -746,7 +861,10 @@ describe("walker-backed gh policy compatibility", () => {
   });
 
   test("keeps ordinary unresolved execution neutral in the generic analysis API", () => {
-    expect(evaluateBashGuards({ source: "$UNKNOWN image ls" })).toMatchObject({ kind: "pass", status: "indeterminate" });
+    expect(evaluateBashGuards({ source: "$UNKNOWN image ls" })).toMatchObject({
+      kind: "pass",
+      status: "indeterminate",
+    });
   });
 
   test("keeps raw PR authorization neutral until every reachable command is safe", () => {

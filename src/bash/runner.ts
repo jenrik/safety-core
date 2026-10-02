@@ -37,8 +37,18 @@ export interface DispatchTarget {
 }
 
 export type Step =
-  | { readonly kind: "continue"; readonly state: Environment; readonly target: DispatchTarget; readonly span: SourceSpan }
-  | { readonly kind: "fork"; readonly state: Environment; readonly targets: readonly DispatchTarget[]; readonly span: SourceSpan }
+  | {
+      readonly kind: "continue";
+      readonly state: Environment;
+      readonly target: DispatchTarget;
+      readonly span: SourceSpan;
+    }
+  | {
+      readonly kind: "fork";
+      readonly state: Environment;
+      readonly targets: readonly DispatchTarget[];
+      readonly span: SourceSpan;
+    }
   | { readonly kind: "result"; readonly state: Environment; readonly outcome: Outcome; readonly span: SourceSpan };
 
 export interface RunStepsResult {
@@ -157,7 +167,8 @@ function hasDeny(evidence: readonly Outcome[]): boolean {
 
 function reportStepGap(step: Step, reason: AnalysisBudget): void {
   if (step.kind === "continue") step.target.reportExecutionGap?.(reason, step.state, step.target.span);
-  else if (step.kind === "fork") for (const target of step.targets) target.reportExecutionGap?.(reason, step.state, target.span);
+  else if (step.kind === "fork")
+    for (const target of step.targets) target.reportExecutionGap?.(reason, step.state, target.span);
 }
 
 function complete(evidence: readonly Outcome[]): RunStepsResult {

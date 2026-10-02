@@ -6,8 +6,7 @@
 import { BLOCKED_GITHUB_DOMAINS } from "./patterns.js";
 import { GITHUB_GENERIC_HINT } from "./messages.js";
 
-const RAW_URL_RE =
-  /https?:\/\/raw\.githubusercontent\.com\/([^/\s"']+)\/([^/\s"']+)\/([^/\s"']+)\/([^\s"'#?]+)/i;
+const RAW_URL_RE = /https?:\/\/raw\.githubusercontent\.com\/([^/\s"']+)\/([^/\s"']+)\/([^/\s"']+)\/([^\s"'#?]+)/i;
 const API_URL_RE = /https?:\/\/api\.github\.com(\/[^\s"'#?]*)?/i;
 
 // API path → native gh command, tried in order. First match wins. Fail-open:
@@ -78,17 +77,13 @@ function buildApiSuggestion(url: string): string {
       `  gh api '${path}'`
     );
   }
-  return (
-    `Blocked: ${url}\n\n${GITHUB_GENERIC_HINT}\n\n` + `  gh api '${path}'`
-  );
+  return `Blocked: ${url}\n\n${GITHUB_GENERIC_HINT}\n\n` + `  gh api '${path}'`;
 }
 
 /** Build the operator-facing block message for a specific blocked URL. */
 export function buildGithubSuggestion(url: string): string {
   const safeUrl = sanitizedBlockedGithubUrl(url);
-  return safeUrl.includes("raw.githubusercontent.com")
-    ? buildRawSuggestion(safeUrl)
-    : buildApiSuggestion(safeUrl);
+  return safeUrl.includes("raw.githubusercontent.com") ? buildRawSuggestion(safeUrl) : buildApiSuggestion(safeUrl);
 }
 
 /** True iff `url` targets one of the blocked GitHub domains. */
@@ -100,7 +95,6 @@ export function isBlockedGithubUrl(url: string): boolean {
 export function checkWebfetchUrl(url: string): string | null {
   return isBlockedGithubUrl(url) ? buildGithubSuggestion(url) : null;
 }
-
 
 /** Fallback deny message when we can't parse the tool payload but a blocked
  * domain is textually present. */
@@ -119,7 +113,8 @@ export function detectBlockedDomain(raw: string): string | null {
   try {
     const parsed = new URL(raw);
     const hostname = parsed.hostname.toLowerCase().replace(/\.$/, "");
-    if ((parsed.protocol === "http:" || parsed.protocol === "https:") && BLOCKED_GITHUB_DOMAINS.includes(hostname)) return hostname;
+    if ((parsed.protocol === "http:" || parsed.protocol === "https:") && BLOCKED_GITHUB_DOMAINS.includes(hostname))
+      return hostname;
   } catch {
     // Command arguments may contain a URL alongside flags or other text.
   }

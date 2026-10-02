@@ -23,7 +23,11 @@ export interface PolicySessionManifest {
 }
 
 /** Record the loaded policy set and selected project root for one harness session. */
-export function createPolicySessionManifest(sessionID: string, runtime: LoadedPolicyRuntime, cwd: string): PolicySessionManifest {
+export function createPolicySessionManifest(
+  sessionID: string,
+  runtime: LoadedPolicyRuntime,
+  cwd: string,
+): PolicySessionManifest {
   if (sessionID.length === 0) throw new PolicyStartupError("policy session manifest", "session ID must not be empty");
   return Object.freeze({
     version: 1,
@@ -38,8 +42,12 @@ export function createPolicySessionManifest(sessionID: string, runtime: LoadedPo
 
 /** Parse untrusted persisted state into a checked, frozen session snapshot. */
 export function parsePolicySessionManifest(value: unknown): PolicySessionManifest {
-  if (!isRecord(value) || !Array.isArray(value.configurations) || !Array.isArray(value.sources)
-    || !isRecord(value.limits)) {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.configurations) ||
+    !Array.isArray(value.sources) ||
+    !isRecord(value.limits)
+  ) {
     throw new PolicyStartupError("policy session manifest", "session snapshot is invalid");
   }
   const manifest = value as PolicySessionManifest;
@@ -68,17 +76,22 @@ export function verifyPolicySessionSnapshot(manifest: PolicySessionManifest): vo
 /** Reload exactly an already-verified session snapshot without consulting live config. */
 export async function loadPolicySessionRuntime(manifest: PolicySessionManifest): Promise<LoadedPolicyRuntime> {
   verifyPolicySessionSnapshot(manifest);
-  const references: readonly ResolvedPolicySource[] = manifest.sources.map((source) => Object.freeze({ path: source.canonicalPath, scope: source.scope }));
+  const references: readonly ResolvedPolicySource[] = manifest.sources.map((source) =>
+    Object.freeze({ path: source.canonicalPath, scope: source.scope }),
+  );
   const policySet = await loadPolicySources(references);
   verifyLoadedSources(manifest.sources, policySet.sources);
 
   const globalConfiguration = manifest.configurations.find((source) => source.scope === "global");
-  if (globalConfiguration === undefined) throw new PolicyStartupError("policy session manifest", "global configuration snapshot is missing");
+  if (globalConfiguration === undefined)
+    throw new PolicyStartupError("policy session manifest", "global configuration snapshot is missing");
   const config: GlobalPolicyConfig = Object.freeze({
     path: globalConfiguration.canonicalPath,
     configuration: globalConfiguration,
     version: 1,
-    policies: Object.freeze(manifest.sources.filter((source) => source.scope === "global").map((source) => source.canonicalPath)),
+    policies: Object.freeze(
+      manifest.sources.filter((source) => source.scope === "global").map((source) => source.canonicalPath),
+    ),
     projectPolicies: Object.freeze({ mode: "disabled", allowedRoots: Object.freeze([]) }),
     bashAnalysis: manifest.limits,
   });
@@ -92,15 +105,25 @@ export async function loadPolicySessionRuntime(manifest: PolicySessionManifest):
 }
 
 export function validatePolicySessionManifest(manifest: PolicySessionManifest): void {
-  if (manifest.version !== 1 || typeof manifest.sessionID !== "string" || manifest.sessionID.length === 0 || typeof manifest.cwd !== "string"
-    || (manifest.projectRoot !== undefined && typeof manifest.projectRoot !== "string")
-    || !Array.isArray(manifest.configurations) || !Array.isArray(manifest.sources) || !isValidLimits(manifest.limits)) {
+  if (
+    manifest.version !== 1 ||
+    typeof manifest.sessionID !== "string" ||
+    manifest.sessionID.length === 0 ||
+    typeof manifest.cwd !== "string" ||
+    (manifest.projectRoot !== undefined && typeof manifest.projectRoot !== "string") ||
+    !Array.isArray(manifest.configurations) ||
+    !Array.isArray(manifest.sources) ||
+    !isValidLimits(manifest.limits)
+  ) {
     throw new PolicyStartupError("policy session manifest", "session snapshot is invalid");
   }
   const globalConfigurations = manifest.configurations.filter((source) => source.scope === "global");
   const projectConfigurations = manifest.configurations.filter((source) => source.scope === "project");
-  if (globalConfigurations.length !== 1 || projectConfigurations.length > 1
-    || (manifest.projectRoot === undefined) !== (projectConfigurations.length === 0)) {
+  if (
+    globalConfigurations.length !== 1 ||
+    projectConfigurations.length > 1 ||
+    (manifest.projectRoot === undefined) !== (projectConfigurations.length === 0)
+  ) {
     throw new PolicyStartupError("policy session manifest", "configuration snapshot is invalid");
   }
   validateSnapshotSources(manifest.configurations, "configuration");
@@ -110,7 +133,10 @@ export function validatePolicySessionManifest(manifest: PolicySessionManifest): 
   }
 }
 
-function validateSnapshotSources(sources: readonly { readonly canonicalPath: string; readonly scope: string; readonly sha256: string }[], subject: string): void {
+function validateSnapshotSources(
+  sources: readonly { readonly canonicalPath: string; readonly scope: string; readonly sha256: string }[],
+  subject: string,
+): void {
   const paths = new Set<string>();
   for (const source of sources) {
     if (!isSnapshotSource(source) || paths.has(source.canonicalPath)) {
@@ -135,18 +161,36 @@ function verifySourceBytes(source: { readonly canonicalPath: string; readonly sh
 }
 
 function verifyLoadedSources(expected: readonly LoadedPolicySource[], actual: readonly LoadedPolicySource[]): void {
-  if (actual.length === expected.length && actual.every((source, index) =>
-    source.canonicalPath === expected[index]?.canonicalPath && source.sha256 === expected[index]?.sha256)) return;
-  const path = actual.find((source, index) => source.sha256 !== expected[index]?.sha256)?.canonicalPath
-    ?? expected[actual.length]?.canonicalPath
-    ?? "policy session manifest";
+  if (
+    actual.length === expected.length &&
+    actual.every(
+      (source, index) =>
+        source.canonicalPath === expected[index]?.canonicalPath && source.sha256 === expected[index]?.sha256,
+    )
+  )
+    return;
+  const path =
+    actual.find((source, index) => source.sha256 !== expected[index]?.sha256)?.canonicalPath ??
+    expected[actual.length]?.canonicalPath ??
+    "policy session manifest";
   throw new PolicyStartupError(path, "policy source digest changed since session startup");
 }
 
-function isSnapshotSource(source: { readonly canonicalPath: string; readonly scope: string; readonly sha256: string }): boolean {
-  return (source.scope === "global" || source.scope === "project")
-    && (source.canonicalPath === "/" || (source.canonicalPath.startsWith("/") && source.canonicalPath.split("/").slice(1).every((part) => part !== "" && part !== "." && part !== "..")))
-    && /^[a-f0-9]{64}$/.test(source.sha256);
+function isSnapshotSource(source: {
+  readonly canonicalPath: string;
+  readonly scope: string;
+  readonly sha256: string;
+}): boolean {
+  return (
+    (source.scope === "global" || source.scope === "project") &&
+    (source.canonicalPath === "/" ||
+      (source.canonicalPath.startsWith("/") &&
+        source.canonicalPath
+          .split("/")
+          .slice(1)
+          .every((part) => part !== "" && part !== "." && part !== ".."))) &&
+    /^[a-f0-9]{64}$/.test(source.sha256)
+  );
 }
 
 function digest(bytes: Buffer): string {
@@ -155,8 +199,9 @@ function digest(bytes: Buffer): string {
 
 function isValidLimits(value: unknown): value is BashAnalysisConfig {
   if (!isRecord(value) || Object.keys(value).length !== 4) return false;
-  return ["maxFunctionDepth", "maxNestedScriptDepth", "maxSteps", "maxWorkItems"].every((key) =>
-    typeof value[key] === "number" && Number.isSafeInteger(value[key]) && value[key] > 0);
+  return ["maxFunctionDepth", "maxNestedScriptDepth", "maxSteps", "maxWorkItems"].every(
+    (key) => typeof value[key] === "number" && Number.isSafeInteger(value[key]) && value[key] > 0,
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

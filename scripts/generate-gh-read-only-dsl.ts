@@ -7,7 +7,8 @@ type Node = { children: Map<string, Node>; owner?: "api" | "pr" };
 
 const root: Node = { children: new Map() };
 for (const rule of GH_READ_ONLY_RULES) {
-  for (const form of [rule.path, ...rule.aliases]) insert(form, rule.owner === "ghApiReadOnly" ? "api" : rule.owner === "ghPrCreate" ? "pr" : undefined);
+  for (const form of [rule.path, ...rule.aliases])
+    insert(form, rule.owner === "ghApiReadOnly" ? "api" : rule.owner === "ghPrCreate" ? "pr" : undefined);
 }
 for (const topic of GH_HELP_TOPIC_RULES) insert(["help", topic.name]);
 for (const topic of GH_HELP_TOPIC_RULES) insert([topic.name]);
@@ -22,8 +23,20 @@ const document = {
   registers: {},
   folds: {},
   options: {
-    repo: { names: ["--repo", "-R"], value: "required", forms: ["separate", "attachedShort", "equalsLong", "cluster"], availableIn: "*", set: {} },
-    hostname: { names: ["--hostname"], value: "required", forms: ["separate", "equalsLong"], availableIn: "*", set: {} },
+    repo: {
+      names: ["--repo", "-R"],
+      value: "required",
+      forms: ["separate", "attachedShort", "equalsLong", "cluster"],
+      availableIn: "*",
+      set: {},
+    },
+    hostname: {
+      names: ["--hostname"],
+      value: "required",
+      forms: ["separate", "equalsLong"],
+      availableIn: "*",
+      set: {},
+    },
   },
   fragments: {},
   start: "start",

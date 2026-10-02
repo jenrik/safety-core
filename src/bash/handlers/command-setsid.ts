@@ -13,7 +13,8 @@ function parseSetsid(arguments_: readonly ResolvedWord[], context: StructuralDis
   while (index < arguments_.length) {
     const argument = known(arguments_[index]!, context);
     if (typeof argument !== "string") return argument;
-    if (argument === "--") return childInvocationFrom(arguments_, index + 1, context, undefined, setsidEffect(forks, waits));
+    if (argument === "--")
+      return childInvocationFrom(arguments_, index + 1, context, undefined, setsidEffect(forks, waits));
     const long = resolveLongOption(argument, LONG_OPTIONS);
     if (long) {
       if (long.kind === "ambiguous" || long.value !== undefined) break;
@@ -34,6 +35,6 @@ function parseSetsid(arguments_: readonly ResolvedWord[], context: StructuralDis
 }
 
 function setsidEffect(forks: boolean, waits: boolean) {
-  if (forks) return waits ? "spawn-and-wait" as const : "spawn-async" as const;
-  return waits ? "unknown" as const : "exec-replace" as const;
+  if (forks) return waits ? ("spawn-and-wait" as const) : ("spawn-async" as const);
+  return waits ? ("unknown" as const) : ("exec-replace" as const);
 }

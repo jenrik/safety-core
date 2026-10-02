@@ -117,35 +117,37 @@ let
   # src/ + data/ + node_modules/ + WASM).  Rewrites `../src/` → `./src/` and
   # `../data/` → `./data/` in the adapter so it works when placed as
   # index.ts at the root of the output directory.
-  mkExtensionDir = name: adapterFile: corePackage: stdenv.mkDerivation {
-    name = "safety-core-${name}";
-    dontUnpack = true;
-    installPhase = ''
-      mkdir -p $out
+  mkExtensionDir =
+    name: adapterFile: corePackage:
+    stdenv.mkDerivation {
+      name = "safety-core-${name}";
+      dontUnpack = true;
+      installPhase = ''
+        mkdir -p $out
 
-      # Copy web-tree-sitter node_modules (for bare-specifier resolution).
-      cp -r ${wasmAssets}/node_modules $out/
+        # Copy web-tree-sitter node_modules (for bare-specifier resolution).
+        cp -r ${wasmAssets}/node_modules $out/
 
-      # Copy WASM files to root (referenced by initBashParser).
-      cp ${wasmAssets}/tree-sitter-bash.wasm $out/
+        # Copy WASM files to root (referenced by initBashParser).
+        cp ${wasmAssets}/tree-sitter-bash.wasm $out/
 
-       # Copy shared source and data.
-       cp -r ${src} $out/src
-       cp -r ${data} $out/data
+         # Copy shared source and data.
+         cp -r ${src} $out/src
+         cp -r ${data} $out/data
 
-       # Native package adapters resolve their shared implementation through
-       # the same package boundary as the published npm artifact.
-       if [ -n "${corePackage}" ]; then
-         chmod u+w $out/node_modules
-         mkdir -p $out/node_modules/@safety-core
-         cp -r ${corePackage} $out/node_modules/@safety-core/core
-       fi
+         # Native package adapters resolve their shared implementation through
+         # the same package boundary as the published npm artifact.
+         if [ -n "${corePackage}" ]; then
+           chmod u+w $out/node_modules
+           mkdir -p $out/node_modules/@safety-core
+           cp -r ${corePackage} $out/node_modules/@safety-core/core
+         fi
 
-       # Place the adapter as index.ts at the root, rewriting imports so they
-       # resolve relative to the new location.
-       ${gnused}/bin/sed 's|../src/|./src/|g; s|../data/|./data/|g' ${adapterFile} > $out/index.ts
-     '';
-  };
+         # Place the adapter as index.ts at the root, rewriting imports so they
+         # resolve relative to the new location.
+         ${gnused}/bin/sed 's|../src/|./src/|g; s|../data/|./data/|g' ${adapterFile} > $out/index.ts
+      '';
+    };
 
   piDir = mkExtensionDir "pi" ./adapters/pi.ts coreNodePackage;
   # OpenCode v1 and v2 receive independent extension directories. They share
@@ -156,36 +158,42 @@ let
 
   # Trusted code policies are compiled independently. The loader rejects
   # relative imports, so every artifact must be self-contained at this boundary.
-  mkCodePolicy = name: entry: stdenv.mkDerivation {
-    pname = "safety-core-${name}-policy";
-    version = "0";
-    src = ./.;
-    nativeBuildInputs = [ esbuild ];
-    installPhase = ''
-      mkdir -p $out
-      esbuild \
-        --bundle \
-        --platform=node \
-        --format=esm \
-        --target=node20 \
-        --outfile="$out/${name}.policy.mjs" \
-        "$src/${entry}"
-      if grep -Eq '^[[:space:]]*(import|export[[:space:]].*from)[[:space:]]' "$out/${name}.policy.mjs"; then
-        echo "bundled policy retained a runtime import" >&2
-        exit 1
-      fi
-    '';
-  };
-  mkGhPrCreateDslPolicy = { allowedRepositories, allowedOrganizations }: stdenv.mkDerivation {
-    pname = "safety-core-gh-pr-create-dsl-policy";
-    version = "0";
-    src = ./.;
-    nativeBuildInputs = [ nodejs_22 ];
-    installPhase = ''
-      mkdir -p $out
-      ${nodejs_22}/bin/node ${./scripts/render-gh-pr-create-dsl.mjs} '${builtins.toJSON { inherit allowedRepositories allowedOrganizations; }}' > "$out/gh-pr-create.policy.json"
-    '';
-  };
+  mkCodePolicy =
+    name: entry:
+    stdenv.mkDerivation {
+      pname = "safety-core-${name}-policy";
+      version = "0";
+      src = ./.;
+      nativeBuildInputs = [ esbuild ];
+      installPhase = ''
+        mkdir -p $out
+        esbuild \
+          --bundle \
+          --platform=node \
+          --format=esm \
+          --target=node20 \
+          --outfile="$out/${name}.policy.mjs" \
+          "$src/${entry}"
+        if grep -Eq '^[[:space:]]*(import|export[[:space:]].*from)[[:space:]]' "$out/${name}.policy.mjs"; then
+          echo "bundled policy retained a runtime import" >&2
+          exit 1
+        fi
+      '';
+    };
+  mkGhPrCreateDslPolicy =
+    { allowedRepositories, allowedOrganizations }:
+    stdenv.mkDerivation {
+      pname = "safety-core-gh-pr-create-dsl-policy";
+      version = "0";
+      src = ./.;
+      nativeBuildInputs = [ nodejs_22 ];
+      installPhase = ''
+        mkdir -p $out
+        ${nodejs_22}/bin/node ${./scripts/render-gh-pr-create-dsl.mjs} '${
+          builtins.toJSON { inherit allowedRepositories allowedOrganizations; }
+        }' > "$out/gh-pr-create.policy.json"
+      '';
+    };
 in
 {
   # Directory containing index.ts + src/ + WASM assets.  Home-manager
@@ -206,7 +214,12 @@ in
     apiFixture = mkCodePolicy "api-fixture" "policies/code/api-fixture.policy.ts";
   };
 
-  inherit core dslPolicies policySources mkGhPrCreateDslPolicy;
+  inherit
+    core
+    dslPolicies
+    policySources
+    mkGhPrCreateDslPolicy
+    ;
 
   # Compatibility alias for Home Manager and callers using the former name.
   safetyCoreCli = core;

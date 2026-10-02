@@ -24,10 +24,7 @@ beforeAll(async () => {
       : join(process.cwd(), "node_modules", "tree-sitter-bash", "tree-sitter-bash.wasm"),
     join(wasmDir, "tree-sitter-bash.wasm"),
   );
-  symlinkSync(
-    join(process.cwd(), "node_modules", "web-tree-sitter"),
-    join(wasmDir, "node_modules", "web-tree-sitter"),
-  );
+  symlinkSync(join(process.cwd(), "node_modules", "web-tree-sitter"), join(wasmDir, "node_modules", "web-tree-sitter"));
   await initBashParser(wasmDir);
 });
 
@@ -35,13 +32,13 @@ afterAll(() => rmSync(wasmDir, { force: true, recursive: true }));
 
 describe("stateful Bash statement walker", () => {
   test("uses caller bindings for same-command words while discarding external-command prefix overlays", () => {
-    const result = analyze("X=outer; X=prefix echo \"$X\"; echo \"$X\"");
+    const result = analyze('X=outer; X=prefix echo "$X"; echo "$X"');
 
     expect(argvs(result.invocations)).toEqual([["outer"], ["outer"]]);
   });
 
   test("uses dynamic function lookup, local shadows, and function-local prefix overlays", () => {
-    const result = analyze("X=outer; f(){ local X=inner; echo \"$X\"; }; X=prefix f; echo \"$X\"");
+    const result = analyze('X=outer; f(){ local X=inner; echo "$X"; }; X=prefix f; echo "$X"');
 
     expect(argvs(result.invocations)).toEqual([["inner"], ["outer"]]);
   });
@@ -53,26 +50,25 @@ describe("stateful Bash statement walker", () => {
   });
 
   test("expands known positional arguments in function bodies", () => {
-    const functionCall = analyze("f(){ run \"$1\" \"$2\"; }; f function-one function-two");
+    const functionCall = analyze('f(){ run "$1" "$2"; }; f function-one function-two');
 
     expect(argvs(functionCall.invocations)).toEqual([["function-one", "function-two"]]);
   });
 
   test("clears omitted positional parameters in nested function calls", () => {
-    const result = analyze("outer(){ inner(){ run \"$1\" \"$2\"; }; inner; }; outer caller-one caller-two");
+    const result = analyze('outer(){ inner(){ run "$1" "$2"; }; inner; }; outer caller-one caller-two');
 
     expect(argvs(result.invocations)).toEqual([["", ""]]);
   });
 
-
   test("propagates non-local function writes and stops only the function body on return", () => {
-    const result = analyze("X=before; f(){ X=after; return; echo never; }; f; echo \"$X\"");
+    const result = analyze('X=before; f(){ X=after; return; echo never; }; f; echo "$X"');
 
     expect(argvs(result.invocations)).toEqual([["after"]]);
   });
 
   test("models export, readonly, unset, and read without executing builtins", () => {
-    const result = analyze("export X=one; readonly X; read INPUT; unset X; echo \"$X\" \"$INPUT\"");
+    const result = analyze('export X=one; readonly X; read INPUT; unset X; echo "$X" "$INPUT"');
     const invocation = result.invocations.at(-1)!;
 
     expect(invocation.executable).toEqual({ kind: "known", value: "echo" });
@@ -85,18 +81,36 @@ describe("stateful Bash statement walker", () => {
   });
 
   test("applies unset function and variable modes to complete shell state", () => {
-    expect(analyzeWith("f(){ denied-command; }; unset -f f; f", denyNamedCommand).completed.verdict).toEqual({ kind: "allow" });
-    expect(analyzeWith("unset -v f; f(){ denied-command; }; unset -- f; f", denyNamedCommand).completed.verdict).toEqual({ kind: "allow" });
-    expect(analyzeWith("f(){ denied-command; }; unset -v f; f", denyNamedCommand).completed.verdict).toMatchObject({ kind: "deny" });
-    expect(analyzeWith("f(){ denied-command; }; f=value; unset f; f", denyNamedCommand).completed.verdict).toMatchObject({ kind: "deny" });
-    expect(analyzeWith("f(){ denied-command; }; unset -fv f; f", denyNamedCommand).completed.verdict).toMatchObject({ kind: "deny" });
+    expect(analyzeWith("f(){ denied-command; }; unset -f f; f", denyNamedCommand).completed.verdict).toEqual({
+      kind: "allow",
+    });
+    expect(
+      analyzeWith("unset -v f; f(){ denied-command; }; unset -- f; f", denyNamedCommand).completed.verdict,
+    ).toEqual({ kind: "allow" });
+    expect(analyzeWith("f(){ denied-command; }; unset -v f; f", denyNamedCommand).completed.verdict).toMatchObject({
+      kind: "deny",
+    });
+    expect(
+      analyzeWith("f(){ denied-command; }; f=value; unset f; f", denyNamedCommand).completed.verdict,
+    ).toMatchObject({ kind: "deny" });
+    expect(analyzeWith("f(){ denied-command; }; unset -fv f; f", denyNamedCommand).completed.verdict).toMatchObject({
+      kind: "deny",
+    });
   });
 
   test("keeps unset scope and dynamic function removal conservative", () => {
-    expect(analyzeWith("f(){ denied-command; }; { unset -f f; }; f", denyNamedCommand).completed.verdict).toEqual({ kind: "allow" });
-    expect(analyzeWith("f(){ denied-command; }; (unset -f f); f", denyNamedCommand).completed.verdict).toMatchObject({ kind: "deny" });
-    expect(analyzeWith("f(){ denied-command; }; if condition; then unset -f f; fi; f", denyNamedCommand).completed.verdict).toMatchObject({ kind: "deny" });
-    expect(analyzeWith('f(){ denied-command; }; unset -f "$UNKNOWN"; f', denyNamedCommand).completed.verdict).toMatchObject({ kind: "deny" });
+    expect(analyzeWith("f(){ denied-command; }; { unset -f f; }; f", denyNamedCommand).completed.verdict).toEqual({
+      kind: "allow",
+    });
+    expect(analyzeWith("f(){ denied-command; }; (unset -f f); f", denyNamedCommand).completed.verdict).toMatchObject({
+      kind: "deny",
+    });
+    expect(
+      analyzeWith("f(){ denied-command; }; if condition; then unset -f f; fi; f", denyNamedCommand).completed.verdict,
+    ).toMatchObject({ kind: "deny" });
+    expect(
+      analyzeWith('f(){ denied-command; }; unset -f "$UNKNOWN"; f', denyNamedCommand).completed.verdict,
+    ).toMatchObject({ kind: "deny" });
   });
 
   test("property: unset -f option ordering removes only the named function", () => {
@@ -108,7 +122,7 @@ describe("stateful Bash statement walker", () => {
   });
 
   test("persists prefix assignments only for modeled special builtins", () => {
-    const result = analyze("X=prefix export X; echo \"$X\"");
+    const result = analyze('X=prefix export X; echo "$X"');
     const invocation = result.invocations[0]!;
 
     expect(argvs(result.invocations)).toEqual([["prefix"]]);
@@ -119,20 +133,20 @@ describe("stateful Bash statement walker", () => {
   });
 
   test("reports source-provenanced indeterminate evidence and taints state for eval and source", () => {
-    for (const source of ["X=known; eval \"$PAYLOAD\"; echo \"$X\"", "X=known; source \"$FILE\"; echo \"$X\""]) {
+    for (const source of ['X=known; eval "$PAYLOAD"; echo "$X"', 'X=known; source "$FILE"; echo "$X"']) {
       const result = analyze(source);
       const evidence = result.completed.evidence.find((outcome) => outcome.kind === "indeterminate");
 
       expect(result.completed.verdict).toEqual({ kind: "neutral" });
-    expect(argvs(result.invocations).at(-1)).toEqual(["<unknown>"]);
+      expect(argvs(result.invocations).at(-1)).toEqual(["<unknown>"]);
       expect(evidence).toMatchObject({ kind: "indeterminate", span: { start: 9 } });
     }
   });
 
   test("retains brace-group writes and isolates subshell and pipeline-child writes", () => {
-    const grouped = analyze("X=outer; { X=group; }; echo \"$X\"");
-    const isolated = analyze("X=outer; ( X=subshell; echo \"$X\" ); echo \"$X\"");
-    const pipeline = analyze("X=outer; { X=left; echo \"$X\"; } | echo \"$X\"; echo \"$X\"");
+    const grouped = analyze('X=outer; { X=group; }; echo "$X"');
+    const isolated = analyze('X=outer; ( X=subshell; echo "$X" ); echo "$X"');
+    const pipeline = analyze('X=outer; { X=left; echo "$X"; } | echo "$X"; echo "$X"');
 
     expect(argvs(grouped.invocations)).toEqual([["group"]]);
     expect(argvs(isolated.invocations)).toEqual([["subshell"], ["outer"]]);
@@ -141,7 +155,9 @@ describe("stateful Bash statement walker", () => {
 
   test("preserves current-shell writes through a timed brace group", () => {
     const result = analyze('time { X=inner; }; run "$X"');
-    const run = result.invocations.find((invocation) => invocation.executable?.kind === "known" && invocation.executable.value === "run");
+    const run = result.invocations.find(
+      (invocation) => invocation.executable?.kind === "known" && invocation.executable.value === "run",
+    );
 
     expect(run).toBeDefined();
     expect(argvs([run!])).toEqual([["inner"]]);
@@ -149,8 +165,8 @@ describe("stateful Bash statement walker", () => {
 
   test("schedules a named coprocess subshell body exactly once", () => {
     const result = analyze("coproc worker_1 ( nested-coproc-body )");
-    const nested = result.invocations.filter((invocation) =>
-      invocation.executable?.kind === "known" && invocation.executable.value === "nested-coproc-body"
+    const nested = result.invocations.filter(
+      (invocation) => invocation.executable?.kind === "known" && invocation.executable.value === "nested-coproc-body",
     );
 
     expect(nested).toHaveLength(1);
@@ -160,10 +176,14 @@ describe("stateful Bash statement walker", () => {
     let child: unknown;
     const result = analyzeWith("route", (request) => {
       if (request.command.executable?.kind !== "known" || request.command.executable.value !== "route") return safe();
-      const scheduled = request.continueWithInvocation([
-        { kind: "known", value: "child" },
-        { kind: "known", value: "MODE=1" },
-      ], undefined, { processEffect: "spawn-async" });
+      const scheduled = request.continueWithInvocation(
+        [
+          { kind: "known", value: "child" },
+          { kind: "known", value: "MODE=1" },
+        ],
+        undefined,
+        { processEffect: "spawn-async" },
+      );
       child = childrenOf(scheduled)[0];
       return scheduled;
     });
@@ -211,7 +231,10 @@ describe("stateful Bash statement walker", () => {
       });
 
       expect(result.completed.outcome.kind, nestedSource).toBe(nestedSource.startsWith("denied") ? "deny" : "failure");
-      expect(result.invocations.map((invocation) => invocation.executable), nestedSource).toContainEqual({
+      expect(
+        result.invocations.map((invocation) => invocation.executable),
+        nestedSource,
+      ).toContainEqual({
         kind: "known",
         value: nestedSource.startsWith("denied") ? "denied-command" : "allowed-command",
       });
@@ -222,19 +245,36 @@ describe("stateful Bash statement walker", () => {
     for (const depth of [1, 8, 32, 65]) {
       const source = `${"command ".repeat(depth)}leaf`;
       const exact = depth + 2;
-      const completed = analyzeWith(source, (request) => dispatchCommand(request as never), fromInitialEnvironment({ [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT" }, {
-        nestedScriptDepth: 0,
-        steps: exact,
-        workItems: exact,
-      }));
-      const exhausted = analyzeWith(source, (request) => dispatchCommand(request as never), fromInitialEnvironment({ [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT" }, {
-        nestedScriptDepth: 0,
-        steps: exact - 1,
-        workItems: exact,
-      }));
+      const completed = analyzeWith(
+        source,
+        (request) => dispatchCommand(request as never),
+        fromInitialEnvironment(
+          { [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT" },
+          {
+            nestedScriptDepth: 0,
+            steps: exact,
+            workItems: exact,
+          },
+        ),
+      );
+      const exhausted = analyzeWith(
+        source,
+        (request) => dispatchCommand(request as never),
+        fromInitialEnvironment(
+          { [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT" },
+          {
+            nestedScriptDepth: 0,
+            steps: exact - 1,
+            workItems: exact,
+          },
+        ),
+      );
 
       expect(completed.completed.outcome.kind, `complete:${depth}`).not.toBe("failure");
-      expect(completed.depths.every((value) => value === 0), `depth:${depth}`).toBeTrue();
+      expect(
+        completed.depths.every((value) => value === 0),
+        `depth:${depth}`,
+      ).toBeTrue();
       expect(exhausted.completed.outcome, `exhausted:${depth}`).toMatchObject({
         kind: "failure",
         budget: "max-steps",
@@ -243,7 +283,7 @@ describe("stateful Bash statement walker", () => {
   });
 
   test("merges all reachable conditional continuations before following statements", () => {
-    const result = analyze("X=start; if condition; then X=left; else X=right; fi; echo \"$X\"");
+    const result = analyze('X=start; if condition; then X=left; else X=right; fi; echo "$X"');
 
     expect(argvs(result.invocations)).toEqual([[], ["<unknown>"]]);
   });
@@ -261,7 +301,7 @@ describe("stateful Bash statement walker", () => {
   });
 
   test("taints unsupported arbitrary mutation while still walking nested statements and following commands", () => {
-    const result = analyze("X=known; for item in one; do echo nested; done; echo \"$X\"");
+    const result = analyze('X=known; for item in one; do echo nested; done; echo "$X"');
 
     expect(result.completed.verdict).toEqual({ kind: "neutral" });
     expect(argvs(result.invocations)).toEqual(expect.arrayContaining([["nested"], ["<unknown>"]]));
@@ -283,8 +323,9 @@ describe("stateful Bash statement walker", () => {
 
     expect(steps.completed.outcome).toMatchObject({ kind: "failure", budget: "max-steps" });
     expect(nested.completed.outcome).toMatchObject({ kind: "failure", budget: "max-nested-script-depth" });
-    expect(analyze("echo \"$(child)\"", {}, fromInitialEnvironment({}, { nestedScriptDepth: 0 })).completed.outcome)
-      .toMatchObject({ kind: "failure", budget: "max-nested-script-depth" });
+    expect(
+      analyze('echo "$(child)"', {}, fromInitialEnvironment({}, { nestedScriptDepth: 0 })).completed.outcome,
+    ).toMatchObject({ kind: "failure", budget: "max-nested-script-depth" });
   });
 
   test("drains admitted internal work after maxWorkItems admission failure", () => {
@@ -307,11 +348,13 @@ describe("stateful Bash statement walker", () => {
     expect(admittedDeny.completed.outcome).toMatchObject({ kind: "deny" });
     expect(rejectedDeny.completed.outcome).toMatchObject({ kind: "failure", budget: "max-work-items" });
     expect(newlyAdmittedDeny.completed.outcome).toMatchObject({ kind: "deny" });
-    expect(analyzeWith(
-      "safe-command | denied-command",
-      denyNamedCommand,
-      fromInitialEnvironment({}, { workItems: 2, steps: 1 }),
-    ).completed.outcome).toMatchObject({ kind: "failure", budget: "max-work-items" });
+    expect(
+      analyzeWith(
+        "safe-command | denied-command",
+        denyNamedCommand,
+        fromInitialEnvironment({}, { workItems: 2, steps: 1 }),
+      ).completed.outcome,
+    ).toMatchObject({ kind: "failure", budget: "max-work-items" });
   });
 
   test("property: internal admission ordering never replaces an admitted denial or duplicates callbacks", () => {
@@ -320,19 +363,27 @@ describe("stateful Bash statement walker", () => {
       const source = denyOnRight ? "safe-command | denied-command" : "denied-command | safe-command";
       const workItems = denyOnRight ? 2 : 3;
       const calls = new Map<string, number>();
-      const result = analyzeWith(source, (request) => {
-        const executable = request.command.executable?.kind === "known" ? request.command.executable.value : "unknown";
-        calls.set(executable, (calls.get(executable) ?? 0) + 1);
-        return denyNamedCommand(request);
-      }, fromInitialEnvironment({}, { workItems, steps: 100 }));
+      const result = analyzeWith(
+        source,
+        (request) => {
+          const executable =
+            request.command.executable?.kind === "known" ? request.command.executable.value : "unknown";
+          calls.set(executable, (calls.get(executable) ?? 0) + 1);
+          return denyNamedCommand(request);
+        },
+        fromInitialEnvironment({}, { workItems, steps: 100 }),
+      );
 
       expect(result.completed.outcome, `${iteration}:${source}`).toMatchObject({ kind: "deny" });
-      expect([...calls.values()].every((count) => count === 1), `${iteration}:${source}`).toBeTrue();
+      expect(
+        [...calls.values()].every((count) => count === 1),
+        `${iteration}:${source}`,
+      ).toBeTrue();
     }
   });
 
   test("walks command substitutions and redirects before the enclosing dispatch", () => {
-    for (const source of ["echo \"$(denied-command)\"", "echo ok >\"$(denied-command)\""]) {
+    for (const source of ['echo "$(denied-command)"', 'echo ok >"$(denied-command)"']) {
       const result = analyzeWith(source, denyNamedCommand);
 
       expect(result.completed.verdict, source).toMatchObject({ kind: "deny" });
@@ -344,12 +395,12 @@ describe("stateful Bash statement walker", () => {
 
   test("walks retained redirect substitutions on every compound statement before its body", () => {
     for (const source of [
-      "{ outer; } >\"$(denied-command)\"",
-      "( outer ) >\"$(denied-command)\"",
-      "outer | { next; } >\"$(denied-command)\"",
-      "if condition; then outer; fi >\"$(denied-command)\"",
-      "outer && { next; } >\"$(denied-command)\"",
-      "for item in one; do outer; done >\"$(denied-command)\"",
+      '{ outer; } >"$(denied-command)"',
+      '( outer ) >"$(denied-command)"',
+      'outer | { next; } >"$(denied-command)"',
+      'if condition; then outer; fi >"$(denied-command)"',
+      'outer && { next; } >"$(denied-command)"',
+      'for item in one; do outer; done >"$(denied-command)"',
     ]) {
       expect(analyzeWith(source, denyNamedCommand).completed.verdict, source).toMatchObject({ kind: "deny" });
     }
@@ -369,25 +420,44 @@ describe("stateful Bash statement walker", () => {
     };
     const program: BashProgram = {
       ...parsed,
-      statements: [{
-        ...functionStatement,
-        redirects: [{
-          kind: "output",
-          target: { kind: "command-substitution", text: "$(denied-command)", statements: [denied], span: { start: 0, end: 17 } },
-          words: [{ kind: "command-substitution", text: "$(denied-command)", statements: [denied], span: { start: 0, end: 17 } }],
-          span: { start: 0, end: 17 },
-        }],
-      }],
+      statements: [
+        {
+          ...functionStatement,
+          redirects: [
+            {
+              kind: "output",
+              target: {
+                kind: "command-substitution",
+                text: "$(denied-command)",
+                statements: [denied],
+                span: { start: 0, end: 17 },
+              },
+              words: [
+                {
+                  kind: "command-substitution",
+                  text: "$(denied-command)",
+                  statements: [denied],
+                  span: { start: 0, end: 17 },
+                },
+              ],
+              span: { start: 0, end: 17 },
+            },
+          ],
+        },
+      ],
     };
 
     expect(analyzeProgram(program, denyNamedCommand).completed.verdict).toMatchObject({ kind: "allow" });
     const call = parseBashProgram("f");
     if (call.kind !== "program") throw new Error(call.reason);
-    expect(analyzeProgram({ ...program, statements: [...program.statements, ...call.statements] }, denyNamedCommand).completed.verdict).toMatchObject({ kind: "deny" });
+    expect(
+      analyzeProgram({ ...program, statements: [...program.statements, ...call.statements] }, denyNamedCommand)
+        .completed.verdict,
+    ).toMatchObject({ kind: "deny" });
   });
 
   test("keeps an outer command neutral when a fully walked nested word still has unknown output", () => {
-    expect(analyze("echo \"$(safe-command)\"").completed.verdict).toEqual({ kind: "neutral" });
+    expect(analyze('echo "$(safe-command)"').completed.verdict).toEqual({ kind: "neutral" });
   });
 
   test("gives injected dispatchers continuation and nested-script depth for transparent shell routes", () => {
@@ -402,9 +472,14 @@ describe("stateful Bash statement walker", () => {
       const result = analyzeWith(source, (request) => {
         const executable = request.command.executable;
         if (executable?.kind === "known" && executable.value === "denied-command") return denyAt(request);
-        const script = knownArgument(request.command, executable?.kind === "known"
-          ? executable.value === "builtin" || executable.value === "bash" ? 1 : 0
-          : false);
+        const script = knownArgument(
+          request.command,
+          executable?.kind === "known"
+            ? executable.value === "builtin" || executable.value === "bash"
+              ? 1
+              : 0
+            : false,
+        );
         return script ? request.continueWithSource(script) : safe();
       });
 
@@ -419,8 +494,9 @@ describe("stateful Bash statement walker", () => {
         const script = knownArgument(request.command, 1);
         return script ? request.continueWithSource(script) : safe();
       }
-      return request.command.executable?.kind === "known" && request.command.executable.value === "run"
-        && knownArgument(request.command, 0) === "denied"
+      return request.command.executable?.kind === "known" &&
+        request.command.executable.value === "run" &&
+        knownArgument(request.command, 0) === "denied"
         ? denyAt(request)
         : safe();
     });
@@ -430,14 +506,18 @@ describe("stateful Bash statement walker", () => {
 
   test("lets eval and source continuations select caller-state rather than subshell isolation", () => {
     for (const source of ["eval 'X=inner'; echo \"$X\"", "source 'X=inner'; echo \"$X\""]) {
-      const result = analyzeWith(source, (request) => {
-        const executable = request.command.executable;
-        if (executable?.kind === "known" && ["eval", "source"].includes(executable.value)) {
-          const script = knownArgument(request.command, 0);
-          return script ? request.continueWithSource(script, undefined, { isolate: false }) : safe();
-        }
-        return safe();
-      }, fromInitialEnvironment({ X: "outer" }));
+      const result = analyzeWith(
+        source,
+        (request) => {
+          const executable = request.command.executable;
+          if (executable?.kind === "known" && ["eval", "source"].includes(executable.value)) {
+            const script = knownArgument(request.command, 0);
+            return script ? request.continueWithSource(script, undefined, { isolate: false }) : safe();
+          }
+          return safe();
+        },
+        fromInitialEnvironment({ X: "outer" }),
+      );
 
       expect(argvs(result.invocations).at(-1)).toEqual(["inner"]);
     }
@@ -454,25 +534,25 @@ describe("stateful Bash statement walker", () => {
   });
 
   test("preserves loop zero and repeated-write uncertainty", () => {
-    const result = analyze("X=unsafe; while condition; do X=safe; done; run \"$X\"");
+    const result = analyze('X=unsafe; while condition; do X=safe; done; run "$X"');
 
     expect(result.invocations.at(-1)?.argv).toEqual([unknownWord()]);
   });
 
   test("taints state after unmodelled state-mutating builtins", () => {
-    const result = analyze("X=old; printf -v X new; run \"$X\"");
+    const result = analyze('X=old; printf -v X new; run "$X"');
 
     expect(result.invocations.at(-1)?.argv).toEqual([unknownWord()]);
   });
 
   test("taints stale state after wait writes through -p", () => {
-    const result = analyze("X=safe; wait -p X; run \"$X\"");
+    const result = analyze('X=safe; wait -p X; run "$X"');
 
     expect(result.invocations.at(-1)?.argv).toEqual([unknownWord()]);
   });
 
   test("taints caller state when builtin routes an unresolved eval payload", () => {
-    const result = analyze("X=old; builtin eval \"$UNKNOWN\"; run \"$X\"");
+    const result = analyze('X=old; builtin eval "$UNKNOWN"; run "$X"');
 
     expect(result.invocations.at(-1)?.argv).toEqual([unknownWord()]);
   });
@@ -481,7 +561,9 @@ describe("stateful Bash statement walker", () => {
     const environments: string[] = [];
     const result = analyzeWith('X=old; eval "$UNKNOWN"; run "$X"', (request) => {
       if (request.command.executable?.kind === "known") {
-        environments.push(`${request.command.executable.value}:${lookupBinding(request.command.environment, "X").value.kind}`);
+        environments.push(
+          `${request.command.executable.value}:${lookupBinding(request.command.environment, "X").value.kind}`,
+        );
       }
       return dispatchCommand(request as never);
     });
@@ -491,7 +573,7 @@ describe("stateful Bash statement walker", () => {
   });
 
   test("merges every non-isolated callback continuation environment", () => {
-    const result = analyzeWith("X=base; route; run \"$X\"", (request) => {
+    const result = analyzeWith('X=base; route; run "$X"', (request) => {
       if (request.command.executable?.kind === "known" && request.command.executable.value === "route") {
         const left = request.continueWithSource("X=left", undefined, { isolate: false });
         const right = request.continueWithSource("X=right", undefined, { isolate: false });
@@ -504,7 +586,7 @@ describe("stateful Bash statement walker", () => {
   });
 
   test("keeps explicit non-isolated replacement environments from producing a total safe result", () => {
-    const result = analyzeWith("X=base; route; run \"$X\"", (request) => {
+    const result = analyzeWith('X=base; route; run "$X"', (request) => {
       if (request.command.executable?.kind === "known" && request.command.executable.value === "route") {
         const left = request.continueWithSource(":", fromInitialEnvironment({ X: "left" }), { isolate: false });
         const right = request.continueWithSource(":", fromInitialEnvironment({ X: "right" }), { isolate: false });
@@ -522,22 +604,18 @@ describe("stateful Bash statement walker", () => {
     for (let iteration = 0; iteration < 64; iteration++) {
       const fanout = 2 + (random() % 4);
       const labels = Array.from({ length: fanout }, (_unused, index) => `branch-${iteration}-${index}-${random()}`);
-      const orders = [
-        labels,
-        [...labels].reverse(),
-        permutation(labels, random),
-      ];
+      const orders = [labels, [...labels].reverse(), permutation(labels, random)];
 
       for (const order of orders) {
         const processed: string[] = [];
-        const result = analyzeWith("X=base; route; run \"$X\"", (request) => {
+        const result = analyzeWith('X=base; route; run "$X"', (request) => {
           const executable = request.command.executable;
           if (executable?.kind === "known" && executable.value === "route") {
             return {
               outcome: safe(),
-              children: order.flatMap((label) => childrenOf(
-                request.continueWithSource(`X=${label}; branch ${label}`, undefined, { isolate: false }),
-              )),
+              children: order.flatMap((label) =>
+                childrenOf(request.continueWithSource(`X=${label}; branch ${label}`, undefined, { isolate: false })),
+              ),
             };
           }
           if (executable?.kind === "known" && executable.value === "branch") {
@@ -559,16 +637,23 @@ describe("stateful Bash statement walker", () => {
 
     for (let iteration = 0; iteration < 64; iteration++) {
       const fanout = 2 + (random() % 4);
-      const labels = Array.from({ length: fanout }, (_unused, index) => `replacement-${iteration}-${index}-${random()}`);
+      const labels = Array.from(
+        { length: fanout },
+        (_unused, index) => `replacement-${iteration}-${index}-${random()}`,
+      );
       const processed: string[] = [];
-      const result = analyzeWith("X=base; route; run \"$X\"", (request) => {
+      const result = analyzeWith('X=base; route; run "$X"', (request) => {
         const executable = request.command.executable;
         if (executable?.kind === "known" && executable.value === "route") {
           return {
             outcome: safe(),
-            children: permutation(labels, random).flatMap((label) => childrenOf(
-              request.continueWithSource(`replacement-branch ${label}`, fromInitialEnvironment({ X: label }), { isolate: false }),
-            )),
+            children: permutation(labels, random).flatMap((label) =>
+              childrenOf(
+                request.continueWithSource(`replacement-branch ${label}`, fromInitialEnvironment({ X: label }), {
+                  isolate: false,
+                }),
+              ),
+            ),
           };
         }
         if (executable?.kind === "known" && executable.value === "replacement-branch") {
@@ -601,15 +686,15 @@ describe("stateful Bash statement walker", () => {
   });
 
   test("makes local declarations shadow before later assignment and rejects readonly writes", () => {
-    const local = analyze("X=outer; f(){ local X; X=inner; echo \"$X\"; }; f; echo \"$X\"");
-    const readonly = analyze("X=old; readonly X; X=new; unset X; echo \"$X\"");
+    const local = analyze('X=outer; f(){ local X; X=inner; echo "$X"; }; f; echo "$X"');
+    const readonly = analyze('X=old; readonly X; X=new; unset X; echo "$X"');
 
     expect(argvs(local.invocations)).toEqual([["inner"], ["outer"]]);
     expect(argvs(readonly.invocations)).toEqual([["old"]]);
   });
 
   test("taints the possible write scope for read options rather than a consumed option operand", () => {
-    const result = analyze("X=old; read -p prompt X; run \"$X\"");
+    const result = analyze('X=old; read -p prompt X; run "$X"');
 
     expect(result.invocations.at(-1)?.argv).toEqual([unknownWord()]);
   });
@@ -620,13 +705,11 @@ describe("stateful Bash statement walker", () => {
     for (let iteration = 0; iteration < 64; iteration++) {
       const first = `first-${random()}`;
       const second = `second-${random()}`;
-      const result = analyze(`X=${first}; f(){ local LOCAL=inside; echo \"$X\" \"$LOCAL\"; }; f; X=${second}; f; echo \"$LOCAL\"`);
+      const result = analyze(
+        `X=${first}; f(){ local LOCAL=inside; echo \"$X\" \"$LOCAL\"; }; f; X=${second}; f; echo \"$LOCAL\"`,
+      );
 
-      expect(argvs(result.invocations)).toEqual([
-        [first, "inside"],
-        [second, "inside"],
-        ["<unknown>"],
-      ]);
+      expect(argvs(result.invocations)).toEqual([[first, "inside"], [second, "inside"], ["<unknown>"]]);
 
       const recursive = analyze("f(){ f; }; f", { maxFunctionDepth: 2, maxSteps: 100 });
       expect(recursive.completed.outcome).toMatchObject({
@@ -655,25 +738,54 @@ function analyze(
   limits: Parameters<typeof runSteps>[1] = {},
   environment = fromInitialEnvironment({ [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT" }),
 ) {
-  return analyzeWith(source, (request) => {
-    const invocation = request.command;
-    return safe();
-  }, environment, limits);
+  return analyzeWith(
+    source,
+    (request) => {
+      return safe();
+    },
+    environment,
+    limits,
+  );
 }
 
 interface DispatchRequestLike {
   readonly command: NormalizedCommand;
   readonly nestedScriptDepth: number;
-  readonly continueWithSource: (source: string, environment?: ReturnType<typeof fromInitialEnvironment>, options?: { readonly isolate?: boolean }) => unknown;
+  readonly continueWithSource: (
+    source: string,
+    environment?: ReturnType<typeof fromInitialEnvironment>,
+    options?: { readonly isolate?: boolean },
+  ) => unknown;
   readonly continueWithInvocation: (
     words: readonly ResolvedWord[],
     environment?: ReturnType<typeof fromInitialEnvironment>,
-    options?: { readonly processEffect?: "none" | "exec-replace" | "spawn-and-wait" | "spawn-async" | "spawn-repeated" | "unknown" },
+    options?: {
+      readonly processEffect?:
+        | "none"
+        | "exec-replace"
+        | "spawn-and-wait"
+        | "spawn-async"
+        | "spawn-repeated"
+        | "unknown";
+    },
   ) => unknown;
   readonly continueWithOpaque: (
-    reason: "structural-parse-failure" | "source-parse-failure" | "source-file-execution" | "shell-startup-execution" | "unsupported-execution",
+    reason:
+      | "structural-parse-failure"
+      | "source-parse-failure"
+      | "source-file-execution"
+      | "shell-startup-execution"
+      | "unsupported-execution",
     environment?: ReturnType<typeof fromInitialEnvironment>,
-    options?: { readonly processEffect?: "none" | "exec-replace" | "spawn-and-wait" | "spawn-async" | "spawn-repeated" | "unknown" },
+    options?: {
+      readonly processEffect?:
+        | "none"
+        | "exec-replace"
+        | "spawn-and-wait"
+        | "spawn-async"
+        | "spawn-repeated"
+        | "unknown";
+    },
   ) => unknown;
 }
 
@@ -703,7 +815,7 @@ function analyzeProgram(
     preflightCommand,
     dispatchCommand: (request) => {
       const candidate = request as unknown as DispatchRequestLike;
-      invocations.push(candidate.command ?? request as unknown as NormalizedCommand);
+      invocations.push(candidate.command ?? (request as unknown as NormalizedCommand));
       depths.push(candidate.nestedScriptDepth ?? 0);
       return dispatch(candidate) as ReturnType<typeof safe>;
     },
@@ -711,7 +823,13 @@ function analyzeProgram(
   return {
     invocations,
     depths,
-    completed: runSteps(initial, { maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 10_000, maxWorkItems: 10_000, ...limits }),
+    completed: runSteps(initial, {
+      maxFunctionDepth: 128,
+      maxNestedScriptDepth: 64,
+      maxSteps: 10_000,
+      maxWorkItems: 10_000,
+      ...limits,
+    }),
   };
 }
 

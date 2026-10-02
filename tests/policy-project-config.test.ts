@@ -15,16 +15,24 @@ function fixtureDirectory(): string {
   return mkdtempSync(join(tmpdir(), "safety-core-project-policy-"));
 }
 
-function writeGlobalConfig(home: string, mode: "disabled" | "allowlisted" | "all", policies: readonly string[] = [], allowedRoots: readonly string[] = []): string {
+function writeGlobalConfig(
+  home: string,
+  mode: "disabled" | "allowlisted" | "all",
+  policies: readonly string[] = [],
+  allowedRoots: readonly string[] = [],
+): string {
   const directory = join(home, "safety-core");
   mkdirSync(directory, { recursive: true });
   const path = join(directory, "config.json");
-  writeFileSync(path, JSON.stringify({
-    version: 1,
-    policies,
-    projectPolicies: mode === "allowlisted" ? { mode, allowedRoots } : { mode },
-    bashAnalysis: limits,
-  }));
+  writeFileSync(
+    path,
+    JSON.stringify({
+      version: 1,
+      policies,
+      projectPolicies: mode === "allowlisted" ? { mode, allowedRoots } : { mode },
+      bashAnalysis: limits,
+    }),
+  );
   return path;
 }
 
@@ -37,20 +45,23 @@ function writeProjectConfig(root: string, policies: readonly string[]): string {
 }
 
 function writeDslPolicy(path: string, layer: "guard" | "permission", decision: "allow" | "deny" | "ignore"): void {
-  writeFileSync(path, JSON.stringify({
-    language: "safety-core/bash-policy-v1",
-    layer,
-    select: [{ kind: "invocation" }],
-    registers: {},
-    start: "start",
-    states: {
-      start: {
-        cases: [],
-        default: { decision: "ignore" },
-        end: decision === "ignore" ? { decision } : { decision, reason: [decision] },
+  writeFileSync(
+    path,
+    JSON.stringify({
+      language: "safety-core/bash-policy-v1",
+      layer,
+      select: [{ kind: "invocation" }],
+      registers: {},
+      start: "start",
+      states: {
+        start: {
+          cases: [],
+          default: { decision: "ignore" },
+          end: decision === "ignore" ? { decision } : { decision, reason: [decision] },
+        },
       },
-    },
-  }));
+    }),
+  );
 }
 
 function invocation(): InvocationView {
@@ -58,7 +69,13 @@ function invocation(): InvocationView {
     kind: "invocation",
     executable: { kind: "known", value: "tool" },
     executionTarget: "external-path",
-    executableIdentity: { qualification: "incomplete", spelling: "tool", basename: "tool", chain: [], failure: { kind: "not-found" } },
+    executableIdentity: {
+      qualification: "incomplete",
+      spelling: "tool",
+      basename: "tool",
+      chain: [],
+      failure: { kind: "not-found" },
+    },
     argv: [],
     environment: {},
     missingBindings: "unset",
@@ -83,7 +100,9 @@ describe("globally gated project DSL policies", () => {
     writeProjectConfig(project, ["project.policy.json"]);
     writeGlobalConfig(home, "disabled");
 
-    expect(resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), cwd).projectRoot).toBeUndefined();
+    expect(
+      resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), cwd).projectRoot,
+    ).toBeUndefined();
 
     writeGlobalConfig(home, "allowlisted", [], [project]);
     const selected = resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), cwd);
@@ -91,7 +110,9 @@ describe("globally gated project DSL policies", () => {
     expect(selected.sources).toEqual([{ path: join(project, "project.policy.json"), scope: "project" }]);
 
     writeGlobalConfig(home, "allowlisted", [], [parent]);
-    expect(resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), cwd).projectRoot).toBeUndefined();
+    expect(
+      resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), cwd).projectRoot,
+    ).toBeUndefined();
   });
 
   test("resolves relative and absolute project DSL references but rejects every other project source and schema field", () => {
@@ -117,8 +138,10 @@ describe("globally gated project DSL policies", () => {
       { version: 1, policies: "not-an-array" },
     ]) {
       writeFileSync(configPath, JSON.stringify(invalid));
-      expect(() => resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), project), JSON.stringify(invalid))
-        .toThrow(PolicyStartupError);
+      expect(
+        () => resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), project),
+        JSON.stringify(invalid),
+      ).toThrow(PolicyStartupError);
     }
   });
 
@@ -129,12 +152,21 @@ describe("globally gated project DSL policies", () => {
     const configPath = writeProjectConfig(project, ["project.policy.json"]);
     writeGlobalConfig(home, "disabled");
 
-    const selected = resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), root, configPath);
+    const selected = resolveSessionPolicyConfig(
+      loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }),
+      root,
+      configPath,
+    );
     expect(selected.projectRoot).toBe(project);
     expect(selected.sources).toEqual([{ path: join(project, "project.policy.json"), scope: "project" }]);
 
-    expect(() => resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), root, join(project, "config.json")))
-      .toThrow(PolicyStartupError);
+    expect(() =>
+      resolveSessionPolicyConfig(
+        loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }),
+        root,
+        join(project, "config.json"),
+      ),
+    ).toThrow(PolicyStartupError);
   });
 
   test("property: 1,024 canonical aliases accept only the exact nearest allowlisted root", () => {
@@ -155,7 +187,10 @@ describe("globally gated project DSL policies", () => {
       const project = seed % 2 === 0 ? allowed : denied;
       const configuredRoot = seed % 4 < 2 ? allowed : allowedAlias;
       writeGlobalConfig(home, "allowlisted", [], [configuredRoot]);
-      const selected = resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), join(project, "work"));
+      const selected = resolveSessionPolicyConfig(
+        loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }),
+        join(project, "work"),
+      );
       expect(selected.projectRoot, `seed ${seed}`).toBe(project === allowed ? realpathSync(allowed) : undefined);
     }
   });
@@ -167,7 +202,10 @@ describe("globally gated project DSL policies", () => {
     const codePolicy = join(root, "global.policy.mjs");
     const projectAlias = join(project, "alias.policy.json");
     mkdirSync(project, { recursive: true });
-    writeFileSync(codePolicy, `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`);
+    writeFileSync(
+      codePolicy,
+      `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([]), evaluate: () => ({ kind: "ignore" }) });\n`,
+    );
     symlinkSync(codePolicy, projectAlias);
     writeGlobalConfig(home, "all", [codePolicy]);
     writeProjectConfig(project, ["alias.policy.json"]);
@@ -195,7 +233,9 @@ describe("globally gated project DSL policies", () => {
     const resolved = resolveSessionPolicyConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), project);
     const loaded = await loadPolicySet(resolved);
     expect(loaded.sources.map((source) => source.canonicalPath)).toEqual([
-      realpathSync(globalDeny), realpathSync(globalAllow), realpathSync(projectAllow),
+      realpathSync(globalDeny),
+      realpathSync(globalAllow),
+      realpathSync(projectAllow),
     ]);
     expect(evaluatePolicyEvents([invocation()], loaded.policies, { complete: true }).decision).toBe("deny");
 

@@ -76,15 +76,23 @@ export function loadGlobalPolicyConfig(env: Environment = process.env, configPat
 }
 
 /** Resolve global sources and the one applicable nearest project configuration. */
-export function resolveSessionPolicyConfig(config: GlobalPolicyConfig, cwd: string, projectConfigPath?: string): ResolvedSessionPolicyConfig {
+export function resolveSessionPolicyConfig(
+  config: GlobalPolicyConfig,
+  cwd: string,
+  projectConfigPath?: string,
+): ResolvedSessionPolicyConfig {
   const canonicalCwd = canonicalPath(cwd, "working directory");
-  const globalSources = config.policies.map((reference) => resolveSource(reference, dirname(config.path), "global", config.path));
-  const allowedRoots = config.projectPolicies.mode === "allowlisted"
-    ? config.projectPolicies.allowedRoots.map((path) => canonicalPath(path, "project allowlist root"))
-    : [];
-  const project = projectConfigPath === undefined
-    ? resolveApplicableProjectConfig(config, canonicalCwd, allowedRoots)
-    : resolveExplicitProjectConfig(projectConfigPath);
+  const globalSources = config.policies.map((reference) =>
+    resolveSource(reference, dirname(config.path), "global", config.path),
+  );
+  const allowedRoots =
+    config.projectPolicies.mode === "allowlisted"
+      ? config.projectPolicies.allowedRoots.map((path) => canonicalPath(path, "project allowlist root"))
+      : [];
+  const project =
+    projectConfigPath === undefined
+      ? resolveApplicableProjectConfig(config, canonicalCwd, allowedRoots)
+      : resolveExplicitProjectConfig(projectConfigPath);
   const sources = project === undefined ? globalSources : [...globalSources, ...project.sources];
   const configurations = project === undefined ? [config.configuration] : [config.configuration, project.configuration];
 
@@ -98,7 +106,11 @@ export function resolveSessionPolicyConfig(config: GlobalPolicyConfig, cwd: stri
 
 function globalConfigPath(env: Environment): string {
   if (env.SAFETY_CORE_CONFIG_HOME !== undefined) {
-    return join(requireAbsolutePath("SAFETY_CORE_CONFIG_HOME", env.SAFETY_CORE_CONFIG_HOME), "safety-core", "config.json");
+    return join(
+      requireAbsolutePath("SAFETY_CORE_CONFIG_HOME", env.SAFETY_CORE_CONFIG_HOME),
+      "safety-core",
+      "config.json",
+    );
   }
   if (env.XDG_CONFIG_HOME !== undefined) {
     return join(requireAbsolutePath("XDG_CONFIG_HOME", env.XDG_CONFIG_HOME), "safety-core", "config.json");
@@ -194,7 +206,8 @@ function parseProjectPolicies(value: unknown, path: string): ProjectPoliciesConf
   if (mode === "allowlisted" && !Array.isArray(record.allowedRoots)) {
     throw new PolicyStartupError(path, "projectPolicies.allowedRoots must be an array for allowlisted mode");
   }
-  const allowedRoots = mode === "allowlisted" ? parseAbsolutePaths(record.allowedRoots, path, "projectPolicies.allowedRoots") : [];
+  const allowedRoots =
+    mode === "allowlisted" ? parseAbsolutePaths(record.allowedRoots, path, "projectPolicies.allowedRoots") : [];
   return Object.freeze({ mode, allowedRoots: Object.freeze(allowedRoots) });
 }
 
@@ -202,13 +215,15 @@ function parseBashAnalysis(value: unknown, path: string): BashAnalysisConfig {
   const record = requireRecord(value, path, "bashAnalysis must be an object");
   const keys = new Set(["maxFunctionDepth", "maxNestedScriptDepth", "maxSteps", "maxWorkItems"]);
   requireOnlyKeys(record, keys, path);
-  const parsed = Object.fromEntries([...keys].map((key) => {
-    const limit = record[key];
-    if (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit <= 0) {
-      throw new PolicyStartupError(path, `bashAnalysis.${key} must be a positive safe integer`);
-    }
-    return [key, limit];
-  })) as BashAnalysisConfig;
+  const parsed = Object.fromEntries(
+    [...keys].map((key) => {
+      const limit = record[key];
+      if (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit <= 0) {
+        throw new PolicyStartupError(path, `bashAnalysis.${key} must be a positive safe integer`);
+      }
+      return [key, limit];
+    }),
+  ) as BashAnalysisConfig;
   return Object.freeze(parsed);
 }
 
@@ -216,7 +231,13 @@ function resolveApplicableProjectConfig(
   config: GlobalPolicyConfig,
   canonicalCwd: string,
   allowedRoots: readonly string[],
-): { readonly root: string; readonly configuration: PolicyConfigurationSource; readonly sources: readonly ResolvedPolicySource[] } | undefined {
+):
+  | {
+      readonly root: string;
+      readonly configuration: PolicyConfigurationSource;
+      readonly sources: readonly ResolvedPolicySource[];
+    }
+  | undefined {
   if (config.projectPolicies.mode === "disabled") return undefined;
   const root = findNearestProjectRoot(canonicalCwd);
   if (root === undefined) return undefined;
@@ -229,7 +250,11 @@ function resolveApplicableProjectConfig(
 }
 
 /** Explicit CLI selection composes the supplied project manifest with global sources. */
-function resolveExplicitProjectConfig(projectConfigPath: string): { readonly root: string; readonly configuration: PolicyConfigurationSource; readonly sources: readonly ResolvedPolicySource[] } {
+function resolveExplicitProjectConfig(projectConfigPath: string): {
+  readonly root: string;
+  readonly configuration: PolicyConfigurationSource;
+  readonly sources: readonly ResolvedPolicySource[];
+} {
   const suppliedPath = resolvePath(projectConfigPath);
   const projectConfigDirectory = dirname(suppliedPath);
   if (basename(suppliedPath) !== "config.json" || basename(projectConfigDirectory) !== ".safety-core") {
@@ -240,15 +265,21 @@ function resolveExplicitProjectConfig(projectConfigPath: string): { readonly roo
   return parseProjectConfig(root, configPath);
 }
 
-function parseProjectConfig(root: string, configPath: string): { readonly root: string; readonly configuration: PolicyConfigurationSource; readonly sources: readonly ResolvedPolicySource[] } {
+function parseProjectConfig(
+  root: string,
+  configPath: string,
+): {
+  readonly root: string;
+  readonly configuration: PolicyConfigurationSource;
+  readonly sources: readonly ResolvedPolicySource[];
+} {
   const document = readJson(configPath);
   const record = requireRecord(document.value, configPath, "project configuration must be an object");
   requireOnlyKeys(record, new Set(["version", "policies"]), configPath);
   if (record.version !== 1) throw new PolicyStartupError(configPath, "version must be 1");
   const policies = parsePolicies(record.policies, configPath);
   requireSourceExtensions(policies, ".policy.json", "project", configPath);
-  const sources = policies
-    .map((reference) => resolveSource(reference, root, "project", configPath));
+  const sources = policies.map((reference) => resolveSource(reference, root, "project", configPath));
   return Object.freeze({
     root,
     configuration: configurationSource(configPath, "project", document.bytes),
@@ -266,19 +297,31 @@ function findNearestProjectRoot(canonicalCwd: string): string | undefined {
   }
 }
 
-function resolveSource(reference: string, base: string, scope: ResolvedPolicySource["scope"], configPath: string): ResolvedPolicySource {
+function resolveSource(
+  reference: string,
+  base: string,
+  scope: ResolvedPolicySource["scope"],
+  configPath: string,
+): ResolvedPolicySource {
   const path = isAbsolute(reference) ? reference : resolvePath(base, reference);
-  const valid = scope === "global" ? path.endsWith(".policy.mjs") || path.endsWith(".policy.json") : path.endsWith(".policy.json");
+  const valid =
+    scope === "global" ? path.endsWith(".policy.mjs") || path.endsWith(".policy.json") : path.endsWith(".policy.json");
   if (!valid) {
     const extensions = scope === "global" ? ".policy.mjs or .policy.json" : ".policy.json";
-    throw new PolicyStartupError(configPath, `${scope} policy source must use the exact ${extensions} extension: ${reference}`);
+    throw new PolicyStartupError(
+      configPath,
+      `${scope} policy source must use the exact ${extensions} extension: ${reference}`,
+    );
   }
   return Object.freeze({ path, scope });
 }
 
 function requireGlobalSourceExtensions(references: readonly string[], path: string): void {
-  const invalid = references.find((reference) => !reference.endsWith(".policy.mjs") && !reference.endsWith(".policy.json"));
-  if (invalid !== undefined) throw new PolicyStartupError(path, `global policy source must use .policy.mjs or .policy.json: ${invalid}`);
+  const invalid = references.find(
+    (reference) => !reference.endsWith(".policy.mjs") && !reference.endsWith(".policy.json"),
+  );
+  if (invalid !== undefined)
+    throw new PolicyStartupError(path, `global policy source must use .policy.mjs or .policy.json: ${invalid}`);
 }
 
 function parsePolicies(value: unknown, path: string): string[] {
@@ -296,7 +339,10 @@ function requireSourceExtensions(references: readonly string[], extension: strin
 }
 
 function parseAbsolutePaths(value: unknown, path: string, field: string): string[] {
-  if (!Array.isArray(value) || !value.every((item) => typeof item === "string" && item.length > 0 && isAbsolute(item))) {
+  if (
+    !Array.isArray(value) ||
+    !value.every((item) => typeof item === "string" && item.length > 0 && isAbsolute(item))
+  ) {
     throw new PolicyStartupError(path, `${field} must be an array of non-empty absolute paths`);
   }
   return [...value];
@@ -320,7 +366,11 @@ function canonicalPath(path: string, subject: string): string {
   }
 }
 
-function configurationSource(canonicalPath: string, scope: PolicyConfigurationSource["scope"], bytes: Buffer): PolicyConfigurationSource {
+function configurationSource(
+  canonicalPath: string,
+  scope: PolicyConfigurationSource["scope"],
+  bytes: Buffer,
+): PolicyConfigurationSource {
   return Object.freeze({
     canonicalPath,
     scope,

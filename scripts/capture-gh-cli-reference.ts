@@ -59,20 +59,23 @@ const temporary = mkdtempSync(`${tmpdir()}/safety-core-gh-reference-`);
 try {
   const configDir = `${temporary}/config`;
   mkdirSync(configDir, { recursive: true });
-  writeFileSync(`${configDir}/config.yml`, [
-    "version: 1",
-    "git_protocol: https",
-    "prompt: disabled",
-    "prefer_editor_prompt: disabled",
-    "pager: cat",
-    "aliases: {}",
-    "color_labels: disabled",
-    "accessible_colors: disabled",
-    "accessible_prompter: disabled",
-    "spinner: disabled",
-    "telemetry: disabled",
-    "",
-  ].join("\n"));
+  writeFileSync(
+    `${configDir}/config.yml`,
+    [
+      "version: 1",
+      "git_protocol: https",
+      "prompt: disabled",
+      "prefer_editor_prompt: disabled",
+      "pager: cat",
+      "aliases: {}",
+      "color_labels: disabled",
+      "accessible_colors: disabled",
+      "accessible_prompter: disabled",
+      "spinner: disabled",
+      "telemetry: disabled",
+      "",
+    ].join("\n"),
+  );
 
   const environment = Object.freeze({
     HOME: `${temporary}/home`,
@@ -105,14 +108,17 @@ try {
     if (visiblePaths.has(hidden)) fail(`hidden command unexpectedly appeared in help reference: gh ${hidden}`);
   }
 
-  const hidden = HIDDEN_COMMANDS.map((path): ReferenceEntry => Object.freeze({
-    path: Object.freeze(path.split(" ")),
-    usage: `gh ${path}`,
-    summary: "Built-in route hidden from gh help reference",
-    aliases: Object.freeze((HIDDEN_COMMAND_ALIASES[path] ?? []).map((alias) => Object.freeze(alias.split(" ")))),
-    kind: "hidden-command",
-    preview: false,
-  }));
+  const hidden = HIDDEN_COMMANDS.map(
+    (path): ReferenceEntry =>
+      Object.freeze({
+        path: Object.freeze(path.split(" ")),
+        usage: `gh ${path}`,
+        summary: "Built-in route hidden from gh help reference",
+        aliases: Object.freeze((HIDDEN_COMMAND_ALIASES[path] ?? []).map((alias) => Object.freeze(alias.split(" ")))),
+        kind: "hidden-command",
+        preview: false,
+      }),
+  );
   const commands = [...visible, ...hidden].sort(compareEntries);
   validateCommands(commands);
 
@@ -129,9 +135,21 @@ try {
     helpTopics,
     environment: documentedEnvironment,
     dynamicRoutes: [
-      { kind: "configured-alias", route: "gh <alias>", rationale: "Aliases are loaded from mutable user configuration and are not native built-ins." },
-      { kind: "shipped-default-alias", route: "gh co", rationale: "The fallback co alias uses the same mutable alias mechanism and is not a native Cobra alias." },
-      { kind: "installed-extension", route: "gh <extension>", rationale: "Installed extensions are unreviewed external programs." },
+      {
+        kind: "configured-alias",
+        route: "gh <alias>",
+        rationale: "Aliases are loaded from mutable user configuration and are not native built-ins.",
+      },
+      {
+        kind: "shipped-default-alias",
+        route: "gh co",
+        rationale: "The fallback co alias uses the same mutable alias mechanism and is not a native Cobra alias.",
+      },
+      {
+        kind: "installed-extension",
+        route: "gh <extension>",
+        rationale: "Installed extensions are unreviewed external programs.",
+      },
       ...OFFICIAL_EXTENSION_STUBS.map((name) => ({
         kind: "official-extension-stub",
         route: `gh ${name}`,
@@ -167,14 +185,22 @@ function parseArguments(values: readonly string[]): { gh?: string; output?: stri
   return parsed;
 }
 
-async function stableCapture(binary: string, command: readonly string[], environment: Readonly<Record<string, string>>): Promise<string> {
+async function stableCapture(
+  binary: string,
+  command: readonly string[],
+  environment: Readonly<Record<string, string>>,
+): Promise<string> {
   const first = await capture(binary, command, environment);
   const second = await capture(binary, command, environment);
   if (first !== second) fail(`non-deterministic output from ${binary} ${command.join(" ")}`);
   return first;
 }
 
-async function capture(binary: string, command: readonly string[], environment: Readonly<Record<string, string>>): Promise<string> {
+async function capture(
+  binary: string,
+  command: readonly string[],
+  environment: Readonly<Record<string, string>>,
+): Promise<string> {
   const process = Bun.spawn([binary, ...command], { env: { ...environment }, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(process.stdout).text(),
@@ -213,7 +239,10 @@ function parseReference(reference: string): ReferenceEntry[] {
       continue;
     }
     if (!current) continue;
-    if (line === "Aliases") { aliases = true; continue; }
+    if (line === "Aliases") {
+      aliases = true;
+      continue;
+    }
     if (aliases && line.startsWith("gh ")) {
       current.aliases.push(...line.split(/,\s*/).map((value) => value.trim().split(/\s+/).slice(1)));
       aliases = false;
@@ -240,7 +269,9 @@ function parseReference(reference: string): ReferenceEntry[] {
   });
 }
 
-function parseHelpTopics(help: string): readonly { readonly name: string; readonly summary: string; readonly executable: true }[] {
+function parseHelpTopics(
+  help: string,
+): readonly { readonly name: string; readonly summary: string; readonly executable: true }[] {
   const lines = help.split("\n");
   const start = lines.indexOf("HELP TOPICS");
   if (start === -1) fail("gh help did not contain HELP TOPICS");

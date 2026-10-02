@@ -4,7 +4,6 @@ import { indeterminate, strongestOutcome, withPolicySpan, type Outcome } from ".
 import { policyDeny, safe } from "./outcome.js";
 import type { BashDispatchRequest, BashDispatchResult, BashPreflightRequest, BashPreflightResult } from "./walker.js";
 import { structuralHandlers, unknownStructuralHandler } from "./handlers/registry.js";
-import { unknownCommandHandler } from "./handlers/unknown.js";
 import { analyzeSecretRedirectInvocation } from "./policies/secrets.js";
 import { basename } from "../shell.js";
 import { projectExecutionGapEvent, projectInvocationEvent } from "../policy/events.js";
@@ -25,7 +24,10 @@ export interface PolicyDispatchContext {
   /** Redacted execution-route metadata for policy decisions. */
   readonly provenance: BashDispatchRequest["provenance"];
   /** Emit a generic execution gap before a structural preflight stops traversal. */
-  readonly recordExecutionGap?: (reason: import("./walker.js").ExecutionUnknownReason, processEffect: import("./walker.js").ProcessEffect) => void;
+  readonly recordExecutionGap?: (
+    reason: import("./walker.js").ExecutionUnknownReason,
+    processEffect: import("./walker.js").ProcessEffect,
+  ) => void;
 }
 
 /** Only structural handlers can schedule a statically materialized child script. */
@@ -41,9 +43,7 @@ export interface StructuralHandler {
   handle(cursor: InvocationCursor, context: StructuralDispatchContext): BashDispatchResult;
 }
 
-export type PolicyObservation =
-  | { readonly kind: "ignore" }
-  | { readonly kind: "outcome"; readonly outcome: Outcome };
+export type PolicyObservation = { readonly kind: "ignore" } | { readonly kind: "outcome"; readonly outcome: Outcome };
 
 /** Policy observers cannot recurse or otherwise affect structural traversal. */
 export interface PolicyObserver {
@@ -118,19 +118,25 @@ export function preflightCommand(
   const structural = registry.resolve(handlerName(executable.value)).structural;
   if (!structural?.preflight) return CONTINUE_PREFLIGHT;
   const cursor: InvocationCursor = freeze({ invocation: request.command, index: 0, options: freeze({}) });
-  const result = structural.preflight(cursor, freeze({
-    environment: request.command.environment,
-    span: request.span,
-    inPipeline: request.inPipeline,
-    provenance: request.provenance,
-    recordExecutionGap: (reason, processEffect) => request.recordPolicyEvent?.(projectExecutionGapEvent(reason, {
+  const result = structural.preflight(
+    cursor,
+    freeze({
       environment: request.command.environment,
       span: request.span,
-      provenance: request.provenance,
       inPipeline: request.inPipeline,
-      processEffect,
-    })),
-  }));
+      provenance: request.provenance,
+      recordExecutionGap: (reason, processEffect) =>
+        request.recordPolicyEvent?.(
+          projectExecutionGapEvent(reason, {
+            environment: request.command.environment,
+            span: request.span,
+            provenance: request.provenance,
+            inPipeline: request.inPipeline,
+            processEffect,
+          }),
+        ),
+    }),
+  );
   return result.kind === "deny" ? result : CONTINUE_PREFLIGHT;
 }
 
@@ -177,9 +183,10 @@ export function dispatchCommand(
     continueWithOpaque: request.continueWithOpaque,
   });
   // An external wrapper cannot invoke a Bash builtin merely by spelling its name.
-  const resolved = request.executionTarget === "external-path" && isBashBuiltin(handlerName(executable.value))
-    ? freeze({ name: unknownStructuralHandler.name, structural: null, observers: Object.freeze([]) })
-    : registry.resolve(handlerName(executable.value));
+  const resolved =
+    request.executionTarget === "external-path" && isBashBuiltin(handlerName(executable.value))
+      ? freeze({ name: unknownStructuralHandler.name, structural: null, observers: Object.freeze([]) })
+      : registry.resolve(handlerName(executable.value));
   const outcomes: Outcome[] = [];
   if (resolved.structural) {
     const structural = resolved.structural.handle(cursor, context);
@@ -190,13 +197,14 @@ export function dispatchCommand(
         if ("kind" in opaque) outcomes.push(opaque);
         else {
           recordExecutionGaps(request, opaque.children ?? []);
-          const outcome = strongestOutcome(observe(resolved.observers, cursor, policyContext, [structural, opaque.outcome]));
+          const outcome = strongestOutcome(
+            observe(resolved.observers, cursor, policyContext, [structural, opaque.outcome]),
+          );
           if (outcome.kind === "deny") return outcome;
           return freeze({ outcome, children: opaque.children });
         }
       }
-    }
-    else {
+    } else {
       recordExecutionGaps(request, structural.children ?? []);
       const outcome = strongestOutcome(observe(resolved.observers, cursor, policyContext, [structural.outcome]));
       if (outcome.kind === "deny") return outcome;
@@ -229,17 +237,25 @@ function handlerName(executable: string): string {
 
 function recordExecutionGaps(
   request: BashDispatchRequest,
-  children: readonly { readonly target: { readonly kind: string; readonly reason?: string }; readonly environment: BashDispatchRequest["command"]["environment"]; readonly provenance: BashDispatchRequest["provenance"]; readonly inPipeline: boolean; readonly processEffect: BashDispatchRequest["processEffect"] }[],
+  children: readonly {
+    readonly target: { readonly kind: string; readonly reason?: string };
+    readonly environment: BashDispatchRequest["command"]["environment"];
+    readonly provenance: BashDispatchRequest["provenance"];
+    readonly inPipeline: boolean;
+    readonly processEffect: BashDispatchRequest["processEffect"];
+  }[],
 ): void {
   for (const child of children) {
     if (child.target.kind !== "opaque" || !child.target.reason) continue;
-    request.recordPolicyEvent?.(projectExecutionGapEvent(child.target.reason, {
-      environment: child.environment,
-      span: request.span,
-      provenance: child.provenance,
-      inPipeline: child.inPipeline,
-      processEffect: child.processEffect,
-    }));
+    request.recordPolicyEvent?.(
+      projectExecutionGapEvent(child.target.reason, {
+        environment: child.environment,
+        span: request.span,
+        provenance: child.provenance,
+        inPipeline: child.inPipeline,
+        processEffect: child.processEffect,
+      }),
+    );
   }
 }
 

@@ -27,7 +27,7 @@ run(async () => {
   await initBundledBashParser(import.meta.url);
   const cwd = event.cwd ?? process.cwd();
   const runtime = await loadClaudeSessionRuntime(event.session_id, cwd);
-  let decision;
+  let decision: ReturnType<typeof evaluateClaudeBashPolicy>;
   try {
     decision = evaluateClaudeBashPolicy(event, { runtime });
   } catch (error) {
@@ -39,7 +39,11 @@ run(async () => {
 });
 
 /** Persist configuration and source identity during the one SessionStart event. */
-export async function establishClaudeSessionRuntime(sessionID: unknown, cwd: string, env: Readonly<Record<string, string | undefined>> = process.env): Promise<LoadedPolicyRuntime> {
+export async function establishClaudeSessionRuntime(
+  sessionID: unknown,
+  cwd: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): Promise<LoadedPolicyRuntime> {
   const manifestPath = claudeManifestPath(sessionID, cwd, env);
   const poisonPath = claudePoisonPath(manifestPath);
   if (existsSync(poisonPath)) throw new Error(readFileSync(poisonPath, "utf8"));
@@ -64,10 +68,16 @@ export async function establishClaudeSessionRuntime(sessionID: unknown, cwd: str
 }
 
 /** Load only the SessionStart snapshot; PreToolUse must never select live policy. */
-export async function loadClaudeSessionRuntime(sessionID: unknown, cwd: string, env: Readonly<Record<string, string | undefined>> = process.env): Promise<LoadedPolicyRuntime> {
+export async function loadClaudeSessionRuntime(
+  sessionID: unknown,
+  cwd: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): Promise<LoadedPolicyRuntime> {
   const manifestPath = claudeManifestPath(sessionID, cwd, env);
   if (!existsSync(manifestPath)) {
-    throw new Error(`${manifestPath}: immutable policy session manifest is missing; SessionStart must establish it before PreToolUse`);
+    throw new Error(
+      `${manifestPath}: immutable policy session manifest is missing; SessionStart must establish it before PreToolUse`,
+    );
   }
   const poisonPath = claudePoisonPath(manifestPath);
   if (existsSync(poisonPath)) throw new Error(readFileSync(poisonPath, "utf8"));
@@ -75,7 +85,12 @@ export async function loadClaudeSessionRuntime(sessionID: unknown, cwd: string, 
 }
 
 /** Persist a policy evaluation failure so every later hook invocation hard-fails. */
-export function poisonClaudeSession(sessionID: unknown, cwd: string, error: unknown, env: Readonly<Record<string, string | undefined>> = process.env): void {
+export function poisonClaudeSession(
+  sessionID: unknown,
+  cwd: string,
+  error: unknown,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): void {
   const manifestPath = claudeManifestPath(sessionID, cwd, env);
   const path = claudePoisonPath(manifestPath);
   const reason = error instanceof Error ? `Safety policy failed: ${error.message}` : "Safety policy failed";
@@ -119,9 +134,18 @@ async function acquireManifestLock(manifestPath: string): Promise<string | undef
   throw new Error(`${manifestPath}: timed out waiting for immutable policy session manifest`);
 }
 
-function claudeManifestPath(sessionID: unknown, cwd: string, env: Readonly<Record<string, string | undefined>>): string {
+function claudeManifestPath(
+  sessionID: unknown,
+  cwd: string,
+  env: Readonly<Record<string, string | undefined>>,
+): string {
   const stateHome = env.SAFETY_CORE_STATE_HOME ?? env.XDG_STATE_HOME ?? join(requireHome(env), ".local", "state");
-  return join(stateHome, "safety-core", "claude-policy-sessions", `${createHash("sha256").update(sessionIdentity(sessionID, cwd)).digest("hex")}.json`);
+  return join(
+    stateHome,
+    "safety-core",
+    "claude-policy-sessions",
+    `${createHash("sha256").update(sessionIdentity(sessionID, cwd)).digest("hex")}.json`,
+  );
 }
 
 function requireHome(env: Readonly<Record<string, string | undefined>>): string {
@@ -135,7 +159,9 @@ function readManifest(path: string, expectedSessionID: string): PolicySessionMan
     if (manifest.sessionID !== expectedSessionID) throw new Error("session ID does not match manifest key");
     return manifest;
   } catch (error) {
-    throw new Error(`${path}: cannot load immutable policy session manifest: ${error instanceof Error ? error.message : "invalid JSON"}`);
+    throw new Error(
+      `${path}: cannot load immutable policy session manifest: ${error instanceof Error ? error.message : "invalid JSON"}`,
+    );
   }
 }
 

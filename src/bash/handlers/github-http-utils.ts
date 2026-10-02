@@ -7,9 +7,9 @@ export function githubHttpHandler(name: string): PolicyObserver {
     name,
     observe(cursor, context) {
       const decision = analyzeGithubHttpInvocation(cursor.invocation);
-      return observePolicy(decision.kind === "deny"
-        ? policyDeny(context.span, decision.evidence)
-        : policySafe(decision.evidence));
+      return observePolicy(
+        decision.kind === "deny" ? policyDeny(context.span, decision.evidence) : policySafe(decision.evidence),
+      );
     },
   });
 }

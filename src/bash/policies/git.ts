@@ -49,13 +49,7 @@ const GIT_READ_ONLY_SUBCOMMANDS = new Set([
 // These options either write a file, inspect arbitrary filesystem content, or
 // explicitly invoke an external program. The normal configured diff pipeline
 // remains part of the accepted Git trust boundary.
-const UNSAFE_GIT_OPTIONS = new Set([
-  "--ext-diff",
-  "--no-index",
-  "--open-files-in-pager",
-  "--output",
-  "--textconv",
-]);
+const UNSAFE_GIT_OPTIONS = new Set(["--ext-diff", "--no-index", "--open-files-in-pager", "--output", "--textconv"]);
 
 /**
  * Proves the narrow Git forms accepted by the generic read-only Bash profile.
@@ -74,8 +68,10 @@ export function analyzeGitReadOnlyInvocation(args: readonly string[]): ReadOnlyI
 
   if (subcommand === "branch" && isBranchListing(remaining)) return readOnlyAllow("generic-read-only", "git");
   if (subcommand === "tag" && isTagListing(remaining)) return readOnlyAllow("generic-read-only", "git");
-  if (subcommand === "worktree" && isExactSubcommand(remaining, "list")) return readOnlyAllow("generic-read-only", "git");
-  if (subcommand === "submodule" && isExactSubcommand(remaining, "status")) return readOnlyAllow("generic-read-only", "git");
+  if (subcommand === "worktree" && isExactSubcommand(remaining, "list"))
+    return readOnlyAllow("generic-read-only", "git");
+  if (subcommand === "submodule" && isExactSubcommand(remaining, "status"))
+    return readOnlyAllow("generic-read-only", "git");
   if (subcommand === "reflog" && isExactSubcommand(remaining, "show")) return readOnlyAllow("generic-read-only", "git");
 
   return readOnlyDefer("generic-read-only", "git");

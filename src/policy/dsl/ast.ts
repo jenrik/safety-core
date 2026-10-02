@@ -8,13 +8,40 @@ export type PolicyDecisionKind = "allow" | "deny" | "defer" | "ignore";
 export type RegisterType = "bool" | "enum" | "count" | "inputRef" | "location" | "tuple";
 export type ExpressionType = BuiltinValueType | "unknown";
 
-export interface BoolRegister { readonly type: "bool"; readonly initial: boolean; }
-export interface EnumRegister { readonly type: "enum"; readonly values: readonly string[]; readonly initial: string; }
-export interface CountRegister { readonly type: "count"; readonly max: number; readonly initial: number; }
-export interface InputRefRegister { readonly type: "inputRef"; readonly initial: null; }
-export interface LocationRegister { readonly type: "location"; readonly initial: null; }
-export interface TupleRegister { readonly type: "tuple"; readonly items: readonly RegisterDeclaration[]; readonly initial: readonly unknown[]; }
-export type RegisterDeclaration = BoolRegister | EnumRegister | CountRegister | InputRefRegister | LocationRegister | TupleRegister;
+export interface BoolRegister {
+  readonly type: "bool";
+  readonly initial: boolean;
+}
+export interface EnumRegister {
+  readonly type: "enum";
+  readonly values: readonly string[];
+  readonly initial: string;
+}
+export interface CountRegister {
+  readonly type: "count";
+  readonly max: number;
+  readonly initial: number;
+}
+export interface InputRefRegister {
+  readonly type: "inputRef";
+  readonly initial: null;
+}
+export interface LocationRegister {
+  readonly type: "location";
+  readonly initial: null;
+}
+export interface TupleRegister {
+  readonly type: "tuple";
+  readonly items: readonly RegisterDeclaration[];
+  readonly initial: readonly unknown[];
+}
+export type RegisterDeclaration =
+  | BoolRegister
+  | EnumRegister
+  | CountRegister
+  | InputRefRegister
+  | LocationRegister
+  | TupleRegister;
 
 export type Expression =
   | string
@@ -29,7 +56,14 @@ export type Expression =
   | { readonly not: Expression };
 
 export type TemplatePart = string | Expression;
-export type AuditValue = string | number | boolean | null | { readonly ref: string } | { readonly [key: string]: AuditValue } | readonly AuditValue[];
+export type AuditValue =
+  | string
+  | number
+  | boolean
+  | null
+  | { readonly ref: string }
+  | { readonly [key: string]: AuditValue }
+  | readonly AuditValue[];
 
 export interface TransitionAction {
   readonly kind: "transition";
@@ -50,7 +84,10 @@ export interface TerminalAction {
 }
 
 export type Action = TransitionAction | TerminalAction;
-export interface PolicyCase { readonly when: Expression; readonly action: Action; }
+export interface PolicyCase {
+  readonly when: Expression;
+  readonly action: Action;
+}
 
 export interface StateDeclaration {
   readonly fragments: readonly string[];
@@ -86,7 +123,12 @@ export interface FragmentDeclaration {
 export type Selector =
   | { readonly kind: "invocation" }
   | { readonly kind: "execution-gap"; readonly reason?: string }
-  | { readonly executable: { readonly projection: "basename" | "selected-path" | "canonical-target" | "chain-contains"; readonly equals: string } };
+  | {
+      readonly executable: {
+        readonly projection: "basename" | "selected-path" | "canonical-target" | "chain-contains";
+        readonly equals: string;
+      };
+    };
 
 export interface ValidationMetrics {
   readonly nodes: number;

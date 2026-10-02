@@ -18,7 +18,12 @@ export function renderGhPrCreateCodePolicy(options: GhPrCreateCodePolicyOptions)
   ].join("\n");
 }
 
-function validateList(value: readonly string[], name: string, minimumSegments: number, maximumSegments: number): readonly string[] {
+function validateList(
+  value: readonly string[],
+  name: string,
+  minimumSegments: number,
+  maximumSegments: number,
+): readonly string[] {
   if (!Array.isArray(value)) throw new TypeError(`${name} must be an array of repository identifiers`);
   const normalized = value.map((item, index) => {
     if (typeof item !== "string") throw new TypeError(`${name}[${index}] must be a string`);
@@ -28,7 +33,8 @@ function validateList(value: readonly string[], name: string, minimumSegments: n
     }
     return parts.join("/");
   });
-  if (new Set(normalized).size !== normalized.length) throw new TypeError(`${name} must not contain duplicate identifiers`);
+  if (new Set(normalized).size !== normalized.length)
+    throw new TypeError(`${name} must not contain duplicate identifiers`);
   return Object.freeze(normalized);
 }
 

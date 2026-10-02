@@ -156,11 +156,11 @@ The package has no Claude Code runtime dependency; it only requires Node and
 
 ## Research references
 
-- OpenCode plugin package: https://www.npmjs.com/package/@opencode-ai/plugin
-- Upstream plugin manifest: https://github.com/anomalyco/opencode/blob/dev/packages/plugin/package.json
-- Upstream TUI API: https://github.com/anomalyco/opencode/blob/dev/packages/plugin/src/tui.ts
-- OpenCode v1 plugin documentation: https://opencode.ai/docs/plugins/
-- Experimental v2 Promise API: https://github.com/anomalyco/opencode/blob/dev/packages/plugin/src/v2/promise/README.md
-- Experimental v2 Effect API: https://github.com/anomalyco/opencode/blob/dev/packages/plugin/src/v2/effect/README.md
-- Pi package documentation: https://pi.dev/docs/latest/packages
-- Claude Code hooks reference: https://code.claude.com/docs/en/hooks
+- OpenCode plugin package: <https://www.npmjs.com/package/@opencode-ai/plugin>
+- Upstream plugin manifest: <https://github.com/anomalyco/opencode/blob/dev/packages/plugin/package.json>
+- Upstream TUI API: <https://github.com/anomalyco/opencode/blob/dev/packages/plugin/src/tui.ts>
+- OpenCode v1 plugin documentation: <https://opencode.ai/docs/plugins/>
+- Experimental v2 Promise API: <https://github.com/anomalyco/opencode/blob/dev/packages/plugin/src/v2/promise/README.md>
+- Experimental v2 Effect API: <https://github.com/anomalyco/opencode/blob/dev/packages/plugin/src/v2/effect/README.md>
+- Pi package documentation: <https://pi.dev/docs/latest/packages>
+- Claude Code hooks reference: <https://code.claude.com/docs/en/hooks>

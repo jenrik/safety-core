@@ -7,9 +7,9 @@ export function secretReaderHandler(name: string): PolicyObserver {
     name,
     observe(cursor, context) {
       const decision = analyzeSecretReadInvocation(cursor.invocation);
-      return observePolicy(decision.kind === "deny"
-        ? policyDeny(context.span, decision.evidence)
-        : policySafe(decision.evidence));
+      return observePolicy(
+        decision.kind === "deny" ? policyDeny(context.span, decision.evidence) : policySafe(decision.evidence),
+      );
     },
   });
 }

@@ -53,5 +53,10 @@ for (const hook of [
   "secret_command_reminder",
   "secrets_policy",
 ]) {
-  await build(`adapters/claude-code/${hook}.ts`, "packages/claude-code/dist", ["@safety-core/core"], "#!/usr/bin/env node\n");
+  await build(
+    `adapters/claude-code/${hook}.ts`,
+    "packages/claude-code/dist",
+    ["@safety-core/core"],
+    "#!/usr/bin/env node\n",
+  );
 }
