@@ -18,13 +18,16 @@ The authoritative global configuration is JSON at
 `$SAFETY_CORE_CONFIG_HOME/safety-core/config.json`, or
 `$XDG_CONFIG_HOME/safety-core/config.json`, or
 `$HOME/.config/safety-core/config.json`. The selected environment variable must
-be an absolute path. `safety-core --config /path/to/config.json validate` selects
+be an absolute path. `safety-core validate --config /path/to/config.json` selects
 that configuration file directly, overriding the environment lookup. The flag
 also accepts `--config=/path/to/config.json` and may appear before or after the
-subcommand. `safety-core validate` prints the canonical source path and
-SHA-256 digest selected for the current directory; use it before enabling a
-policy. `safety-core explain --json -- '<command>'` reports the exact modeled
-events and decisions for local diagnosis.
+subcommand. `--project-config /path/to/project/.safety-core/config.json`
+explicitly selects a project manifest and composes its declarative policies
+with the global configuration. `safety-core validate` prints the canonical
+source path and SHA-256 digest selected for the current directory; use it
+before enabling a policy. `safety-core explain --json '<command>'` reports the
+exact modeled events and decisions for local diagnosis. Use `--` before a
+source string that begins with `-`.
 
 ```json
 {

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { main } from "../src/cli.ts";
 
@@ -77,6 +77,25 @@ describe("safety-core CLI", () => {
     expect(result.stdout).toMatch(/^[a-f0-9]{64}  \/.*canary\.policy\.mjs\n$/);
   });
 
+  test("an explicit project configuration composes with an explicit global configuration", () => {
+    const home = fixture();
+    const config = join(home, "safety-core", "config.json");
+    const project = join(home, "project");
+    const projectConfig = join(project, ".safety-core", "config.json");
+    const policy = join(project, "project.policy.json");
+    mkdirSync(dirname(projectConfig), { recursive: true });
+    writeFileSync(projectConfig, JSON.stringify({ version: 1, policies: ["project.policy.json"] }));
+    writeFileSync(policy, JSON.stringify({
+      language: "safety-core/bash-policy-v1", layer: "permission", select: [{ kind: "invocation" }], registers: {}, start: "start",
+      states: { start: { cases: [], default: { decision: "ignore" }, end: { decision: "allow", reason: ["project allow"] } } },
+    }));
+
+    const result = cli(join(home, "missing"), ["--config", config, "--project-config", projectConfig, "validate"]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("canary.policy.mjs");
+    expect(result.stdout).toContain(`  ${policy}\n`);
+  });
+
   test("property: both config flag forms work before or after the command", async () => {
     const home = fixture();
     const config = join(home, "safety-core", "config.json");
@@ -93,14 +112,62 @@ describe("safety-core CLI", () => {
     }
   });
 
-  test("rejects missing and duplicate global config flags", () => {
+  test("property: global and project config flags accept natural ordering and equals forms", async () => {
     const home = fixture();
     const config = join(home, "safety-core", "config.json");
-    for (const args of [["--config", "validate"], ["--config=", "validate"], ["--config", config, "--config", config, "validate"]]) {
+    const project = join(home, "project");
+    const projectConfig = join(project, ".safety-core", "config.json");
+    writeFileSync(config, JSON.stringify({
+      version: 1,
+      policies: [],
+      projectPolicies: { mode: "disabled" },
+      bashAnalysis: { maxFunctionDepth: 7, maxNestedScriptDepth: 6, maxSteps: 50, maxWorkItems: 50 },
+    }));
+    mkdirSync(dirname(projectConfig), { recursive: true });
+    writeFileSync(projectConfig, JSON.stringify({ version: 1, policies: [] }));
+    for (let seed = 0; seed < 1_024; seed++) {
+      const globalOption = seed % 2 === 0 ? ["--config", config] : [`--config=${config}`];
+      const projectOption = seed % 4 < 2 ? ["--project-config", projectConfig] : [`--project-config=${projectConfig}`];
+      const options = seed % 8 < 4 ? [...globalOption, ...projectOption] : [...projectOption, ...globalOption];
+      const args = seed % 16 < 8 ? [...options, "validate"] : ["validate", ...options];
+      await expect(main(args), `seed ${seed}`).resolves.toBeUndefined();
+    }
+  });
+
+  test("rejects missing or empty global config paths", () => {
+    const home = fixture();
+    for (const args of [["--config"], ["--config=", "validate"]]) {
       const result = cli(home, args);
       expect(result.status, JSON.stringify(args)).not.toBe(0);
       expect(result.stderr, JSON.stringify(args)).toContain("--config");
     }
+  });
+
+  test("the final repeated global config option wins", () => {
+    const home = fixture();
+    const config = join(home, "safety-core", "config.json");
+    const result = cli(home, ["--config", join(home, "missing-config.json"), "--config", config, "validate"]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/^[a-f0-9]{64}  \/.*canary\.policy\.mjs\n$/);
+  });
+
+  test("rejects missing or empty project config paths", () => {
+    const home = fixture();
+    for (const args of [["--project-config"], ["--project-config=", "validate"]]) {
+      const result = cli(home, args);
+      expect(result.status, JSON.stringify(args)).not.toBe(0);
+      expect(result.stderr, JSON.stringify(args)).toContain("--project-config");
+    }
+  });
+
+  test("the final repeated project config option wins", () => {
+    const home = fixture();
+    const project = join(home, "project");
+    const projectConfig = join(project, ".safety-core", "config.json");
+    mkdirSync(dirname(projectConfig), { recursive: true });
+    writeFileSync(projectConfig, JSON.stringify({ version: 1, policies: [] }));
+    const result = cli(home, ["--project-config", join(home, "missing", ".safety-core", "config.json"), "--project-config", projectConfig, "validate"]);
+    expect(result.status).toBe(0);
   });
 
   test("validate reports canonical sources and digests and does not consult profiles.json", () => {
@@ -144,7 +211,7 @@ describe("safety-core CLI", () => {
 
   test("explain emits every source decision and the exact modeled canary argv and environment", () => {
     const home = fixture();
-    const result = cli(home, ["explain", "--json", "--", "CANARY_ASSIGN=exact-value printf '%s' CANARY_ARG"], { CANARY_INHERITED: "inherited-value" });
+    const result = cli(home, ["explain", "--json", "CANARY_ASSIGN=exact-value printf '%s' CANARY_ARG"], { CANARY_INHERITED: "inherited-value" });
     expect(result.status).toBe(0);
     const trace = JSON.parse(result.stdout);
     expect(trace).toMatchObject({ version: 1, decision: "allow" });
@@ -166,7 +233,7 @@ describe("safety-core CLI", () => {
       bashAnalysis: { maxFunctionDepth: 7, maxNestedScriptDepth: 6, maxSteps: 50, maxWorkItems: 50 },
     }));
 
-    const result = cli(home, ["explain", "--json", "--", "printf CANARY_ARG"], { CANARY_INHERITED: "exact-inherited-value" });
+    const result = cli(home, ["explain", "--json", "printf CANARY_ARG"], { CANARY_INHERITED: "exact-inherited-value" });
     expect(result.status).toBe(0);
     const trace = JSON.parse(result.stdout);
     expect(trace).toMatchObject({ version: 1, decision: "allow", analysis: { complete: true } });
@@ -174,6 +241,17 @@ describe("safety-core CLI", () => {
     expect(trace.events[0].environment.CANARY_INHERITED).toEqual({ kind: "known", value: "exact-inherited-value" });
     expect(trace.events[0].missingBindings).toBe("unset");
     expect(trace.decisions[0].decision).toMatchObject({ kind: "allow", reason: [{ kind: "literal", value: "inherited environment canary" }] });
+  });
+
+  test("Commander validates subcommand options and treats values after -- as Bash source", () => {
+    const home = fixture();
+    const invalidValidate = cli(home, ["validate", "--json"]);
+    expect(invalidValidate.status).not.toBe(0);
+    expect(invalidValidate.stderr).toContain("--json");
+
+    const sourceStartingWithOption = cli(home, ["explain", "--json", "--", "--config"]);
+    expect(sourceStartingWithOption.status).toBe(0);
+    expect(JSON.parse(sourceStartingWithOption.stdout)).toMatchObject({ version: 1, decision: "defer" });
   });
 });
 

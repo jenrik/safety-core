@@ -1,4 +1,5 @@
 import { initBundledBashParser } from "./shell.js";
+import { Command, CommanderError, InvalidArgumentError } from "commander";
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { PolicyStartupError } from "./policy/config.js";
@@ -7,53 +8,60 @@ import { evaluateLoadedPolicies, loadPolicyRuntime } from "./policy/runtime.js";
 import { nodeExecutableFilesystem } from "./policy/filesystem.js";
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
-  const { configPath, command, rest } = parseArguments(argv);
-  if (command !== "validate" && command !== "explain") throw new Error(usage());
-  const json = rest[0] === "--json";
-  const sourceArguments = rest.slice(json ? 1 : 0);
-  if (command === "explain" && (sourceArguments[0] !== "--" || sourceArguments.length !== 2)) {
-    throw new Error(`usage: safety-core [--config <path>] explain [--json] -- <bash-source>`);
+  try {
+    await createProgram().parseAsync([...argv], { from: "user" });
+  } catch (error) {
+    if (error instanceof CommanderError && error.exitCode === 0) return;
+    throw error;
   }
-  if (command === "validate" && sourceArguments.length !== 0) throw new Error("usage: safety-core [--config <path>] validate");
-
-  const runtime = await loadPolicyRuntime(process.cwd(), process.env, configPath);
-  if (command === "validate") {
-    for (const source of runtime.policySet.sources) process.stdout.write(`${source.sha256}  ${source.canonicalPath}\n`);
-    return;
-  }
-  await initBundledBashParser();
-  const evaluation = evaluateLoadedPolicies(runtime, sourceArguments[1]!, { kind: "verified", values: process.env as Record<string, string> }, { cwd: process.cwd(), executableFilesystem: nodeExecutableFilesystem });
-  process.stdout.write(renderExplainTrace(createExplainTrace(runtime, evaluation), json));
 }
 
-function parseArguments(argv: readonly string[]): { readonly configPath?: string; readonly command?: string; readonly rest: readonly string[] } {
-  let configPath: string | undefined;
-  const argumentsWithoutGlobalOptions: string[] = [];
-  for (let index = 0; index < argv.length; index++) {
-    const argument = argv[index]!;
-    if (argument === "--") {
-      argumentsWithoutGlobalOptions.push(...argv.slice(index));
-      break;
-    }
-    if (argument === "--config" || argument.startsWith("--config=")) {
-      if (configPath !== undefined) throw new Error("--config may only be specified once");
-      const path = argument === "--config" ? argv[++index] : argument.slice("--config=".length);
-      if (path === undefined || path.length === 0) throw new Error("--config requires a path");
-      configPath = path;
-      continue;
-    }
-    argumentsWithoutGlobalOptions.push(argument);
-  }
-  const [command, ...rest] = argumentsWithoutGlobalOptions;
-  return Object.freeze({ ...(configPath === undefined ? {} : { configPath }), ...(command === undefined ? {} : { command }), rest: Object.freeze(rest) });
+export function createProgram(): Command {
+  const program = new Command()
+    .name("safety-core")
+    .description("Inspect the safety-core policy configuration and explain Bash policy decisions.")
+    .option("--config <path>", "load global configuration from an explicit path", nonEmptyPath("--config"))
+    .option("--project-config <path>", "load project configuration from an explicit path", nonEmptyPath("--project-config"))
+    .exitOverride();
+
+  program
+    .command("validate")
+    .description("print the canonical paths and digests of active policy sources")
+    .action(async () => {
+      const options = program.opts<{ config?: string; projectConfig?: string }>();
+      const runtime = await loadPolicyRuntime(process.cwd(), process.env, options.config, options.projectConfig);
+      for (const source of runtime.policySet.sources) process.stdout.write(`${source.sha256}  ${source.canonicalPath}\n`);
+    });
+
+  program
+    .command("explain")
+    .description("explain the policy decision for one Bash source string")
+    .option("--json", "emit the trace as JSON")
+    .argument("<bash-source>", "Bash source to analyze")
+    .action(async (source: string, options: { readonly json?: boolean }) => {
+      const paths = program.opts<{ config?: string; projectConfig?: string }>();
+      const runtime = await loadPolicyRuntime(process.cwd(), process.env, paths.config, paths.projectConfig);
+      await initBundledBashParser();
+      const evaluation = evaluateLoadedPolicies(runtime, source, { kind: "verified", values: process.env as Record<string, string> }, { cwd: process.cwd(), executableFilesystem: nodeExecutableFilesystem });
+      process.stdout.write(renderExplainTrace(createExplainTrace(runtime, evaluation), options.json === true));
+    });
+
+  return program;
 }
 
-function usage(): string {
-  return "usage: safety-core [--config <path>] validate | safety-core [--config <path>] explain [--json] -- <bash-source>";
+function nonEmptyPath(option: string): (path: string) => string {
+  return (path) => {
+    if (path.length === 0) throw new InvalidArgumentError(`${option} requires a non-empty path`);
+    return path;
+  };
 }
 
 if (process.argv[1] && pathToFileURL(realpathSync(process.argv[1])).href === import.meta.url) {
   main().catch((error: unknown) => {
+    if (error instanceof CommanderError) {
+      process.exitCode = error.exitCode;
+      return;
+    }
     const message = error instanceof PolicyStartupError || error instanceof Error ? error.message : "safety-core failed";
     process.stderr.write(`safety-core: ${message}\n`);
     process.exitCode = 1;

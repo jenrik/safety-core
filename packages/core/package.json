@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "type": "module",
   "description": "Shared safety-core policy engine and Bash parser runtime",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "exports": {
     ".": "./dist/index.js",
     "./cli": "./dist/cli.js"
@@ -18,6 +21,7 @@
     "prepack": "bun ../../scripts/build-native-node-packages.ts"
   },
   "dependencies": {
+    "commander": "15.0.0",
     "web-tree-sitter": "0.26.11"
   }
 }

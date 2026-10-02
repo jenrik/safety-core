@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 
 export class PolicyStartupError extends Error {
   readonly sourcePath: string;
@@ -74,13 +74,15 @@ export function loadGlobalPolicyConfig(env: Environment = process.env, configPat
 }
 
 /** Resolve global sources and the one applicable nearest project configuration. */
-export function resolveSessionPolicyConfig(config: GlobalPolicyConfig, cwd: string): ResolvedSessionPolicyConfig {
+export function resolveSessionPolicyConfig(config: GlobalPolicyConfig, cwd: string, projectConfigPath?: string): ResolvedSessionPolicyConfig {
   const canonicalCwd = canonicalPath(cwd, "working directory");
   const globalSources = config.policies.map((reference) => resolveSource(reference, dirname(config.path), "global", config.path));
   const allowedRoots = config.projectPolicies.mode === "allowlisted"
     ? config.projectPolicies.allowedRoots.map((path) => canonicalPath(path, "project allowlist root"))
     : [];
-  const project = resolveApplicableProjectConfig(config, canonicalCwd, allowedRoots);
+  const project = projectConfigPath === undefined
+    ? resolveApplicableProjectConfig(config, canonicalCwd, allowedRoots)
+    : resolveExplicitProjectConfig(projectConfigPath);
   const sources = project === undefined ? globalSources : [...globalSources, ...project.sources];
   const configurations = project === undefined ? [config.configuration] : [config.configuration, project.configuration];
 
@@ -199,6 +201,22 @@ function resolveApplicableProjectConfig(
   }
 
   const configPath = canonicalPath(join(root, ".safety-core", "config.json"), "project configuration");
+  return parseProjectConfig(root, configPath);
+}
+
+/** Explicit CLI selection composes the supplied project manifest with global sources. */
+function resolveExplicitProjectConfig(projectConfigPath: string): { readonly root: string; readonly configuration: PolicyConfigurationSource; readonly sources: readonly ResolvedPolicySource[] } {
+  const suppliedPath = resolvePath(projectConfigPath);
+  const projectConfigDirectory = dirname(suppliedPath);
+  if (basename(suppliedPath) !== "config.json" || basename(projectConfigDirectory) !== ".safety-core") {
+    throw new PolicyStartupError(suppliedPath, "explicit project configuration must be named .safety-core/config.json");
+  }
+  const root = canonicalPath(dirname(projectConfigDirectory), "project root");
+  const configPath = canonicalPath(suppliedPath, "project configuration");
+  return parseProjectConfig(root, configPath);
+}
+
+function parseProjectConfig(root: string, configPath: string): { readonly root: string; readonly configuration: PolicyConfigurationSource; readonly sources: readonly ResolvedPolicySource[] } {
   const document = readJson(configPath);
   const record = requireRecord(document.value, configPath, "project configuration must be an object");
   requireOnlyKeys(record, new Set(["version", "policies"]), configPath);
