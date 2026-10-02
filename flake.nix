@@ -5,7 +5,8 @@
 
   outputs = { self, nixpkgs }:
     let
-      forAllSystems = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ];
+      lib = nixpkgs.lib;
+      forAllSystems = lib.genAttrs [ "x86_64-linux" "aarch64-linux" ];
       pkgsFor = system: nixpkgs.legacyPackages.${system};
       scFor = system: (pkgsFor system).callPackage ./package.nix { };
     in {
@@ -24,7 +25,7 @@
             allowedRepositories = [ "acme/widgets" ];
             allowedOrganizations = [ ];
           };
-          productionDslPolicies = [
+          completePolicySources = [
             sc.dslPolicies.secretRead
             sc.dslPolicies.githubHttp
             sc.dslPolicies.kubectl
@@ -33,7 +34,60 @@
             sc.dslPolicies.ghReadOnly
             sc.dslPolicies.helmReadOnly
             sc.dslPolicies.ghApi
-          ] ++ sc.dslPolicies.strictReadOnly ++ [ "${prPolicy}/gh-pr-create.policy.json" ];
+          ] ++ sc.dslPolicies.strictReadOnly;
+          productionDslPolicies = completePolicySources ++ [ "${prPolicy}/gh-pr-create.policy.json" ];
+          evalPermissions = module:
+            let
+              stub = { lib, ... }: {
+                options = {
+                  home.packages = lib.mkOption { type = lib.types.listOf lib.types.package; default = [ ]; };
+                  xdg.configFile = lib.mkOption { type = lib.types.attrsOf lib.types.anything; default = { }; };
+                  programs.claude-code.settings = lib.mkOption { type = lib.types.anything; default = { }; };
+                };
+              };
+              evaluated = lib.evalModules {
+                specialArgs = { inherit pkgs; };
+                modules = [ stub ./nix/permissions.nix module ];
+              };
+              files = evaluated.config.xdg.configFile;
+            in {
+              config = builtins.fromJSON (builtins.unsafeDiscardStringContext files."safety-core/config.json".text);
+              cli = map toString evaluated.config.home.packages;
+              claudeHookFile =
+                if files ? "safety-core/claude/bash_policy.mjs"
+                then toString files."safety-core/claude/bash_policy.mjs".source
+                else null;
+              hooks = evaluated.config.programs.claude-code.settings.hooks or { };
+            };
+          completeEval = evalPermissions {
+            config.programs.safetyCorePermissions.completePolicySources = true;
+            config.programs.safetyCorePermissions.bashAnalysis.maxSteps = 5;
+          };
+          piEval = evalPermissions {
+            config.programs.safetyCorePermissions.pi.autoApprove = true;
+            config.programs.safetyCorePermissions.pi.judgeModel = "anthropic/claude-haiku";
+            config.programs.safetyCorePermissions.pi.showFullCommand = false;
+          };
+          disabledEval = evalPermissions { };
+          enabledEval = evalPermissions {
+            config.programs.safetyCorePermissions.installCli = true;
+            config.programs.safetyCorePermissions.installClaudeBashHook = true;
+          };
+          expectedHooks = {
+            PreToolUse = [{
+              matcher = "Bash";
+              hooks = [{
+                type = "command";
+                command = "\${XDG_CONFIG_HOME:-$HOME/.config}/safety-core/claude/bash_policy.mjs";
+              }];
+            }];
+            SessionStart = [{
+              hooks = [{
+                type = "command";
+                command = "\${XDG_CONFIG_HOME:-$HOME/.config}/safety-core/claude/bash_policy.mjs";
+              }];
+            }];
+          };
         in {
           code-policies-runtime = pkgs.runCommand "safety-core-code-policies-runtime-check" { } ''
             set -e
@@ -86,6 +140,63 @@
               | SAFETY_CORE_CONFIG_HOME="$PWD/config" SAFETY_CORE_STATE_HOME="$PWD/state" ${sc.claudeCodeHooks}/bash_policy.mjs)"
             touch $out
           '';
+          home-manager-config =
+            let
+              actualJson = pkgs.writeText "safety-core-home-manager-actual.json" (builtins.toJSON {
+                complete = completeEval.config;
+                pi = piEval.config;
+                disabledCli = disabledEval.cli;
+                disabledHookFile = disabledEval.claudeHookFile;
+                disabledHooks = disabledEval.hooks;
+                enabledCli = enabledEval.cli;
+                enabledHookFile = enabledEval.claudeHookFile;
+                enabledHooks = enabledEval.hooks;
+              });
+              expectedJson = pkgs.writeText "safety-core-home-manager-expected.json" (builtins.toJSON {
+                completeSubset = {
+                  version = 1;
+                  projectPolicies = { mode = "disabled"; };
+                  bashAnalysis = {
+                    maxFunctionDepth = 128;
+                    maxNestedScriptDepth = 64;
+                    maxSteps = 5;
+                    maxWorkItems = 10000;
+                  };
+                  pi = { autoApprove = false; showFullCommand = true; };
+                };
+                completePolicyCount = builtins.length completePolicySources;
+                pi = {
+                  autoApprove = true;
+                  judgeModel = "anthropic/claude-haiku";
+                  showFullCommand = false;
+                };
+                disabledCli = [ ];
+                disabledHooks = { };
+                enabledHooks = expectedHooks;
+              });
+            in pkgs.runCommand "safety-core-home-manager-config-check" { buildInputs = [ pkgs.nodejs_22 ]; } ''
+              set -e
+              ${pkgs.nodejs_22}/bin/node -e '
+                const fs = require("node:fs");
+                const assert = require("node:assert/strict");
+                const actual = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+                const expected = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+                for (const [key, value] of Object.entries(expected.completeSubset)) {
+                  assert.deepStrictEqual(actual.complete[key], value, "complete " + key);
+                }
+                assert.strictEqual(actual.complete.policies.length, expected.completePolicyCount);
+                assert.deepStrictEqual(actual.pi.pi, expected.pi);
+                assert.deepStrictEqual(actual.disabledCli, expected.disabledCli);
+                assert.strictEqual(actual.disabledHookFile, null);
+                assert.deepStrictEqual(actual.disabledHooks, expected.disabledHooks);
+                const enabledCli = actual.enabledCli;
+                assert.strictEqual(enabledCli.length, 1);
+                assert.ok(enabledCli[0].includes("safety-core"), enabledCli[0]);
+                assert.ok(actual.enabledHookFile.includes("claude-code-safety-hooks"));
+                assert.deepStrictEqual(actual.enabledHooks, expected.enabledHooks);
+              ' ${actualJson} ${expectedJson}
+              touch $out
+            '';
         });
 
       # Build against this flake's locked Nixpkgs rather than the consuming
