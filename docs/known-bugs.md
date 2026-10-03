@@ -49,6 +49,30 @@ requirement. Without that permission check it defers, including when another
 command in the same source is permitted. See
 `tests/bash-redirect-authorization.test.ts`.
 
+## Bracket test commands are not policy-visible invocations
+
+The Bash parser/walker currently projects the ordinary `test` builtin as an
+invocation, but parses the bracket spelling `[ ... ]` as an unsupported shell
+statement. For example, an analysis of:
+
+```sh
+[ -r ./file ]
+```
+
+produces an `unsupported-shell-statement` execution gap instead of an
+invocation whose executable is `[` and whose argv is `-r`, `./file`, `]`.
+Therefore a DSL policy selected for `[` cannot permit the command: it never
+receives an event to evaluate, and the aggregate request conservatively defers.
+
+This prevents the intended `bash-test` policy from giving equivalent treatment
+to direct `test` and bracket-terminated `[`. The core needs to model the Bash
+test-command syntax as a policy-visible builtin invocation, preserving its
+argv, direct-builtin/function-shadowing resolution, redirections, and source
+span. It must retain the parser failure/defer behavior for an unterminated
+bracket command such as `[ foo`. Add direct Bash-oracle and property tests for
+both spellings, metadata predicates, function shadowing, and final-`]`
+validation before enabling automatic authorization for `[`.
+
 ## Resolved: here-string redirections were not projected as redirects
 
 The Bash analyzer can model an invocation with a here-string redirection as an

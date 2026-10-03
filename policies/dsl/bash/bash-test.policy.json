@@ -1,0 +1,88 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "permission",
+  "select": [
+    { "executable": { "projection": "basename", "equals": "test" } },
+    { "executable": { "projection": "basename", "equals": "[" } }
+  ],
+  "registers": {},
+  "folds": {
+    "operandsKnown": {
+      "collection": "argv",
+      "operation": "all",
+      "when": { "call": "equals", "args": [{ "ref": "fold.item" }, { "ref": "fold.item" }] }
+    }
+  },
+  "options": {},
+  "fragments": {},
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [
+        {
+          "when": {
+            "all": [
+              { "call": "isDirectExecutable", "args": ["test"] },
+              { "call": "executionTargetIs", "args": ["builtin"] },
+              { "not": { "call": "hasAnyAssignment", "args": [] } },
+              { "ref": "fold.operandsKnown" }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": ["direct test predicate builtin auto-allowed"],
+            "audit": { "invocation": { "ref": "event" } },
+            "fold": ["operandsKnown"]
+          }
+        },
+        {
+          "when": {
+            "all": [
+              { "call": "isDirectExecutable", "args": ["["] },
+              { "call": "executionTargetIs", "args": ["builtin"] },
+              { "not": { "call": "hasAnyAssignment", "args": [] } },
+              { "call": "equals", "args": [{ "ref": "word" }, "]"] }
+            ]
+          },
+          "action": { "consume": "word", "next": "bracketEnd" }
+        },
+        {
+          "when": {
+            "all": [
+              { "call": "isDirectExecutable", "args": ["["] },
+              { "call": "executionTargetIs", "args": ["builtin"] },
+              { "not": { "call": "hasAnyAssignment", "args": [] } },
+              { "call": "equals", "args": [{ "ref": "word" }, { "ref": "word" }] }
+            ]
+          },
+          "action": { "consume": "word", "next": "bracketOperands" }
+        }
+      ],
+      "default": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } },
+      "end": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+    },
+    "bracketOperands": {
+      "cases": [
+        {
+          "when": { "call": "equals", "args": [{ "ref": "word" }, "]"] },
+          "action": { "consume": "word", "next": "bracketEnd" }
+        },
+        {
+          "when": { "call": "equals", "args": [{ "ref": "word" }, { "ref": "word" }] },
+          "action": { "consume": "word", "next": "bracketOperands" }
+        }
+      ],
+      "default": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } },
+      "end": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+    },
+    "bracketEnd": {
+      "cases": [],
+      "default": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } },
+      "end": {
+        "decision": "allow",
+        "reason": ["direct [ predicate builtin with final ] auto-allowed"],
+        "audit": { "invocation": { "ref": "event" } }
+      }
+    }
+  }
+}

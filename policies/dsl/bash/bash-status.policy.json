@@ -1,0 +1,172 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "permission",
+  "select": [
+    { "executable": { "projection": "basename", "equals": ":" } },
+    { "executable": { "projection": "basename", "equals": "true" } },
+    { "executable": { "projection": "basename", "equals": "false" } }
+  ],
+  "registers": {},
+  "folds": {},
+  "options": {},
+  "fragments": {},
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [
+        {
+          "when": {
+            "all": [
+              { "call": "atEndOfArguments", "args": [] },
+              {
+                "call": "isDirectExecutable",
+                "args": [":"]
+              },
+              { "call": "executionTargetIs", "args": ["builtin"] },
+              { "not": { "call": "hasAnyAssignment", "args": [] } }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": ["direct : status builtin auto-allowed"],
+            "audit": { "invocation": { "ref": "event" } }
+          }
+        },
+        {
+          "when": {
+            "all": [
+              { "call": "atEndOfArguments", "args": [] },
+              {
+                "call": "isDirectExecutable",
+                "args": ["true"]
+              },
+              { "call": "executionTargetIs", "args": ["builtin"] },
+              { "not": { "call": "hasAnyAssignment", "args": [] } }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": ["direct true status builtin auto-allowed"],
+            "audit": { "invocation": { "ref": "event" } }
+          }
+        },
+        {
+          "when": {
+            "all": [
+              { "call": "atEndOfArguments", "args": [] },
+              {
+                "call": "isDirectExecutable",
+                "args": ["false"]
+              },
+              { "call": "executionTargetIs", "args": ["builtin"] },
+              { "not": { "call": "hasAnyAssignment", "args": [] } }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": ["direct false status builtin auto-allowed"],
+            "audit": { "invocation": { "ref": "event" } }
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [":"]
+              },
+              { "call": "executionTargetIs", "args": ["builtin"] },
+              { "not": { "call": "hasAnyAssignment", "args": [] } },
+              { "call": "equals", "args": [{ "ref": "word" }, { "ref": "word" }] }
+            ]
+          },
+          "action": { "consume": "word", "next": "colonOperands" }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": ["true"]
+              },
+              { "call": "executionTargetIs", "args": ["builtin"] },
+              { "not": { "call": "hasAnyAssignment", "args": [] } },
+              { "call": "equals", "args": [{ "ref": "word" }, { "ref": "word" }] }
+            ]
+          },
+          "action": { "consume": "word", "next": "trueOperands" }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": ["false"]
+              },
+              { "call": "executionTargetIs", "args": ["builtin"] },
+              { "not": { "call": "hasAnyAssignment", "args": [] } },
+              { "call": "equals", "args": [{ "ref": "word" }, { "ref": "word" }] }
+            ]
+          },
+          "action": { "consume": "word", "next": "falseOperands" }
+        }
+      ],
+      "default": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } },
+      "end": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+    },
+    "colonOperands": {
+      "cases": [
+        {
+          "when": { "call": "atEndOfArguments", "args": [] },
+          "action": {
+            "decision": "allow",
+            "reason": ["direct : status builtin auto-allowed"],
+            "audit": { "invocation": { "ref": "event" } }
+          }
+        },
+        {
+          "when": { "call": "equals", "args": [{ "ref": "word" }, { "ref": "word" }] },
+          "action": { "consume": "word", "next": "colonOperands" }
+        }
+      ],
+      "default": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } },
+      "end": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+    },
+    "trueOperands": {
+      "cases": [
+        {
+          "when": { "call": "atEndOfArguments", "args": [] },
+          "action": {
+            "decision": "allow",
+            "reason": ["direct true status builtin auto-allowed"],
+            "audit": { "invocation": { "ref": "event" } }
+          }
+        },
+        {
+          "when": { "call": "equals", "args": [{ "ref": "word" }, { "ref": "word" }] },
+          "action": { "consume": "word", "next": "trueOperands" }
+        }
+      ],
+      "default": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } },
+      "end": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+    },
+    "falseOperands": {
+      "cases": [
+        {
+          "when": { "call": "atEndOfArguments", "args": [] },
+          "action": {
+            "decision": "allow",
+            "reason": ["direct false status builtin auto-allowed"],
+            "audit": { "invocation": { "ref": "event" } }
+          }
+        },
+        {
+          "when": { "call": "equals", "args": [{ "ref": "word" }, { "ref": "word" }] },
+          "action": { "consume": "word", "next": "falseOperands" }
+        }
+      ],
+      "default": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } },
+      "end": { "decision": "defer", "audit": { "invocation": { "ref": "event" } } }
+    }
+  }
+}
