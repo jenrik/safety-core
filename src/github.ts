@@ -3,8 +3,8 @@
 // The Bash compatibility facade remains until Slice 6; Claude Code uses the
 // configured evaluator and keeps malformed-event fallback handling in its adapter.
 
-import { BLOCKED_GITHUB_DOMAINS } from "./patterns.js";
 import { GITHUB_GENERIC_HINT } from "./messages.js";
+import { BLOCKED_GITHUB_DOMAINS } from "./patterns.js";
 
 const RAW_URL_RE = /https?:\/\/raw\.githubusercontent\.com\/([^/\s"']+)\/([^/\s"']+)\/([^/\s"']+)\/([^\s"'#?]+)/i;
 const API_URL_RE = /https?:\/\/api\.github\.com(\/[^\s"'#?]*)?/i;
@@ -47,19 +47,21 @@ function buildRawSuggestion(url: string): string {
   if (!m) {
     return (
       `Blocked: ${url}\n\n` +
-      "Use gh CLI for single files:\n" +
-      "  gh api repos/<owner>/<repo>/contents/<path>?ref=<ref> | jq -r '.content' | base64 -d\n\n" +
-      "Or clone for multiple files:\n" +
-      "  git clone --depth=1 https://github.com/<owner>/<repo>.git /tmp/agent/<repo>"
+      "Use the GitHub CLI, not direct HTTP. `gh` has no native subcommand for reading one file.\n\n" +
+      "For one file, use the GitHub CLI API fallback:\n" +
+      "  gh api 'repos/<owner>/<repo>/contents/<path>?ref=<ref>' | jq -r '.content' | base64 -d\n\n" +
+      "For multiple files, use the native gh repo clone subcommand:\n" +
+      "  gh repo clone <owner>/<repo> /tmp/agent/<repo> -- --filter=blob:none"
     );
   }
   const [, owner, repo, ref, path] = m;
   return (
     `Blocked: ${url}\n\n` +
-    "Option 1 — single file via gh:\n" +
-    `  gh api repos/${owner}/${repo}/contents/${path}?ref=${ref} | jq -r '.content' | base64 -d\n\n` +
-    "Option 2 — multiple files (clone repo):\n" +
-    `  git clone --depth=1 https://github.com/${owner}/${repo}.git /tmp/agent/${repo}\n` +
+    "Use the GitHub CLI, not direct HTTP. `gh` has no native subcommand for reading one file.\n\n" +
+    "For this one file, use the GitHub CLI API fallback:\n" +
+    `  gh api 'repos/${owner}/${repo}/contents/${path}?ref=${ref}' | jq -r '.content' | base64 -d\n\n` +
+    "For multiple files, use the native gh repo clone subcommand:\n" +
+    `  gh repo clone ${owner}/${repo} /tmp/agent/${repo} -- --filter=blob:none\n` +
     `  # then read files directly from /tmp/agent/${repo}/`
   );
 }
@@ -102,9 +104,10 @@ export function buildFallbackGithubBlock(domain: string): string {
   return (
     `Blocked: direct HTTP request to ${domain} detected.\n\n` +
     `${GITHUB_GENERIC_HINT}\n\n` +
-    "For raw file content use:\n" +
-    "  gh api repos/<owner>/<repo>/contents/<path>?ref=<ref> | jq -r '.content' | base64 -d\n" +
-    "  git clone --depth=1 https://github.com/<owner>/<repo>.git /tmp/agent/<repo>"
+    "For raw file content, `gh api` is the GitHub CLI fallback because gh has no native file-read subcommand:\n" +
+    "  gh api 'repos/<owner>/<repo>/contents/<path>?ref=<ref>' | jq -r '.content' | base64 -d\n\n" +
+    "For multiple files, use the native gh repo clone subcommand:\n" +
+    "  gh repo clone <owner>/<repo> /tmp/agent/<repo> -- --filter=blob:none"
   );
 }
 

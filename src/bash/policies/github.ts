@@ -1,7 +1,7 @@
+import { buildGithubSuggestion, detectBlockedDomain } from "../../github.js";
+import { GITHUB_GENERIC_HINT } from "../../messages.js";
 import type { NormalizedCommand, ResolvedWord } from "../expand.js";
 import { isBindingResolvedWord } from "../word-provenance.js";
-import { GITHUB_GENERIC_HINT } from "../../messages.js";
-import { buildGithubSuggestion, detectBlockedDomain } from "../../github.js";
 
 export type GithubHttpPolicyDecision =
   | { readonly kind: "allow"; readonly evidence: { readonly name: "github-http"; readonly decision: "allow" } }
@@ -41,9 +41,10 @@ export function buildGithubHttpBlock(domain: string): string {
     `Blocked: direct HTTP request to ${domain} detected.\n\n` +
     "Use the native gh command where possible.\n\n" +
     `${GITHUB_GENERIC_HINT}\n\n` +
-    "For raw file content use:\n" +
-    "  gh api repos/<owner>/<repo>/contents/<path>?ref=<ref> | jq -r '.content' | base64 -d\n" +
-    "  git clone --depth=1 https://github.com/<owner>/<repo>.git /tmp/agent/<repo>"
+    "For raw file content, `gh api` is the GitHub CLI fallback because gh has no native file-read subcommand:\n" +
+    "  gh api 'repos/<owner>/<repo>/contents/<path>?ref=<ref>' | jq -r '.content' | base64 -d\n\n" +
+    "For multiple files, use the native gh repo clone subcommand:\n" +
+    "  gh repo clone <owner>/<repo> /tmp/agent/<repo> -- --filter=blob:none"
   );
 }
 

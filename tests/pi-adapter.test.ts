@@ -3,12 +3,13 @@ import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  type BashPolicyEvaluation,
+  buildGithubSuggestion,
   completePolicyInitialEnvironment,
   evaluateLoadedPolicies,
   initBundledBashParser,
-  loadPolicyRuntime,
-  type BashPolicyEvaluation,
   type LoadedPolicyRuntime,
+  loadPolicyRuntime,
   type ValidatedBashPolicy,
 } from "../src/index.ts";
 
@@ -174,6 +175,39 @@ test("Pi blocks generic denial and prompts only generic defer", async () => {
     { hasUI: true, signal: undefined, ui: { confirm: async () => false, notify() {} } },
   );
   expect(deferred).toEqual({ block: true, reason: "Command requires policy approval" });
+});
+
+test("Pi preserves actionable GitHub CLI steering when blocking Bash", async () => {
+  const { createPiExtension } = await import("../adapters/pi.ts");
+  const handlers = new Map<string, Function>();
+  const suggestion = buildGithubSuggestion(
+    "https://raw.githubusercontent.com/NixOS/nixpkgs/main/pkgs/by-name/pi/pi-coding-agent/package.nix",
+  );
+  const githubDeny: BashPolicyEvaluation = {
+    ...deny,
+    traces: [
+      {
+        ...deny.traces[0]!,
+        decision: { kind: "deny", reason: [{ kind: "literal", value: suggestion }] },
+      },
+    ],
+  };
+  createPiExtension(
+    {
+      on: (name: string, handler: Function) => handlers.set(name, handler),
+      registerTool() {},
+      registerCommand() {},
+      appendEntry() {},
+    } as never,
+    { runtime: Promise.resolve(runtime), evaluatePolicies: () => githubDeny },
+  );
+
+  await expect(
+    handlers.get("tool_call")!(
+      { toolName: "bash", toolCallId: "github", input: { command: "curl https://raw.githubusercontent.com/ignored" } },
+      { cwd: "/workspace", ui: { notify() {} } },
+    ),
+  ).resolves.toEqual({ block: true, reason: suggestion });
 });
 
 test("Pi supplies tool cwd and an explicit executable resolver", async () => {
