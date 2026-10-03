@@ -1,10 +1,10 @@
 import type { SourceSpan } from "../bash/cst.js";
-import type { NormalizedRedirect, ResolvedWord } from "../bash/expand.js";
 import type { BindingValue } from "../bash/environment.js";
+import type { NormalizedRedirect, ResolvedWord } from "../bash/expand.js";
+import type { BashIoContext } from "../bash/io.js";
+import type { BashExecutionTargetKind } from "../bash/resolution.js";
 import type { BashExecutionProvenance, ProcessEffect } from "../bash/walker.js";
 import type { ExecutableIdentity } from "./executable.js";
-import type { BashExecutionTargetKind } from "../bash/resolution.js";
-import type { BashIoContext } from "../bash/io.js";
 
 export type PolicyDiagnosticPart =
   | { readonly kind: "literal"; readonly value: string }

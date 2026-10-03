@@ -1,15 +1,15 @@
+import { isBashParserFailure } from "../shell.js";
 import type { SourceSpan } from "./cst.js";
 import type { Environment } from "./environment.js";
-import { isBashParserFailure } from "../shell.js";
 import {
+  type AnalysisBudget,
+  type AuthorizationVerdict,
   analysisFailure,
   failure,
   finalize,
+  type Outcome,
   redactOutcome,
   strongestOutcome,
-  type AnalysisBudget,
-  type AuthorizationVerdict,
-  type Outcome,
 } from "./outcome.js";
 
 export interface BashAnalysisLimits {

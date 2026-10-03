@@ -7,9 +7,9 @@ import {
   defineShellFunction,
   forkShellState,
   initialShellState,
-  joinShellStates,
   invalidateShellFunction,
   invalidateShellFunctions,
+  joinShellStates,
   removeShellFunction,
   withShellEnvironment,
 } from "../src/bash/state.ts";

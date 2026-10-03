@@ -1,6 +1,6 @@
+import { SECRET_EXCEPTIONS, SECRET_PATTERNS } from "../../patterns.js";
 import type { NormalizedCommand, NormalizedRedirect, ResolvedWord } from "../expand.js";
 import { isBindingResolvedWord } from "../word-provenance.js";
-import { SECRET_EXCEPTIONS, SECRET_PATTERNS } from "../../patterns.js";
 
 export type SecretReadPolicyDecision =
   | { readonly kind: "allow"; readonly evidence: { readonly name: "secret-read"; readonly decision: "allow" } }

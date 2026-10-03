@@ -1,10 +1,9 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
-
+import { readFileSync } from "node:fs";
+import { analyzeBashWithPolicies, completePolicyInitialEnvironment, initBundledBashParser } from "../src/index.ts";
 import { compilePolicyDocument } from "../src/policy/dsl/compile.ts";
 import { createDslPolicy } from "../src/policy/dsl/evaluate.ts";
 import { parsePolicyDocument } from "../src/policy/dsl/validate.ts";
-import { analyzeBashWithPolicies, completePolicyInitialEnvironment, initBundledBashParser } from "../src/index.ts";
 
 const path = new URL("../policies/dsl/helm-read-only.policy.json", import.meta.url);
 const policy = createDslPolicy(compilePolicyDocument(parsePolicyDocument(readFileSync(path, "utf8"))), path.pathname);

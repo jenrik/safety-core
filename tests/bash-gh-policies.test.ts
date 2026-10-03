@@ -2,20 +2,19 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import {
-  STRICT_BASH_PROFILE_EXECUTABLES,
-  evaluateBashGuards,
-  evaluateConfiguredBash,
-  initBashParser,
-  type BashProfileSnapshot,
-  type GhPrCreatePolicy,
-} from "../src/index.ts";
 import {
   GH_API_DEFER_ENVIRONMENT_NAMES,
   GH_GLOBAL_DEFER_ENVIRONMENT_NAMES,
   policyInitialEnvironment,
 } from "../src/bash/policy-environment.ts";
+import {
+  type BashProfileSnapshot,
+  evaluateBashGuards,
+  evaluateConfiguredBash,
+  type GhPrCreatePolicy,
+  initBashParser,
+  STRICT_BASH_PROFILE_EXECUTABLES,
+} from "../src/index.ts";
 
 const policy: GhPrCreatePolicy = {
   enabled: true,

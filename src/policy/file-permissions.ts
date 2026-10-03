@@ -1,8 +1,8 @@
+import { posix } from "node:path";
+import type { BashPolicyEvaluation } from "../authorization.js";
 import type { SourceSpan } from "../bash/cst.js";
 import type { NormalizedRedirect } from "../bash/expand.js";
 import type { BashPolicyEvent } from "./types.js";
-import type { BashPolicyEvaluation } from "../authorization.js";
-import { posix } from "node:path";
 
 export type HarnessFilePermission = "allow" | "deny" | "ask" | "defer";
 

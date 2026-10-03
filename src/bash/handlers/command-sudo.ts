@@ -1,9 +1,9 @@
-import type { StructuralDispatchContext } from "../dispatch.js";
-import type { ResolvedWord } from "../expand.js";
-import { assignBinding, known as knownBinding, setExported } from "../environment.js";
-import { indeterminate, policyDeny } from "../outcome.js";
-import { basename } from "../../shell.js";
 import { isSecretPath } from "../../secrets.js";
+import { basename } from "../../shell.js";
+import type { StructuralDispatchContext } from "../dispatch.js";
+import { assignBinding, known as knownBinding, setExported } from "../environment.js";
+import type { ResolvedWord } from "../expand.js";
+import { indeterminate, policyDeny } from "../outcome.js";
 import { childInvocationFrom, isKnown, known, taintWrapperResult, wrapperHandler } from "./wrapper-utils.js";
 
 const VALUE_OPTIONS = new Set(["-C", "-D", "-g", "-h", "-p", "-R", "-T", "-U", "-u"]);

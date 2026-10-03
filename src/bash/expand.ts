@@ -1,18 +1,18 @@
-import { stripQuotes } from "../shell.js";
 import { detectBlockedDomain, isGithubGraphqlEndpoint } from "../github.js";
+import { stripQuotes } from "../shell.js";
 import type { BashCommand, BashRedirect, BashRedirectKind, BashWord, SourceSpan } from "./cst.js";
-import type { BashIoContext } from "./io.js";
 import {
   assignBinding,
   beginCommandOverlay,
+  type Environment,
+  type EnvironmentPatch,
   hasBinding,
   known,
   lookupBinding,
   setExported,
   unknown,
-  type Environment,
-  type EnvironmentPatch,
 } from "./environment.js";
+import type { BashIoContext } from "./io.js";
 import { isBindingResolvedWord, markBindingResolvedWord } from "./word-provenance.js";
 
 export { isBindingResolvedWord } from "./word-provenance.js";

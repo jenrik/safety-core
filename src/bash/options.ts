@@ -1,4 +1,4 @@
-import { symbolicWordShape, type ResolvedWord } from "./expand.js";
+import { type ResolvedWord, symbolicWordShape } from "./expand.js";
 
 export type OptionValue = "none" | "required";
 export type LongOptionResolution = "exact" | "unique-prefix";

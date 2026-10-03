@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  STRICT_BASH_PROFILE_EXECUTABLES,
+  type BashProfileSnapshot,
   evaluateBashGuards,
   evaluateConfiguredBash,
   initBashParser,
-  type BashProfileSnapshot,
+  STRICT_BASH_PROFILE_EXECUTABLES,
 } from "../src/index.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-bash-guards-"));

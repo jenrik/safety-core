@@ -1,5 +1,27 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.8/schema.json",
+  "files": {
+    "includes": [
+      "*.json",
+      "adapters/**",
+      "analysis/**",
+      "packages/**",
+      "policies/code/**",
+      "scripts/**",
+      "src/**",
+      "tests/**",
+      "!!.worktrees",
+      "!!.pi/fabric",
+      "!!result",
+      "!!data",
+      "!!packages/*/dist",
+      "!!packages/*/node_modules",
+      "!!packages/pi/extensions/extension.js",
+      "!!packages/core/tree-sitter-bash.wasm",
+      "!!policies/dsl",
+      "!!notebooks"
+    ]
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
@@ -16,7 +38,7 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "style": {
         "noNonNullAssertion": "off",
         "useImportType": "off",

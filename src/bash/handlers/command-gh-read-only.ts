@@ -1,6 +1,6 @@
 import type { PolicyObserver } from "../dispatch.js";
-import { allow, defer, hasSecretOperand, readOnlyHandler } from "./read-only-utils.js";
 import { ghCommandGrammarMatches, parseGhCommandLine } from "./gh-command-line.js";
+import { allow, defer, hasSecretOperand, readOnlyHandler } from "./read-only-utils.js";
 
 export const ghReadOnlyHandler: PolicyObserver = readOnlyHandler("gh", "gh-read-only", (args) => {
   if (hasSecretOperand(args)) return defer("gh-read-only", "gh");

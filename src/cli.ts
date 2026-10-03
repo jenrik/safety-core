@@ -1,12 +1,12 @@
-import { initBundledBashParser } from "./shell.js";
-import { Command, CommanderError, InvalidArgumentError } from "commander";
 import { readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { Command, CommanderError, InvalidArgumentError } from "commander";
 import { PolicyStartupError } from "./policy/config.js";
-import { createExplainTrace, renderExplainTrace } from "./policy/trace.js";
-import { evaluateLoadedPolicies, loadPolicyRuntime } from "./policy/runtime.js";
-import { nodeExecutableFilesystem } from "./policy/filesystem.js";
 import { parsePolicyDocument, validatePolicyStateReachability } from "./policy/dsl/validate.js";
+import { nodeExecutableFilesystem } from "./policy/filesystem.js";
+import { evaluateLoadedPolicies, loadPolicyRuntime } from "./policy/runtime.js";
+import { createExplainTrace, renderExplainTrace } from "./policy/trace.js";
+import { initBundledBashParser } from "./shell.js";
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
   try {

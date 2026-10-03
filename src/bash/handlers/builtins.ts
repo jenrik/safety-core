@@ -1,7 +1,7 @@
-import type { NormalizedCommand } from "../expand.js";
 import {
   assignBinding,
   assignLocalBinding,
+  type Environment,
   hasBinding,
   known,
   lookupBinding,
@@ -11,19 +11,19 @@ import {
   unknown,
   unset,
   unsetBinding,
-  type Environment,
 } from "../environment.js";
+import type { NormalizedCommand } from "../expand.js";
+import { type OptionGrammar, scanOptions } from "../options.js";
 import { dynamicExecutableIndeterminate, indeterminate, type Outcome } from "../outcome.js";
-import { scanOptions, type OptionGrammar } from "../options.js";
 import {
+  type BashShellState,
+  exportShellFunction,
   invalidateShellFunction,
   invalidateShellFunctions,
-  exportShellFunction,
-  unexportShellFunction,
   removeShellFunction,
   taintShellState,
+  unexportShellFunction,
   withShellEnvironment,
-  type BashShellState,
 } from "../state.js";
 
 export interface BuiltinTransition {

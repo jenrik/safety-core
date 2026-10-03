@@ -1,10 +1,9 @@
-import type { CommandHandler, StructuralDispatchContext, InvocationCursor } from "../dispatch.js";
+import type { CommandHandler, InvocationCursor, StructuralDispatchContext } from "../dispatch.js";
 import type { ResolvedWord } from "../expand.js";
-import { indeterminate, strongestOutcome, type Outcome } from "../outcome.js";
-import type { BashDispatchResult } from "../walker.js";
-import type { ProcessEffect } from "../walker.js";
-import type { BashLookupDomain } from "../resolution.js";
 import { resolveLongOption as resolveDeclaredLongOption } from "../options.js";
+import { indeterminate, type Outcome, strongestOutcome } from "../outcome.js";
+import type { BashLookupDomain } from "../resolution.js";
+import type { BashDispatchResult, ProcessEffect } from "../walker.js";
 
 export type WrapperParser = (
   arguments_: readonly ResolvedWord[],

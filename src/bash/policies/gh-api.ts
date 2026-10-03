@@ -1,5 +1,5 @@
-import type { PolicyEvidence } from "../outcome.js";
 import { isGithubGraphqlEndpoint } from "../../github.js";
+import type { PolicyEvidence } from "../outcome.js";
 
 export type GhApiInvocationDecision =
   | { readonly kind: "allow"; readonly reason: string; readonly evidence: PolicyEvidence }

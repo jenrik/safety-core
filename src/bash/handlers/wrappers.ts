@@ -1,9 +1,9 @@
 import type { CommandHandler } from "../dispatch.js";
 import { commandHandler } from "./command-command.js";
-import { timeHandler, watchHandler } from "./command-executors.js";
 import { doasHandler } from "./command-doas.js";
 import { envHandler } from "./command-env.js";
 import { execHandler } from "./command-exec.js";
+import { timeHandler, watchHandler } from "./command-executors.js";
 import { findHandler } from "./command-find.js";
 import { niceHandler } from "./command-nice.js";
 import { nohupHandler } from "./command-nohup.js";

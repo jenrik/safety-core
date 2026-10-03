@@ -1,8 +1,8 @@
+import { parseBashProgram } from "../shell.js";
 import type { BashFunction } from "./cst.js";
-import { modeledBindings, type Environment } from "./environment.js";
+import { type Environment, modeledBindings } from "./environment.js";
 import { exportedBashFunctionName } from "./policy-environment.js";
 import type { BashShellState } from "./state.js";
-import { parseBashProgram } from "../shell.js";
 
 export interface ImportedBashFunctions {
   readonly definitions: readonly BashFunction[];

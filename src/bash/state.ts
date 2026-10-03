@@ -1,17 +1,17 @@
 import type { BashFunction } from "./cst.js";
 import {
   assignBinding,
+  type BranchCheckpoint,
+  type Environment,
   forkCheckpoint,
   hasBinding,
   lookupBinding,
   mergeCheckpoint,
   setExported,
   taintFrame,
+  type UnknownReason,
   unknown,
   unsetBinding,
-  type BranchCheckpoint,
-  type Environment,
-  type UnknownReason,
 } from "./environment.js";
 import { inheritedBashFunctionFact } from "./policy-environment.js";
 

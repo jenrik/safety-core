@@ -1,5 +1,3 @@
-import type { NormalizedCommand, ResolvedWord } from "../expand.js";
-import { isBindingResolvedWord } from "../word-provenance.js";
 import {
   KUBECTL_ALWAYS_ALLOW,
   KUBECTL_AUTH_ALLOW,
@@ -7,7 +5,9 @@ import {
   KUBECTL_PROTECTED_TYPES,
   KUBECTL_ROLLOUT_ALLOW,
 } from "../../patterns.js";
+import type { NormalizedCommand, ResolvedWord } from "../expand.js";
 import type { PolicyEvidence } from "../outcome.js";
+import { isBindingResolvedWord } from "../word-provenance.js";
 
 export type KubectlInvocationDecision =
   | { readonly kind: "allow"; readonly reason: string; readonly evidence: PolicyEvidence }

@@ -1,1 +1,1 @@
-export { createPiExtension, resolvePiSessionSettings, default } from "../../adapters/pi.ts";
+export { createPiExtension, default, resolvePiSessionSettings } from "../../adapters/pi.ts";

@@ -3,10 +3,10 @@ import { beforeAll, expect, test } from "bun:test";
 import { createOpenCodePlugin } from "../adapters/opencode.ts";
 import { createOpenCodeV2Plugin } from "../adapters/opencode-v2.ts";
 import {
-  initBundledBashParser,
-  OPENCODE_POLICY_RELOAD_COMMAND,
   type BashPolicyEvaluation,
+  initBundledBashParser,
   type LoadedPolicyRuntime,
+  OPENCODE_POLICY_RELOAD_COMMAND,
 } from "../src/index.ts";
 
 beforeAll(initBundledBashParser);

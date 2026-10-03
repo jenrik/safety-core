@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  assignBinding,
   assignLocalBinding,
   assignNonLocalBinding,
-  assignBinding,
   beginCommandOverlay,
+  type EnvironmentPatch,
   endCommandOverlay,
   forkCheckpoint,
   fromInitialEnvironment,
@@ -22,7 +23,6 @@ import {
   unknown,
   unset,
   unsetBinding,
-  type EnvironmentPatch,
 } from "../src/bash/environment.ts";
 
 describe("persistent Bash environment", () => {

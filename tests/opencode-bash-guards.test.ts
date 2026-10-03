@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createOpenCodePlugin, blockReason } from "../adapters/opencode.ts";
-import { loadPolicyRuntime, type BashPolicyEvaluation, type LoadedPolicyRuntime } from "../src/index.ts";
+import { blockReason, createOpenCodePlugin } from "../adapters/opencode.ts";
+import { type BashPolicyEvaluation, type LoadedPolicyRuntime, loadPolicyRuntime } from "../src/index.ts";
 
 const limits = { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 };
 const runtime = {

@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { PolicyStartupError, loadGlobalPolicyConfig, resolveSessionPolicyConfig } from "../src/policy/config.ts";
+import { loadGlobalPolicyConfig, PolicyStartupError, resolveSessionPolicyConfig } from "../src/policy/config.ts";
 import { evaluatePolicyEvents } from "../src/policy/evaluate.ts";
 import { loadPolicySet } from "../src/policy/load.ts";
 import { loadPolicyRuntime, policyRuntimeManifest } from "../src/policy/runtime.ts";

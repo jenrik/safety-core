@@ -1,8 +1,8 @@
+import { isSecretPath } from "../../secrets.js";
+import { basename } from "../../shell.js";
 import type { StructuralDispatchContext } from "../dispatch.js";
 import type { ResolvedWord } from "../expand.js";
-import { indeterminate, policyDeny, strongestOutcome, type Outcome } from "../outcome.js";
-import { basename } from "../../shell.js";
-import { isSecretPath } from "../../secrets.js";
+import { indeterminate, type Outcome, policyDeny, strongestOutcome } from "../outcome.js";
 import type { BashChildExecution } from "../walker.js";
 import { childInvocationFrom, wrapperHandler } from "./wrapper-utils.js";
 

@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  PolicyStartupError,
   loadGlobalPolicyConfig,
+  PolicyStartupError,
   persistPiAdapterConfig,
   resolveSessionPolicyConfig,
 } from "../src/policy/config.ts";

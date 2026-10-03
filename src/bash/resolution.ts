@@ -1,7 +1,7 @@
-import type { NormalizedCommand } from "./expand.js";
-import type { BashShellState } from "./state.js";
-import { BASH_FUNCTIONS_CAPTURED_FACT } from "./policy-environment.js";
 import { hasBinding, lookupBinding } from "./environment.js";
+import type { NormalizedCommand } from "./expand.js";
+import { BASH_FUNCTIONS_CAPTURED_FACT } from "./policy-environment.js";
+import type { BashShellState } from "./state.js";
 
 /** Who performs the lookup for a child argv, independently of its provenance. */
 export type BashLookupDomain = "shell" | "shell-no-functions" | "builtin-only" | "external-path";

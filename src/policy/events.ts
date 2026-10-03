@@ -1,16 +1,16 @@
-import type { NormalizedCommand } from "../bash/expand.js";
-import { lookupBinding, modeledBindings, type Environment } from "../bash/environment.js";
-import type { BashExecutionProvenance, ProcessEffect } from "../bash/walker.js";
 import type { SourceSpan } from "../bash/cst.js";
-import type { BashPolicyEvent, ExecutionGapView, InvocationView } from "./types.js";
+import { type Environment, lookupBinding, modeledBindings } from "../bash/environment.js";
+import type { NormalizedCommand } from "../bash/expand.js";
+import { inheritedBashIo, redirectBashIo } from "../bash/io.js";
+import type { BashExecutionTargetKind } from "../bash/resolution.js";
+import type { BashExecutionProvenance, ProcessEffect } from "../bash/walker.js";
 import {
   nonExternalExecutableIdentity,
   resolveExecutableIdentity,
   unresolvedExecutableIdentity,
 } from "./executable.js";
-import { unavailableExecutableFilesystem, type ExecutableFilesystem } from "./filesystem.js";
-import type { BashExecutionTargetKind } from "../bash/resolution.js";
-import { inheritedBashIo, redirectBashIo } from "../bash/io.js";
+import { type ExecutableFilesystem, unavailableExecutableFilesystem } from "./filesystem.js";
+import type { BashPolicyEvent, ExecutionGapView, InvocationView } from "./types.js";
 
 export interface BashPolicyEventContext {
   readonly environment: Environment;

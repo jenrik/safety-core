@@ -1,9 +1,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-
-import { POLICY_ENVIRONMENT_ROUTES } from "../src/bash/policy-environment.js";
-import { GH_HELP_TOPIC_RULES, GH_READ_ONLY_RULES } from "../src/bash/policies/gh-read-only.js";
 import { ghNativeAliasesForRule } from "../src/bash/handlers/gh-command-line.js";
+import { GH_HELP_TOPIC_RULES, GH_READ_ONLY_RULES } from "../src/bash/policies/gh-read-only.js";
+import { POLICY_ENVIRONMENT_ROUTES } from "../src/bash/policy-environment.js";
 
 interface Fixture {
   readonly metadata: Readonly<Record<string, string>>;
