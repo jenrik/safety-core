@@ -193,7 +193,10 @@ export function assignBinding(environment: Environment, name: string, value: Bin
 export function assignLocalBinding(environment: Environment, name: string, value: BindingValue): Environment {
   const target = environment.overlay ?? environment.frame;
   const previous = lookupOwnBinding(target, name) ?? createBinding(unset(), false, false);
-  return writeBinding(environment, name, createBinding(value, previous.exported, previous.readonly), true);
+  return replaceActiveFrame(
+    environment,
+    writeFrame(target, name, createBinding(value, previous.exported, previous.readonly), true),
+  );
 }
 
 /** Writes the nearest dynamically visible binding, creating one in the outer shell if absent. */
@@ -494,13 +497,13 @@ function createFrame(
   const frame: Frame = Object.freeze(parent ? { parent } : {});
   const previousState = previous ? stateFor(previous) : undefined;
   frameStates.set(frame, {
-    parent,
-    previous,
+    ...(parent ? { parent } : {}),
+    ...(previous ? { previous } : {}),
     delta: new ImmutableMap(delta),
     kind,
     localNames: new ImmutableSet(localNames),
-    taint,
-    taintVersion,
+    ...(taint ? { taint } : {}),
+    ...(taintVersion ? { taintVersion } : {}),
     writesSinceTaint: new ImmutableSet(writesSinceTaint),
     depth: (previousState?.depth ?? 0) + 1,
     positionalParametersLocal,

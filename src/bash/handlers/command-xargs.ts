@@ -1,8 +1,8 @@
+import { isSecretPath } from "../../secrets.js";
+import { basename } from "../../shell.js";
 import type { StructuralDispatchContext } from "../dispatch.js";
 import type { ResolvedWord } from "../expand.js";
 import { indeterminate, policyDeny } from "../outcome.js";
-import { basename } from "../../shell.js";
-import { isSecretPath } from "../../secrets.js";
 import { childInvocationFrom, isKnown, known, taintWrapperResult, wrapperHandler } from "./wrapper-utils.js";
 
 /** Inspect the static command template, but never authorize runtime stdin arguments. */
@@ -45,9 +45,10 @@ function parseXargs(arguments_: readonly ResolvedWord[], context: StructuralDisp
         context,
       );
     if (VALUE_OPTIONS.has(argument) || LONG_VALUE_OPTIONS.has(argument)) {
-      if (!isKnown(arguments_[index + 1])) return indeterminate(context.span);
-      if ((argument === "-a" || argument === "--arg-file") && isSecretPath(arguments_[index + 1]!.value)) {
-        return secretArgFileDeny(arguments_[index + 1]!.value, context);
+      const value = arguments_[index + 1];
+      if (!isKnown(value)) return indeterminate(context.span);
+      if ((argument === "-a" || argument === "--arg-file") && isSecretPath(value.value)) {
+        return secretArgFileDeny(value.value, context);
       }
       index += 2;
       continue;

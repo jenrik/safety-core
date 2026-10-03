@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-
+import { BUILTINS_V1, BUILTINS_V2 } from "../src/policy/dsl/builtins.ts";
+import { compilePolicyDocument } from "../src/policy/dsl/compile.ts";
 import {
   POLICY_LANGUAGE_V1,
   POLICY_LANGUAGE_V2,
@@ -8,10 +9,10 @@ import {
   validatePolicyDocument,
   validatePolicyStateReachability,
 } from "../src/policy/dsl/validate.ts";
-import { compilePolicyDocument } from "../src/policy/dsl/compile.ts";
-import { BUILTINS_V1, BUILTINS_V2 } from "../src/policy/dsl/builtins.ts";
 
-const policy = (): Record<string, unknown> => ({
+type RawPolicyDocument = Record<string, any>;
+
+const policy = (): RawPolicyDocument => ({
   language: POLICY_LANGUAGE_V1,
   layer: "permission",
   select: [{ kind: "invocation" }],
@@ -50,7 +51,7 @@ const policy = (): Record<string, unknown> => ({
   },
 });
 
-function invalid(mutator: (document: Record<string, any>) => void): void {
+function invalid(mutator: (document: RawPolicyDocument) => void): void {
   const document = policy();
   mutator(document);
   expect(() => validatePolicyDocument(document)).toThrow();
@@ -60,19 +61,22 @@ describe("DCRM JSON policy validation", () => {
   test("parses the exact v1 document and compiles ordered options", () => {
     const ast = parsePolicyDocument(JSON.stringify(policy()));
     const compiled = compilePolicyDocument(ast);
+    const command = required(compiled.states.command, "command state");
+    const tail = required(compiled.states.tail, "tail state");
+    const namespace = required(compiled.options.namespace, "namespace option");
 
     expect(compiled.language).toBe(POLICY_LANGUAGE_V1);
-    expect(compiled.states.command.cases[0]?.origin).toBe("option:namespace");
-    expect(compiled.states.command.cases[1]?.origin).toBe("state:command");
-    expect(compiled.states.tail.cases[0]?.origin).toBe("option:namespace");
-    expect(compiled.options.namespace).toEqual({
+    expect(command.cases[0]?.origin).toBe("option:namespace");
+    expect(command.cases[1]?.origin).toBe("state:command");
+    expect(tail.cases[0]?.origin).toBe("option:namespace");
+    expect(namespace).toEqual({
       names: ["-n", "--namespace"],
       value: "required",
       forms: ["separate", "attachedShort", "equalsLong", "cluster"],
       availableIn: "*",
       set: { value: { ref: "option.value" } },
     });
-    expect(compiled.states.command.cases[0]?.action).toMatchObject({
+    expect(command.cases[0]?.action).toMatchObject({
       kind: "option",
       forms: ["separate", "attachedShort", "equalsLong", "cluster"],
       value: "required",
@@ -91,14 +95,13 @@ describe("DCRM JSON policy validation", () => {
     const document = policy();
     document.options.tailFlag = { names: ["--tail"], value: "absent", forms: [], availableIn: ["tail"] };
     const compiled = compilePolicyDocument(validatePolicyDocument(document));
+    const command = required(compiled.states.command, "command state");
+    const tail = required(compiled.states.tail, "tail state");
+    const tailFlag = required(compiled.options.tailFlag, "tailFlag option");
 
-    expect(compiled.states.command.cases.map((entry) => entry.origin)).toEqual(["option:namespace", "state:command"]);
-    expect(compiled.states.tail.cases.map((entry) => entry.origin)).toEqual([
-      "option:namespace",
-      "option:tailFlag",
-      "state:tail",
-    ]);
-    expect(compiled.options.tailFlag).toMatchObject({ names: ["--tail"], availableIn: ["tail"] });
+    expect(command.cases.map((entry) => entry.origin)).toEqual(["option:namespace", "state:command"]);
+    expect(tail.cases.map((entry) => entry.origin)).toEqual(["option:namespace", "option:tailFlag", "state:tail"]);
+    expect(tailFlag).toMatchObject({ names: ["--tail"], availableIn: ["tail"] });
   });
 
   test("rejects exact-version and unknown-key violations", () => {
@@ -437,7 +440,9 @@ describe("DCRM JSON policy validation", () => {
       }
       if (!document.options.namespace.forms.includes("equalsLong")) document.options.namespace.names = ["-n"];
       const compiled = compilePolicyDocument(validatePolicyDocument(document));
-      expect(compiled.options.namespace.forms, `mask ${mask}`).toEqual(document.options.namespace.forms);
+      expect(required(compiled.options.namespace, "namespace option").forms, `mask ${mask}`).toEqual(
+        document.options.namespace.forms,
+      );
       expect(
         Object.values(compiled.states).every(
           (state) => state.default.kind === "terminal" && state.end.kind === "terminal",
@@ -452,26 +457,27 @@ describe("DCRM JSON policy validation", () => {
       const document = sharedFragmentDocument(depth);
       const compiled = compilePolicyDocument(validatePolicyDocument(document));
       expect(
-        compiled.states.command.cases.filter((entry) => entry.origin.startsWith("fragment:")).length,
+        required(compiled.states.command, "command state").cases.filter((entry) => entry.origin.startsWith("fragment:"))
+          .length,
         `depth ${depth}`,
       ).toBe(2 ** depth);
     }
   });
 });
 
-function withWhen(when: unknown): Record<string, unknown> {
+function withWhen(when: unknown): RawPolicyDocument {
   const document = policy();
   document.states.command.cases[0].when = when;
   return document;
 }
 
-function withAssignment(set: Record<string, unknown>): Record<string, unknown> {
+function withAssignment(set: Record<string, unknown>): RawPolicyDocument {
   const document = policy();
   document.states.command.cases[0].action.set = set;
   return document;
 }
 
-function sharedFragmentDocument(depth: number): Record<string, unknown> {
+function sharedFragmentDocument(depth: number): RawPolicyDocument {
   const document = policy();
   const fragments: Record<string, unknown> = {
     leaf: { cases: [{ when: true, action: { consume: "word", next: "command" } }] },
@@ -491,13 +497,13 @@ function sharedFragmentDocument(depth: number): Record<string, unknown> {
   return document;
 }
 
-function withAuditItems(count: number): Record<string, unknown> {
+function withAuditItems(count: number): RawPolicyDocument {
   const document = policy();
   document.states.tail.end.audit = { items: Array.from({ length: count }, () => null) };
   return document;
 }
 
-function enumAssignmentDocument(caseCount: number, domainSize: number): Record<string, unknown> {
+function enumAssignmentDocument(caseCount: number, domainSize: number): RawPolicyDocument {
   const document = policy();
   const values = Array.from({ length: domainSize }, (_, index) => `v${index}`);
   document.registers.mode = { type: "enum", values, initial: "v0" };
@@ -507,4 +513,9 @@ function enumAssignmentDocument(caseCount: number, domainSize: number): Record<s
     action: { consume: "word", next: "command", set: { mode: { ref: "sourceMode" } } },
   }));
   return document;
+}
+
+function required<T>(value: T | undefined, label: string): T {
+  if (value === undefined) throw new Error(`Expected ${label}`);
+  return value;
 }

@@ -1,6 +1,6 @@
+import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { describe, expect, test } from "bun:test";
 
 const fixturePath = new URL("../data/gh-cli-2.100.0-reference.json", import.meta.url);
 const fixture = JSON.parse(readFileSync(fixturePath, "utf8")) as {
@@ -34,6 +34,7 @@ describe("GitHub CLI 2.100.0 independent reference", () => {
     });
     const { fixtureSha256, ...metadata } = fixture.metadata;
     const canonical = JSON.stringify({ ...fixture, metadata }, null, 2);
+    if (fixtureSha256 === undefined) throw new Error("Fixture metadata must include its checksum");
     expect(createHash("sha256").update(canonical).digest("hex")).toBe(fixtureSha256);
   });
 

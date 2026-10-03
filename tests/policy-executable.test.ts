@@ -2,16 +2,16 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
+import type { BindingValue } from "../src/bash/environment.ts";
 import {
   analyzeBashWithPolicies,
-  initBashParser,
-  matchesExecutableSelector,
-  resolveExecutableIdentity,
-  type BindingValue,
   type ExecutableFilesystem,
   type ExecutableFilesystemLookup,
-  type ValidatedBashPolicy,
+  initBashParser,
+  matchesExecutableSelector,
+  type PermissionBashPolicy,
+  type PolicyDecision,
+  resolveExecutableIdentity,
 } from "../src/index.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-policy-executable-"));
@@ -297,11 +297,12 @@ describe("executable identity resolution", () => {
   });
 
   test("projection permits an exact known target but does not let added ambiguity create that allow", () => {
-    const policy: ValidatedBashPolicy = Object.freeze({
+    const policy: PermissionBashPolicy = Object.freeze({
       source: Object.freeze({ canonicalPath: "/policies/target.policy.mjs" }),
       layer: "permission",
       select: Object.freeze([{ kind: "executable-canonical-target", value: "/nix/gh" }]),
-      evaluate: () => Object.freeze({ kind: "allow", reason: Object.freeze([{ kind: "literal", value: "target" }]) }),
+      evaluate: (): PolicyDecision =>
+        Object.freeze({ kind: "allow", reason: Object.freeze([{ kind: "literal" as const, value: "target" }]) }),
     });
     const base = analyzeBashWithPolicies({
       source: "gh status",

@@ -1,6 +1,4 @@
 import {
-  POLICY_LANGUAGE_V1,
-  POLICY_LANGUAGE_V2,
   type Action,
   type AuditValue,
   type Expression,
@@ -8,6 +6,8 @@ import {
   type FoldDeclaration,
   type FragmentDeclaration,
   type OptionDeclaration,
+  POLICY_LANGUAGE_V1,
+  POLICY_LANGUAGE_V2,
   type PolicyCase,
   type PolicyDocument,
   type RegisterDeclaration,
@@ -16,7 +16,7 @@ import {
   type TemplatePart,
   type TerminalAction,
 } from "./ast.js";
-import { builtinDefinition, type BuiltinValueType } from "./builtins.js";
+import { type BuiltinValueType, builtinDefinition } from "./builtins.js";
 
 export { POLICY_LANGUAGE_V1, POLICY_LANGUAGE_V2 } from "./ast.js";
 
@@ -704,10 +704,7 @@ function validateTerminal(action: TerminalAction, layer: string, names: Names, p
     ["suggestion", action.suggestion],
   ] as const) {
     for (const [index, part] of (template ?? []).entries()) {
-      if (
-        typeof part !== "string" &&
-        !("ref" in part && part.ref.startsWith("capture.") && Object.hasOwn(action.capture, part.ref.slice(8)))
-      ) {
+      if (typeof part !== "string" && !isCaptureReference(part, action.capture)) {
         expressionType(part, names, `${pointer}.${kind}[${index}]`);
       }
     }
@@ -715,6 +712,20 @@ function validateTerminal(action: TerminalAction, layer: string, names: Names, p
   for (const [name, expression] of Object.entries(action.capture))
     expressionType(expression, names, `${pointer}.capture.${name}`);
   if (action.audit) validateAuditReferences(action.audit, names, `${pointer}.audit`);
+}
+
+function isCaptureReference(
+  value: Expression,
+  captures: Readonly<Record<string, Expression>>,
+): value is { readonly ref: string } {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "ref" in value &&
+    value.ref.startsWith("capture.") &&
+    Object.hasOwn(captures, value.ref.slice(8))
+  );
 }
 
 function validateAuditReferences(value: AuditValue, names: Names, pointer: string): void {

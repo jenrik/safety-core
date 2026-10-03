@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
-
-import { expandWord, type ResolvedWord } from "../src/bash/expand.ts";
 import { fromInitialEnvironment } from "../src/bash/environment.ts";
-import { scanOptions, type OptionGrammar } from "../src/bash/options.ts";
+import { expandWord, type ResolvedWord } from "../src/bash/expand.ts";
+import { type OptionGrammar, scanOptions } from "../src/bash/options.ts";
 
 const GRAMMAR: OptionGrammar = Object.freeze({
   longResolution: "unique-prefix",
@@ -57,7 +56,7 @@ describe("declarative option scanner", () => {
     const result = scanOptions(words(argv), GRAMMAR);
     expect(result.kind).toBe("parsed");
     if (result.kind !== "parsed") return;
-    expect(result.options.map((option) => option.id)).toEqual(ids);
+    expect(result.options.map((option) => option.id)).toEqual([...ids]);
     expect(argv[result.operandIndex]).toBe(operand);
   });
 
@@ -100,7 +99,7 @@ describe("declarative option scanner", () => {
       const result = scanOptions(words(argv), DEFERRED_TERMINAL_GRAMMAR);
       expect(result.kind).toBe("parsed");
       if (result.kind !== "parsed") return;
-      expect(result.options.map((option) => option.id)).toEqual(ids);
+      expect(result.options.map((option) => option.id)).toEqual([...ids]);
       expect(result.terminal).toMatchObject({
         id: "command",
         attached: false,
@@ -135,14 +134,19 @@ describe("declarative option scanner", () => {
       reason: "unexpected-option-value",
     });
     expect(scanOptions(words(["-a"]), GRAMMAR)).toEqual({ kind: "failure", reason: "missing-option-value" });
-    expect(scanOptions([{ kind: "unknown", reason: { kind: "generated" } }], GRAMMAR)).toEqual({
+    expect(
+      scanOptions([{ kind: "unknown", reason: { kind: "unsupported-word", span: { start: 0, end: 0 } } }], GRAMMAR),
+    ).toEqual({
       kind: "failure",
       reason: "dynamic-option",
     });
   });
 
   test("retains a recognized required option when its separate value is dynamic", () => {
-    const dynamic: ResolvedWord = Object.freeze({ kind: "unknown", reason: Object.freeze({ kind: "generated" }) });
+    const dynamic: ResolvedWord = Object.freeze({
+      kind: "unknown",
+      reason: Object.freeze({ kind: "unsupported-word", span: { start: 0, end: 0 } }),
+    });
     const value = scanOptions([words(["-a"])[0]!, dynamic, words(["child"])[0]!], GRAMMAR);
     const terminal = scanOptions([words(["-c"])[0]!, dynamic], GRAMMAR);
 
@@ -160,7 +164,10 @@ describe("declarative option scanner", () => {
   });
 
   test("property: dynamic required values preserve every recognized option identity", () => {
-    const dynamic: ResolvedWord = Object.freeze({ kind: "unknown", reason: Object.freeze({ kind: "generated" }) });
+    const dynamic: ResolvedWord = Object.freeze({
+      kind: "unknown",
+      reason: Object.freeze({ kind: "unsupported-word", span: { start: 0, end: 0 } }),
+    });
     for (let index = 0; index < 64; index++) {
       const spelling = index % 2 === 0 ? "-a" : "--name";
       const result = scanOptions([words([spelling])[0]!, dynamic, words([`child-${index}`])[0]!], GRAMMAR);
@@ -211,12 +218,12 @@ describe("declarative option scanner", () => {
   test("preserves exact named identities and rejects unsupported short-option polarity", () => {
     const grammar: OptionGrammar = Object.freeze({
       longResolution: "exact",
-      shortPrefixes: Object.freeze(["-", "+"]),
+      shortPrefixes: Object.freeze(["-", "+"] as const),
       options: Object.freeze([
         Object.freeze({
           id: "interactive",
           short: Object.freeze(["i"]),
-          shortPrefixes: Object.freeze(["-"]),
+          shortPrefixes: Object.freeze(["-"] as const),
           value: "none",
         }),
         Object.freeze({ id: "no-rcs", exact: Object.freeze(["+-RCS", "--no-rcs"]), value: "none" }),

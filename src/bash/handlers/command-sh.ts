@@ -1,21 +1,21 @@
-import { continuePreflight, type CommandHandler } from "../dispatch.js";
-import { isBindingResolvedWord, type ResolvedWord } from "../expand.js";
+import { isSecretPath } from "../../secrets.js";
+import { basename } from "../../shell.js";
+import { type CommandHandler, continuePreflight } from "../dispatch.js";
 import { assignBinding, hasBinding, known, lookupBinding, pushPositionalFrame, unknown } from "../environment.js";
+import { isBindingResolvedWord, type ResolvedWord } from "../expand.js";
+import { type OptionGrammar, scanOptions } from "../options.js";
 import {
   dynamicExecutableIndeterminate,
   indeterminate,
+  type Outcome,
   policyDeny,
   strongestOutcome,
-  type Outcome,
 } from "../outcome.js";
-import { scanOptions, type OptionGrammar } from "../options.js";
 import type { BashDispatchResult } from "../walker.js";
-import { basename } from "../../shell.js";
-import { isSecretPath } from "../../secrets.js";
 import { taintWrapperResult } from "./wrapper-utils.js";
 
 /** Models only the explicit `sh -c SCRIPT` execution boundary. */
-export const shHandler: CommandHandler = Object.freeze({
+export const shHandler = Object.freeze<CommandHandler>({
   name: "sh",
   handle(cursor, context) {
     return handleShell("sh", cursor, context);
@@ -152,7 +152,7 @@ function unsupportedFishSource(
     route: "shell-command",
     processEffect: "spawn-and-wait",
   });
-  return "kind" in opaque ? outcome : Object.freeze({ outcome, children: opaque.children });
+  return "kind" in opaque ? outcome : opaque.children ? Object.freeze({ outcome, children: opaque.children }) : outcome;
 }
 
 function shellStartupEnvironmentRoute(
@@ -222,25 +222,27 @@ function secretScriptDeny(name: string, path: string, context: Parameters<Comman
 
 /** Bash-compatible interpreters share the audited `-c` grammar. */
 export function shellInterpreterHandler(name: string): CommandHandler {
-  return Object.freeze({
-    name,
-    ...(name === "fish"
-      ? {
-          preflight(
-            cursor: Parameters<NonNullable<CommandHandler["preflight"]>>[0],
-            context: Parameters<NonNullable<CommandHandler["preflight"]>>[1],
-          ) {
-            const parsed = scanOptions(cursor.invocation.argv, FISH_OPTIONS);
-            if (
-              parsed.kind === "parsed" &&
-              (parsed.terminal?.id === "command" || parsed.options.some((option) => option.id === "init-command"))
-            ) {
-              return unsupportedFishSource(context);
-            }
-            return continuePreflight();
-          },
+  if (name === "fish") {
+    return Object.freeze<CommandHandler>({
+      name,
+      preflight(cursor, context) {
+        const parsed = scanOptions(cursor.invocation.argv, FISH_OPTIONS);
+        if (
+          parsed.kind === "parsed" &&
+          (parsed.terminal?.id === "command" || parsed.options.some((option) => option.id === "init-command"))
+        ) {
+          const result = unsupportedFishSource(context);
+          return "kind" in result ? result : result.outcome;
         }
-      : {}),
+        return continuePreflight();
+      },
+      handle(cursor, context) {
+        return handleShell(name, cursor, context);
+      },
+    });
+  }
+  return Object.freeze<CommandHandler>({
+    name,
     handle(cursor, context) {
       return handleShell(name, cursor, context);
     },
@@ -249,12 +251,12 @@ export function shellInterpreterHandler(name: string): CommandHandler {
 
 const BASH_OPTIONS: OptionGrammar = Object.freeze({
   longResolution: "exact",
-  shortPrefixes: Object.freeze(["-", "+"]),
+  shortPrefixes: Object.freeze(["-", "+"] as const),
   options: Object.freeze([
     Object.freeze({
       id: "command",
       short: Object.freeze(["c"]),
-      shortPrefixes: Object.freeze(["-"]),
+      shortPrefixes: Object.freeze(["-"] as const),
       value: "required",
       terminal: "deferred",
     }),
@@ -269,13 +271,13 @@ const BASH_OPTIONS: OptionGrammar = Object.freeze({
     Object.freeze({
       id: "interactive",
       short: Object.freeze(["i"]),
-      shortPrefixes: Object.freeze(["-"]),
+      shortPrefixes: Object.freeze(["-"] as const),
       value: "none",
     }),
     Object.freeze({
       id: "login",
       short: Object.freeze(["l"]),
-      shortPrefixes: Object.freeze(["-"]),
+      shortPrefixes: Object.freeze(["-"] as const),
       long: Object.freeze(["--login"]),
       value: "none",
     }),
@@ -307,12 +309,12 @@ const BASH_OPTIONS: OptionGrammar = Object.freeze({
 
 const POSIX_SHELL_OPTIONS: OptionGrammar = Object.freeze({
   longResolution: "exact",
-  shortPrefixes: Object.freeze(["-", "+"]),
+  shortPrefixes: Object.freeze(["-", "+"] as const),
   options: Object.freeze([
     Object.freeze({
       id: "command",
       short: Object.freeze(["c"]),
-      shortPrefixes: Object.freeze(["-"]),
+      shortPrefixes: Object.freeze(["-"] as const),
       value: "required",
       terminal: "deferred",
     }),
@@ -320,10 +322,15 @@ const POSIX_SHELL_OPTIONS: OptionGrammar = Object.freeze({
     Object.freeze({
       id: "interactive",
       short: Object.freeze(["i"]),
-      shortPrefixes: Object.freeze(["-"]),
+      shortPrefixes: Object.freeze(["-"] as const),
       value: "none",
     }),
-    Object.freeze({ id: "login", short: Object.freeze(["l"]), shortPrefixes: Object.freeze(["-"]), value: "none" }),
+    Object.freeze({
+      id: "login",
+      short: Object.freeze(["l"]),
+      shortPrefixes: Object.freeze(["-"] as const),
+      value: "none",
+    }),
     Object.freeze({
       id: "flag",
       short: Object.freeze(
@@ -338,12 +345,12 @@ const POSIX_SHELL_OPTIONS: OptionGrammar = Object.freeze({
 
 const ZSH_OPTIONS: OptionGrammar = Object.freeze({
   longResolution: "exact",
-  shortPrefixes: Object.freeze(["-", "+"]),
+  shortPrefixes: Object.freeze(["-", "+"] as const),
   options: Object.freeze([
     Object.freeze({
       id: "command",
       short: Object.freeze(["c"]),
-      shortPrefixes: Object.freeze(["-"]),
+      shortPrefixes: Object.freeze(["-"] as const),
       value: "required",
       terminal: "deferred",
     }),
@@ -358,21 +365,21 @@ const ZSH_OPTIONS: OptionGrammar = Object.freeze({
     Object.freeze({
       id: "interactive",
       short: Object.freeze(["i"]),
-      shortPrefixes: Object.freeze(["-"]),
+      shortPrefixes: Object.freeze(["-"] as const),
       exact: Object.freeze(["--interactive"]),
       value: "none",
     }),
     Object.freeze({
       id: "login",
       short: Object.freeze(["l"]),
-      shortPrefixes: Object.freeze(["-"]),
+      shortPrefixes: Object.freeze(["-"] as const),
       exact: Object.freeze(["--login"]),
       value: "none",
     }),
     Object.freeze({
       id: "no-rcs",
       short: Object.freeze(["f"]),
-      shortPrefixes: Object.freeze(["-"]),
+      shortPrefixes: Object.freeze(["-"] as const),
       exact: Object.freeze(["--no-rcs", "--no_rcs", "+-RCS", "+-no-RCS"]),
       value: "none",
     }),

@@ -2,19 +2,20 @@ import { beforeAll, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  initBundledBashParser,
-  loadPolicyRuntime,
-  type LoadedPolicyRuntime,
-  type ValidatedBashPolicy,
-} from "../src/index.ts";
 import { evaluateClaudeBashPolicy } from "../adapters/claude-code/_bash_policy.ts";
-import { classifyKubectlSecretAudit } from "../adapters/claude-code/kubectl_secret_audit_log.ts";
 import {
   establishClaudeSessionRuntime,
   loadClaudeSessionRuntime,
   poisonClaudeSession,
 } from "../adapters/claude-code/bash_policy.ts";
+import { classifyKubectlSecretAudit } from "../adapters/claude-code/kubectl_secret_audit_log.ts";
+import {
+  type BashPolicyEvent,
+  initBundledBashParser,
+  type LoadedPolicyRuntime,
+  loadPolicyRuntime,
+  type ValidatedBashPolicy,
+} from "../src/index.ts";
 
 const policies: readonly ValidatedBashPolicy[] = [
   {
@@ -22,7 +23,7 @@ const policies: readonly ValidatedBashPolicy[] = [
     layer: "guard",
     select: [],
     evaluate: (event) =>
-      event.kind === "invocation" && event.executable.kind === "known" && event.executable.value === "cat"
+      isKnownInvocation(event, "cat")
         ? { kind: "deny", reason: [{ kind: "literal", value: "protected read" }] }
         : { kind: "ignore" },
   },
@@ -31,7 +32,7 @@ const policies: readonly ValidatedBashPolicy[] = [
     layer: "permission",
     select: [{ kind: "invocation", environmentIndependent: true }],
     evaluate: (event) =>
-      event.kind === "invocation" && event.executable.kind === "known" && event.executable.value === "printf"
+      isKnownInvocation(event, "printf")
         ? { kind: "allow", reason: [{ kind: "literal", value: "safe print" }] }
         : { kind: "ignore" },
   },
@@ -43,6 +44,10 @@ const runtime = {
 } as unknown as LoadedPolicyRuntime;
 const event = (command: string) =>
   ({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } }) as const;
+
+function isKnownInvocation(event: BashPolicyEvent, executable: string): boolean {
+  return event.kind === "invocation" && event.executable?.kind === "known" && event.executable.value === executable;
+}
 
 beforeAll(() => initBundledBashParser());
 

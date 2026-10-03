@@ -2,25 +2,24 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { initBashParser, parseBashProgram } from "../src/index.ts";
 import {
   createCommandRegistry,
   dispatchCommand,
+  type InvocationCursor,
   ignorePolicy,
   observePolicy,
-  preflightCommand,
-  type InvocationCursor,
   type PolicyObserver,
+  preflightCommand,
 } from "../src/bash/dispatch.ts";
 import { fromInitialEnvironment, fromVerifiedInitialEnvironment, unknown } from "../src/bash/environment.ts";
 import { httpHandlers } from "../src/bash/handlers/http.ts";
 import { readerHandlers } from "../src/bash/handlers/readers.ts";
+import { structuralHandlers } from "../src/bash/handlers/registry.ts";
 import { safe } from "../src/bash/outcome.ts";
 import { runSteps } from "../src/bash/runner.ts";
-import { structuralHandlers } from "../src/bash/handlers/registry.ts";
-import { HTTP_TOOLS, READING_COMMANDS } from "../src/patterns.ts";
 import { type BashDispatchRequest, type BashDispatchResult, walkProgram } from "../src/bash/walker.ts";
+import { initBashParser, parseBashProgram } from "../src/index.ts";
+import { HTTP_TOOLS, READING_COMMANDS } from "../src/patterns.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-bash-dispatch-"));
 
@@ -95,8 +94,8 @@ describe("named Bash command dispatch", () => {
   });
 
   test("property: command-policy facades cover exactly their configured command sets", () => {
-    expect(new Set(readerHandlers.map((handler) => handler.name))).toEqual(READING_COMMANDS);
-    expect(new Set(httpHandlers.map((handler) => handler.name))).toEqual(HTTP_TOOLS);
+    expect(new Set(readerHandlers.map((handler) => handler.name))).toEqual(new Set(READING_COMMANDS));
+    expect(new Set(httpHandlers.map((handler) => handler.name))).toEqual(new Set(HTTP_TOOLS));
   });
 
   test("composes a caller policy handler with mandatory wrapper recursion", () => {
@@ -595,7 +594,7 @@ describe("named Bash command dispatch", () => {
   );
 
   test("returns neutral for an ambient sh -c script rather than treating it as an executable", () => {
-    const result = analyze("sh -c '$COMMAND'", [], { COMMAND: unknown({ kind: "ambient" }) });
+    const result = analyze("sh -c '$COMMAND'", [], fromInitialEnvironment({ COMMAND: unknown({ kind: "ambient" }) }));
 
     expect(result.completed.verdict).toEqual({ kind: "neutral" });
   });
@@ -661,9 +660,11 @@ describe("named Bash command dispatch", () => {
       ).toBeTrue();
     }
 
-    const runtime = analyze("find . -exec allowed-command \\; -exec $UNKNOWN \\;", [], {
-      UNKNOWN: unknown({ kind: "ambient" }),
-    });
+    const runtime = analyze(
+      "find . -exec allowed-command \\; -exec $UNKNOWN \\;",
+      [],
+      fromInitialEnvironment({ UNKNOWN: unknown({ kind: "ambient" }) }),
+    );
     expect(runtime.completed.outcome).toMatchObject({ kind: "failure", reason: "analysis-failure" });
   });
 
@@ -773,7 +774,11 @@ describe("named Bash command dispatch", () => {
   });
 
   test("keeps nested indeterminacy and nested-depth failures sticky through wrapper chains", () => {
-    const indeterminate = analyze("strace -f sh -c '$UNKNOWN'", [], { UNKNOWN: unknown({ kind: "ambient" }) });
+    const indeterminate = analyze(
+      "strace -f sh -c '$UNKNOWN'",
+      [],
+      fromInitialEnvironment({ UNKNOWN: unknown({ kind: "ambient" }) }),
+    );
     const exhausted = analyze(
       "strace -f sh -c 'allowed-command'",
       [recordingHandler("allowed-command", [])],
@@ -805,18 +810,18 @@ describe("named Bash command dispatch", () => {
 
   test("property: transparent wrappers preserve one child observation and redacted provenance", () => {
     const wrappers = [
-      { wrap: (child: string) => `env -i ${child}`, verdict: "neutral" },
-      { wrap: (child: string) => `command -p ${child}`, verdict: "allow" },
-      { wrap: (child: string) => `doas -n -u root ${child}`, verdict: "neutral" },
-      { wrap: (child: string) => `exec -a check ${child}`, verdict: "neutral" },
-      { wrap: (child: string) => `nice -n 5 ${child}`, verdict: "allow" },
-      { wrap: (child: string) => `nohup -- ${child}`, verdict: "neutral" },
-      { wrap: (child: string) => `setsid --fork ${child}`, verdict: "allow" },
-      { wrap: (child: string) => `stdbuf -oL ${child}`, verdict: "allow" },
-      { wrap: (child: string) => `timeout 5s ${child}`, verdict: "allow" },
-      { wrap: (child: string) => `strace -f ${child}`, verdict: "allow" },
-      { wrap: (child: string) => `find . -exec ${child} \\;`, verdict: "allow" },
-    ];
+      { wrap: (child: string) => `env -i ${child}`, verdict: "neutral" as const },
+      { wrap: (child: string) => `command -p ${child}`, verdict: "allow" as const },
+      { wrap: (child: string) => `doas -n -u root ${child}`, verdict: "neutral" as const },
+      { wrap: (child: string) => `exec -a check ${child}`, verdict: "neutral" as const },
+      { wrap: (child: string) => `nice -n 5 ${child}`, verdict: "allow" as const },
+      { wrap: (child: string) => `nohup -- ${child}`, verdict: "neutral" as const },
+      { wrap: (child: string) => `setsid --fork ${child}`, verdict: "allow" as const },
+      { wrap: (child: string) => `stdbuf -oL ${child}`, verdict: "allow" as const },
+      { wrap: (child: string) => `timeout 5s ${child}`, verdict: "allow" as const },
+      { wrap: (child: string) => `strace -f ${child}`, verdict: "allow" as const },
+      { wrap: (child: string) => `find . -exec ${child} \\;`, verdict: "allow" as const },
+    ] as const;
     for (const { wrap, verdict } of wrappers) {
       let observations = 0;
       let provenance: unknown;
@@ -862,7 +867,7 @@ describe("named Bash command dispatch", () => {
         verdict: "neutral",
       },
       { name: "sh", prefix: "sh", flags: ["-x", "-v"], child: "-c 'gh pr create'", verdict: "neutral" },
-    ];
+    ] as const;
 
     for (const wrapper of wrappers) {
       for (let iteration = 0; iteration < 32; iteration++) {
@@ -874,7 +879,7 @@ describe("named Bash command dispatch", () => {
             : `${wrapper.prefix} ${flags} ${wrapper.child}`;
         const result = analyze(source, [recordingHandler("gh", invocations)]);
 
-        expect(result.completed.verdict, `${wrapper.name}: ${source}`).toEqual({ kind: wrapper.verdict });
+        expect(result.completed.verdict.kind, `${wrapper.name}: ${source}`).toBe(wrapper.verdict);
         expect(invocations.map(renderInvocation), `${wrapper.name}: ${source}`).toEqual([["gh", "pr", "create"]]);
       }
     }
@@ -882,26 +887,28 @@ describe("named Bash command dispatch", () => {
 
   test("property: an unknown child word at every wrapper boundary is never allow", () => {
     const wrappers = [
-      { wrap: (child: string) => `env -i ${child}`, verdict: "neutral" },
-      { wrap: (child: string) => `command -p ${child}`, verdict: "allow" },
-      { wrap: (child: string) => `doas -n -u root ${child}`, verdict: "neutral" },
-      { wrap: (child: string) => `exec -a name ${child}`, verdict: "neutral" },
-      { wrap: (child: string) => `nice -n 5 ${child}`, verdict: "allow" },
-      { wrap: (child: string) => `nohup -- ${child}`, verdict: "neutral" },
-      { wrap: (child: string) => `setsid --fork ${child}`, verdict: "allow" },
-      { wrap: (child: string) => `stdbuf -oL ${child}`, verdict: "allow" },
-      { wrap: (child: string) => `timeout 1s ${child}`, verdict: "allow" },
-      { wrap: (child: string) => `strace -f ${child}`, verdict: "allow" },
-      { wrap: (child: string) => `sh -c ${child}`, verdict: "neutral" },
-      { wrap: (child: string) => `find . -exec ${child} \\;`, verdict: "allow" },
+      { wrap: (child: string) => `env -i ${child}`, verdict: "neutral" as const },
+      { wrap: (child: string) => `command -p ${child}`, verdict: "allow" as const },
+      { wrap: (child: string) => `doas -n -u root ${child}`, verdict: "neutral" as const },
+      { wrap: (child: string) => `exec -a name ${child}`, verdict: "neutral" as const },
+      { wrap: (child: string) => `nice -n 5 ${child}`, verdict: "allow" as const },
+      { wrap: (child: string) => `nohup -- ${child}`, verdict: "neutral" as const },
+      { wrap: (child: string) => `setsid --fork ${child}`, verdict: "allow" as const },
+      { wrap: (child: string) => `stdbuf -oL ${child}`, verdict: "allow" as const },
+      { wrap: (child: string) => `timeout 1s ${child}`, verdict: "allow" as const },
+      { wrap: (child: string) => `strace -f ${child}`, verdict: "allow" as const },
+      { wrap: (child: string) => `sh -c ${child}`, verdict: "neutral" as const },
+      { wrap: (child: string) => `find . -exec ${child} \\;`, verdict: "allow" as const },
     ];
 
     for (const { wrap, verdict } of wrappers) {
       const baselineInvocations: InvocationCursor[] = [];
       const baseline = analyze(wrap("gh"), [recordingHandler("gh", baselineInvocations)]);
-      const result = analyze(wrap('"$UNKNOWN"'), [recordingHandler("gh", [])], {
-        UNKNOWN: unknown({ kind: "ambient" }),
-      });
+      const result = analyze(
+        wrap('"$UNKNOWN"'),
+        [recordingHandler("gh", [])],
+        fromInitialEnvironment({ UNKNOWN: unknown({ kind: "ambient" }) }),
+      );
 
       expect(baseline.completed.verdict, wrap.name).toEqual({ kind: verdict });
       expect(baselineInvocations.map(renderInvocation), wrap.name).toEqual([["gh"]]);
@@ -1032,7 +1039,7 @@ function directWrapperDispatch(
       executable: { kind: "known", value: executable },
       argv: argv.map((value) =>
         value === undefined
-          ? { kind: "unknown", reason: { kind: "property", span: { start: 0, end: 0 } } }
+          ? { kind: "unknown", reason: { kind: "unsupported-word", span: { start: 0, end: 0 } } }
           : { kind: "known", value },
       ),
       redirects: [],
@@ -1046,6 +1053,9 @@ function directWrapperDispatch(
     provenance: { route: ["direct"] },
     inPipeline: false,
     processEffect: "none",
+    executionTarget: [".", "builtin", "command", "eval", "exec", "set", "source"].includes(executable)
+      ? "builtin"
+      : "external-path",
     continueWithSource: (source, _environment, options) => {
       scheduled.push(source);
       targets.push("source");

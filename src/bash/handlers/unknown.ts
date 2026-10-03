@@ -4,7 +4,7 @@ import { dynamicExecutableIndeterminate, indeterminate } from "../outcome.js";
 const SCRIPT_INTERPRETER = /^(?:bun|deno|node|perl|php|python(?:\d+(?:\.\d+)*)?|ruby|ts-node|tsx)$/;
 
 /** Conservative fallback for unregistered commands: neutral, never allow. */
-export const unknownCommandHandler: CommandHandler = Object.freeze({
+export const unknownCommandHandler = Object.freeze<CommandHandler>({
   name: "unknown-command",
   handle(cursor, context) {
     const executable = cursor.invocation.executable;

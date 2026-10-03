@@ -1,14 +1,15 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
 
 import {
   analyzeBashWithPolicies,
-  completePolicyInitialEnvironment,
-  initBashParser,
   type BashPolicyEvent,
+  completePolicyInitialEnvironment,
+  type InvocationView,
+  initBashParser,
   type ValidatedBashPolicy,
 } from "../src/index.ts";
 
@@ -215,7 +216,9 @@ describe("Bash generic policy events", () => {
       analyzeBashWithPolicies({ source, initialEnvironment, policies: [policy("permission", () => allow)] });
     expect(
       run("helm(){ gh local; }; helm")
-        .events.filter((event) => event.kind === "invocation" && event.executable?.kind === "known")
+        .events.filter(
+          (event): event is InvocationView => event.kind === "invocation" && event.executable?.kind === "known",
+        )
         .map((event) => (event.argv[0]?.kind === "known" ? event.argv[0].value : "")),
     ).toEqual(["local"]);
     const unset = run("unset -f helm; helm list");
@@ -442,7 +445,7 @@ describe("Bash generic policy events", () => {
       const event = result.events.find(
         (candidate) =>
           candidate.kind === "invocation" &&
-          candidate.executable.kind === "known" &&
+          candidate.executable?.kind === "known" &&
           candidate.executable.value === "gh",
       );
       expect(event, String(index)).toMatchObject({
@@ -470,7 +473,7 @@ function policy(
 function onlyInvocation(events: readonly BashPolicyEvent[]) {
   const event = events.find(
     (candidate) =>
-      candidate.kind === "invocation" && candidate.executable.kind === "known" && candidate.executable.value === "gh",
+      candidate.kind === "invocation" && candidate.executable?.kind === "known" && candidate.executable.value === "gh",
   );
   if (!event || event.kind !== "invocation") throw new Error("Expected a gh invocation event");
   return event;

@@ -3,7 +3,7 @@ import { isBindingResolvedWord, type ResolvedWord } from "../expand.js";
 import { dynamicExecutableIndeterminate } from "../outcome.js";
 import { hasUnsafeWrapperEnvelope, taintWrapperResult } from "./wrapper-utils.js";
 
-export const evalHandler: CommandHandler = Object.freeze({
+export const evalHandler = Object.freeze<CommandHandler>({
   name: "eval",
   handle(cursor, context) {
     const result = evalArguments(cursor.invocation.argv, context);

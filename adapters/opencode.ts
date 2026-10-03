@@ -1,37 +1,60 @@
-import type { Plugin, PluginInput } from "@opencode-ai/plugin";
 import { resolve } from "node:path";
+import type { Hooks, PluginInput } from "@opencode-ai/plugin";
 
 // This adapter targets only the OpenCode v1 plugin API. Keep OpenCode v2
 // compatibility in adapters/opencode-v2.ts so either API can evolve independently.
 import {
-  SECRET_BLOCK_MESSAGE,
+  type BashPolicyEvaluation,
+  checkBashFilePermissions,
   checkWebfetchUrl,
-  evaluateLoadedPolicies,
-  initBundledBashParser,
-  isSecretPath,
-  loadPolicyRuntime,
-  nodeExecutableFilesystem,
   completePolicyInitialEnvironment,
-  createPolicyRuntimeReloader,
-  OPENCODE_POLICY_RELOAD_COMMAND,
-  setJudgeProvider,
-  invokeJudge,
-  shouldInvokeJudge,
   createAnthropicJudge,
   createOpenAIJudge,
-  type LoadedPolicyRuntime,
-  type BashPolicyEvaluation,
-  type ExecutableFilesystem,
-  checkBashFilePermissions,
+  createOpenCodeBashPreflights,
   createOpenCodeFilePermissions,
+  createPolicyRuntimeReloader,
+  type ExecutableFilesystem,
+  evaluateLoadedPolicies,
   type HarnessFilePermissions,
+  initBundledBashParser,
+  invokeJudge,
+  isSecretPath,
+  type LoadedPolicyRuntime,
+  loadPolicyRuntime,
+  nodeExecutableFilesystem,
+  OPENCODE_POLICY_RELOAD_COMMAND,
   type OpenCodeFilePermissionContext,
   type OpenCodePermissionClient,
-  createOpenCodeBashPreflights,
   openCodeBashPermissionStatus,
+  SECRET_BLOCK_MESSAGE,
+  setJudgeProvider,
+  shouldInvokeJudge,
 } from "@safety-core/core";
 
 const OPENCODE_V1_PLUGIN_ID = "safety-core.policy-reload";
+
+type OpenCodePermissionAskedEvent = {
+  readonly type: "permission.asked";
+  readonly properties: {
+    readonly permission: string;
+    readonly id: string;
+    readonly sessionID: string;
+    readonly tool?: { readonly callID?: string };
+  };
+};
+
+type OpenCodeEvent = Parameters<NonNullable<Hooks["event"]>>[0]["event"] | OpenCodePermissionAskedEvent;
+
+type OpenCodePermissionReplyClient = {
+  readonly permission?: {
+    reply(options: {
+      directory?: string;
+      requestID: string;
+      reply: "once" | "reject";
+      message?: string;
+    }): Promise<unknown>;
+  };
+};
 
 type PolicyEvaluator = (
   runtime: LoadedPolicyRuntime,
@@ -72,9 +95,9 @@ export async function createOpenCodePlugin(
   const evaluateCommand = async (source: string, input: Record<string, unknown> = {}, workdir = cwd) => {
     const context: OpenCodeFilePermissionContext = {
       directory: cwd,
-      worktree,
-      sessionID: typeof input.sessionID === "string" ? input.sessionID : undefined,
-      callID: typeof input.callID === "string" ? input.callID : undefined,
+      ...(worktree === undefined ? {} : { worktree }),
+      ...(typeof input.sessionID === "string" ? { sessionID: input.sessionID } : {}),
+      ...(typeof input.callID === "string" ? { callID: input.callID } : {}),
     };
     return checkBashFilePermissions(
       evaluate(runtime.current()!, source, { cwd: workdir, executableFilesystem }),
@@ -140,7 +163,7 @@ export async function createOpenCodePlugin(
         output.status,
       );
     },
-    event: async ({ event }) => {
+    event: async ({ event }: { event: OpenCodeEvent }) => {
       if (event.type === "tui.command.execute" && event.properties.command === OPENCODE_POLICY_RELOAD_COMMAND) {
         preflights.clear();
         try {
@@ -174,10 +197,12 @@ export async function createOpenCodePlugin(
         return;
       }
       if (!client || event.type !== "permission.asked" || event.properties.permission !== "bash") return;
+      const permission = (client as unknown as OpenCodePermissionReplyClient).permission;
+      if (!permission) return;
       const existingPoison = poisoned;
       if (existingPoison) {
-        await client.permission.reply({
-          directory,
+        await permission.reply({
+          ...replyDirectory(directory),
           requestID: event.properties.id,
           reply: "reject",
           message: existingPoison,
@@ -189,10 +214,10 @@ export async function createOpenCodePlugin(
       if (!preflight || preflight.kind !== "complete") return;
       const result = preflight.evaluation;
       if (result.decision === "allow") {
-        await client.permission.reply({ directory, requestID: event.properties.id, reply: "once" });
+        await permission.reply({ ...replyDirectory(directory), requestID: event.properties.id, reply: "once" });
       } else if (result.decision === "deny") {
-        await client.permission.reply({
-          directory,
+        await permission.reply({
+          ...replyDirectory(directory),
           requestID: event.properties.id,
           reply: "reject",
           message: blockReason(result),
@@ -203,7 +228,7 @@ export async function createOpenCodePlugin(
       if (input.tool !== "bash") return;
       preflights.finish(input as unknown as Record<string, unknown>, input.args);
     },
-  } satisfies Plugin;
+  } satisfies Hooks;
 }
 
 export default {
@@ -216,8 +241,9 @@ export function blockReason(result: BashPolicyEvaluation): string {
     return "Blocked by safety policy: harness denied shell redirect file access";
   const denial = result.traces.find((trace) => trace.decision.kind === "deny");
   const reason =
-    denial?.decision.reason?.map((part) => (part.kind === "literal" ? part.value : String(part.value))).join("") ??
-    "Bash policy denied this command";
+    (denial?.decision.kind === "deny"
+      ? denial.decision.reason?.map((part) => (part.kind === "literal" ? part.value : String(part.value))).join("")
+      : undefined) ?? "Bash policy denied this command";
   return `Blocked by safety policy: ${reason}`;
 }
 
@@ -225,6 +251,10 @@ function buildJudgeProvider() {
   if (process.env.ANTHROPIC_API_KEY) return createAnthropicJudge({ apiKey: process.env.ANTHROPIC_API_KEY });
   if (process.env.OPENAI_API_KEY) return createOpenAIJudge({ apiKey: process.env.OPENAI_API_KEY });
   return null;
+}
+
+function replyDirectory(directory: string | undefined): { readonly directory?: string } {
+  return directory === undefined ? {} : { directory };
 }
 
 function notifyPolicyReload(

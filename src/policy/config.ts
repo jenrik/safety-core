@@ -215,16 +215,19 @@ function parseBashAnalysis(value: unknown, path: string): BashAnalysisConfig {
   const record = requireRecord(value, path, "bashAnalysis must be an object");
   const keys = new Set(["maxFunctionDepth", "maxNestedScriptDepth", "maxSteps", "maxWorkItems"]);
   requireOnlyKeys(record, keys, path);
-  const parsed = Object.fromEntries(
-    [...keys].map((key) => {
-      const limit = record[key];
-      if (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit <= 0) {
-        throw new PolicyStartupError(path, `bashAnalysis.${key} must be a positive safe integer`);
-      }
-      return [key, limit];
-    }),
-  ) as BashAnalysisConfig;
-  return Object.freeze(parsed);
+  return Object.freeze({
+    maxFunctionDepth: positiveLimit(record.maxFunctionDepth, path, "maxFunctionDepth"),
+    maxNestedScriptDepth: positiveLimit(record.maxNestedScriptDepth, path, "maxNestedScriptDepth"),
+    maxSteps: positiveLimit(record.maxSteps, path, "maxSteps"),
+    maxWorkItems: positiveLimit(record.maxWorkItems, path, "maxWorkItems"),
+  });
+}
+
+function positiveLimit(value: unknown, path: string, name: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new PolicyStartupError(path, `bashAnalysis.${name} must be a positive safe integer`);
+  }
+  return value;
 }
 
 function resolveApplicableProjectConfig(

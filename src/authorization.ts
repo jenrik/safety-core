@@ -1,41 +1,43 @@
 import {
   createCommandRegistry,
   dispatchCommand,
+  type InvocationCursor,
   ignorePolicy,
   observeShellFunctionCommand,
-  preflightCommand,
+  type PolicyDispatchContext,
   type PolicyObserver,
+  preflightCommand,
 } from "./bash/dispatch.js";
 import {
   fromFilteredInitialEnvironment,
   fromInitialEnvironment,
   fromVerifiedInitialEnvironment,
 } from "./bash/environment.js";
-import { failure, type AuthorizationVerdict, type PolicyEvidence } from "./bash/outcome.js";
-import { DEFAULT_BASH_ANALYSIS_LIMITS, runSteps, type BashAnalysisLimits } from "./bash/runner.js";
-import { walkProgram } from "./bash/walker.js";
-import { parseBashProgram } from "./shell.js";
-import { evaluatePolicyEvents } from "./policy/evaluate.js";
-import { projectExecutionGapEvent } from "./policy/events.js";
-import type { BashPolicyAnalysis, BashPolicyEvent, PolicyEvaluation, ValidatedBashPolicy } from "./policy/types.js";
-import { unavailableExecutableFilesystem, type ExecutableFilesystem } from "./policy/filesystem.js";
-import { readerHandlers } from "./bash/handlers/readers.js";
-import { httpHandlers } from "./bash/handlers/http.js";
-import { kubectlHandler } from "./bash/handlers/command-kubectl.js";
 import { ghApiHandler } from "./bash/handlers/command-gh-api.js";
-import { ghReadOnlyHandler } from "./bash/handlers/command-gh-read-only.js";
 import { ghPrCreateHandler, ghPrCreateInterpreterObservers } from "./bash/handlers/command-gh-pr-create.js";
+import { ghReadOnlyHandler } from "./bash/handlers/command-gh-read-only.js";
+import { kubectlHandler } from "./bash/handlers/command-kubectl.js";
 import { straceReadOnlyHandler } from "./bash/handlers/command-strace-read-only.js";
 import { isGhPrCreateCommand } from "./bash/handlers/gh-command-line.js";
+import { httpHandlers } from "./bash/handlers/http.js";
 import { genericReadOnlyHandlers, strictReadOnlyHandlers } from "./bash/handlers/read-only.js";
-import { STRICT_BASH_PROFILE_EXECUTABLES, type BashProfileSnapshot, type StrictBashProfile } from "./legacy-config.js";
+import { readerHandlers } from "./bash/handlers/readers.js";
+import { type AuthorizationVerdict, failure, type PolicyEvidence } from "./bash/outcome.js";
 import type { GhPrCreatePolicy } from "./bash/policies/gh-pr-create.js";
+import { type BashAnalysisLimits, DEFAULT_BASH_ANALYSIS_LIMITS, runSteps } from "./bash/runner.js";
+import { walkProgram } from "./bash/walker.js";
+import { type BashProfileSnapshot, STRICT_BASH_PROFILE_EXECUTABLES, type StrictBashProfile } from "./legacy-config.js";
+import { evaluatePolicyEvents } from "./policy/evaluate.js";
+import { projectExecutionGapEvent } from "./policy/events.js";
 import {
-  redirectIsUnmodeled,
-  shellFileAccesses,
   type HarnessFileAccessRequest,
   type HarnessFilePermissionCheck,
+  redirectIsUnmodeled,
+  shellFileAccesses,
 } from "./policy/file-permissions.js";
+import { type ExecutableFilesystem, unavailableExecutableFilesystem } from "./policy/filesystem.js";
+import type { BashPolicyAnalysis, BashPolicyEvent, PolicyEvaluation, ValidatedBashPolicy } from "./policy/types.js";
+import { parseBashProgram } from "./shell.js";
 
 export type BashInitialEnvironment =
   | { readonly kind: "unavailable" }
@@ -215,7 +217,7 @@ function configuredHandlers(snapshot: BashProfileSnapshot): readonly PolicyObser
 
 const configuredGhReadOnlyHandler: PolicyObserver = Object.freeze({
   name: "gh",
-  observe(cursor, context) {
+  observe(cursor: InvocationCursor, context: PolicyDispatchContext) {
     return isGhPrCreateCommand(cursor.invocation.argv.filter((word) => word.kind === "known").map((word) => word.value))
       ? ignorePolicy()
       : ghReadOnlyHandler.observe(cursor, context);
@@ -361,7 +363,7 @@ export function analyzeBashWithPolicies(options: BashPolicyAnalysisOptions): Bas
           );
         }
       },
-      cwd: options.cwd,
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       executableFilesystem: options.executableFilesystem ?? unavailableExecutableFilesystem,
     },
     parsed.kind === "parse-failure" ? failure(parsed.span) : undefined,

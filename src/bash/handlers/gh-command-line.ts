@@ -87,7 +87,7 @@ export function parseGhCommandLine(args: readonly string[]): ParsedGhCommandLine
   const words: string[] = [];
   const options: ParsedGhOption[] = [];
   let exact: CommandForm | undefined;
-  let possibleForms = [...COMMAND_FORMS];
+  let possibleForms: readonly CommandForm[] = COMMAND_FORMS;
   for (let index = 0; index < args.length; index++) {
     const argument = args[index]!;
     if (argument === "--") {

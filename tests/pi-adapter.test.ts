@@ -470,7 +470,11 @@ test("property: Pi session settings use the latest valid branch entry across 1,0
     const entries: unknown[] = [
       { type: "custom", customType: "other", data: { autoApprove: true, judgeModel: "ignored" } },
     ];
-    let expected = { autoApprove: false, judgeModel: "configured/model", showFullCommand: true };
+    let expected: { autoApprove: boolean; judgeModel: string | undefined; showFullCommand: boolean } = {
+      autoApprove: false,
+      judgeModel: "configured/model",
+      showFullCommand: true,
+    };
     for (let index = 0; index < 1 + (seed % 16); index++) {
       if ((seed + index) % 5 === 0) {
         entries.push({

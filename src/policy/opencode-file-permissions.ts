@@ -1,5 +1,5 @@
 import { dirname, relative, resolve } from "node:path";
-import type { HarnessFilePermissions, HarnessFilePermission } from "./file-permissions.js";
+import type { HarnessFilePermission, HarnessFilePermissions } from "./file-permissions.js";
 
 export interface OpenCodePermissionRule {
   readonly permission: string;
@@ -57,7 +57,7 @@ export function createOpenCodeFilePermissions(
 ): HarnessFilePermissions {
   let rules: Promise<readonly OpenCodePermissionRule[] | undefined> | undefined;
   return Object.freeze({
-    async check(request) {
+    async check(request: Parameters<HarnessFilePermissions["check"]>[0]) {
       if (
         request.path === null ||
         !absoluteLexicalPath(request.path) ||
@@ -139,7 +139,7 @@ function responseData(value: unknown): unknown {
   return isRecord(value) && !value.error ? value.data : undefined;
 }
 
-function isRecord(value: unknown): value is Record<string, any> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -151,7 +151,7 @@ function isRuleset(value: unknown): value is readonly OpenCodePermissionRule[] {
         isRecord(rule) &&
         typeof rule.permission === "string" &&
         typeof rule.pattern === "string" &&
-        ["allow", "ask", "deny"].includes(rule.action),
+        (rule.action === "allow" || rule.action === "ask" || rule.action === "deny"),
     )
   );
 }

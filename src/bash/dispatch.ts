@@ -1,13 +1,18 @@
+import { projectExecutionGapEvent, projectInvocationEvent } from "../policy/events.js";
+import { basename } from "../shell.js";
 import type { SourceSpan } from "./cst.js";
 import type { NormalizedCommand } from "./expand.js";
-import { indeterminate, strongestOutcome, withPolicySpan, type Outcome } from "./outcome.js";
-import { policyDeny, safe } from "./outcome.js";
-import type { BashDispatchRequest, BashDispatchResult, BashPreflightRequest, BashPreflightResult } from "./walker.js";
 import { structuralHandlers, unknownStructuralHandler } from "./handlers/registry.js";
+import { indeterminate, type Outcome, policyDeny, safe, strongestOutcome, withPolicySpan } from "./outcome.js";
 import { analyzeSecretRedirectInvocation } from "./policies/secrets.js";
-import { basename } from "../shell.js";
-import { projectExecutionGapEvent, projectInvocationEvent } from "../policy/events.js";
 import { isBashBuiltin } from "./resolution.js";
+import type {
+  BashChildExecution,
+  BashDispatchRequest,
+  BashDispatchResult,
+  BashPreflightRequest,
+  BashPreflightResult,
+} from "./walker.js";
 
 export interface InvocationCursor {
   readonly invocation: NormalizedCommand;
@@ -154,8 +159,8 @@ export function dispatchCommand(
     provenance: request.provenance,
     inPipeline: request.inPipeline,
     processEffect: request.processEffect,
-    cwd: request.cwd,
-    executableFilesystem: request.executableFilesystem,
+    ...(request.cwd !== undefined ? { cwd: request.cwd } : {}),
+    ...(request.executableFilesystem !== undefined ? { executableFilesystem: request.executableFilesystem } : {}),
     executionTarget: request.executionTarget,
   });
   request.recordPolicyEvent?.(event);
@@ -201,19 +206,23 @@ export function dispatchCommand(
             observe(resolved.observers, cursor, policyContext, [structural, opaque.outcome]),
           );
           if (outcome.kind === "deny") return outcome;
-          return freeze({ outcome, children: opaque.children });
+          return dispatchResult(outcome, opaque.children);
         }
       }
     } else {
       recordExecutionGaps(request, structural.children ?? []);
       const outcome = strongestOutcome(observe(resolved.observers, cursor, policyContext, [structural.outcome]));
       if (outcome.kind === "deny") return outcome;
-      return freeze({ outcome, children: structural.children });
+      return dispatchResult(outcome, structural.children);
     }
   }
   const combined = observe(resolved.observers, cursor, policyContext, outcomes);
   if (outcomes.length === 0) combined.push(unknownStructuralHandler.handle(cursor, context) as Outcome);
   return strongestOutcome(combined);
+}
+
+function dispatchResult(outcome: Outcome, children: readonly BashChildExecution[] | undefined): BashDispatchResult {
+  return children ? freeze({ outcome, children }) : freeze({ outcome });
 }
 
 /** A shell function owns its body; observers may classify its call but must not dispatch the name as an external command. */

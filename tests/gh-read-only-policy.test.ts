@@ -1,22 +1,26 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
-
+import { readFileSync } from "node:fs";
+import { renderGhReadOnlyAudit } from "../scripts/render-gh-read-only-audit.ts";
 import {
   ghCommandGrammarMatches,
   ghNativeAliasesForRule,
   parseGhCommandLine,
 } from "../src/bash/handlers/gh-command-line.ts";
+import { GH_HELP_TOPIC_RULES, GH_READ_ONLY_RULES, type GhCommandRule } from "../src/bash/policies/gh-read-only.ts";
 import {
   BASH_FUNCTIONS_CAPTURED_FACT,
   completePolicyInitialEnvironment,
   POLICY_ENVIRONMENT_ROUTES,
   policyInitialEnvironment,
 } from "../src/bash/policy-environment.ts";
-import { GH_HELP_TOPIC_RULES, GH_READ_ONLY_RULES } from "../src/bash/policies/gh-read-only.ts";
-import { renderGhReadOnlyAudit } from "../scripts/render-gh-read-only-audit.ts";
 
 const fixture = JSON.parse(readFileSync(new URL("../data/gh-cli-2.100.0-reference.json", import.meta.url), "utf8")) as {
-  commands: Array<{ path: string[]; aliases: string[][]; preview: boolean; kind: string }>;
+  commands: Array<{
+    path: string[];
+    aliases: string[][];
+    preview: boolean;
+    kind: GhCommandRule["kind"];
+  }>;
   helpTopics: Array<{ name: string }>;
   environment: Array<{ name: string }>;
 };
@@ -231,6 +235,7 @@ describe("policy environment manifest", () => {
         policyInitialEnvironment({ [key]: body }),
         completePolicyInitialEnvironment({ [key]: body }),
       ]) {
+        if (snapshot.kind === "unavailable") throw new Error("expected captured function environment");
         expect(snapshot.values[key], key).toBe(body);
         expect(snapshot.values[`__SAFETY_CORE_BASH_FUNCTION_${name}`], key).toBe("__SAFETY_CORE_PRESENT");
       }

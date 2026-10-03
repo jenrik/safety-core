@@ -2,16 +2,15 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import {
-  STRICT_BASH_PROFILE_EXECUTABLES,
-  evaluateConfiguredBash,
-  initBashParser,
-  type BashProfileSnapshot,
-  type GhPrCreatePolicy,
-} from "../src/index.ts";
 import { ghNativeAliasesForRule } from "../src/bash/handlers/gh-command-line.ts";
 import { GH_READ_ONLY_RULES } from "../src/bash/policies/gh-read-only.ts";
+import {
+  type BashProfileSnapshot,
+  evaluateConfiguredBash,
+  type GhPrCreatePolicy,
+  initBashParser,
+  STRICT_BASH_PROFILE_EXECUTABLES,
+} from "../src/index.ts";
 
 const policy: GhPrCreatePolicy = {
   enabled: true,
@@ -236,7 +235,7 @@ describe("gh pr create policy", () => {
       const target = allowed
         ? `github.com/${owner}/${repository}`
         : `github.com/${owner}${(random() % 9) + 1}/${repository}`;
-      const flag = ["--repo", "-R", "--repo=", "-R="][random() % 4];
+      const flag = ["--repo", "-R", "--repo=", "-R="][random() % 4]!;
       const value = flag.endsWith("=") ? `${flag}${target}` : `${flag} ${target}`;
       const command = random() % 2 === 0 ? `gh pr create --fill ${value}` : `gh ${value} pr create --fill`;
       const generatedPolicy: GhPrCreatePolicy = {

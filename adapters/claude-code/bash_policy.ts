@@ -5,13 +5,13 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { dirname, join } from "node:path";
 
 import {
-  initBundledBashParser,
-  loadPolicyRuntime,
   createPolicySessionManifest,
-  loadPolicySessionRuntime,
-  parsePolicySessionManifest,
+  initBundledBashParser,
   type LoadedPolicyRuntime,
+  loadPolicyRuntime,
+  loadPolicySessionRuntime,
   type PolicySessionManifest,
+  parsePolicySessionManifest,
 } from "@safety-core/core";
 import { evaluateClaudeBashPolicy, isBashPreToolUse } from "./_bash_policy.js";
 import { emitAllow, emitDeny, parseHookEvent, readStdin, run } from "./_shared.js";
@@ -22,7 +22,7 @@ run(async () => {
     await establishClaudeSessionRuntime(event.session_id, event.cwd ?? process.cwd());
     return;
   }
-  if (!isBashPreToolUse(event)) return;
+  if (!event || !isBashPreToolUse(event)) return;
 
   await initBundledBashParser(import.meta.url);
   const cwd = event.cwd ?? process.cwd();

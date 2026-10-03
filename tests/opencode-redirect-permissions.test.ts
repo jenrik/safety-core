@@ -7,10 +7,10 @@ import { createOpenCodeV2Plugin } from "../adapters/opencode-v2.ts";
 import {
   analyzeBashWithPolicies,
   createOpenCodeFilePermissions,
-  evaluateOpenCodePermission,
-  initBundledBashParser,
   type ExecutableFilesystem,
+  evaluateOpenCodePermission,
   type HarnessFileAccessRequest,
+  initBundledBashParser,
   type LoadedPolicyRuntime,
   type OpenCodePermissionClient,
   type OpenCodePermissionRule,
@@ -35,7 +35,7 @@ const evaluatePolicies = (loaded: LoadedPolicyRuntime, source: string, context?:
     policies: loaded.policySet.policies,
     source,
     limits,
-    cwd: context?.cwd,
+    ...(context?.cwd === undefined ? {} : { cwd: context.cwd }),
     initialEnvironment: { kind: "verified", values: {} },
   });
 
@@ -368,7 +368,12 @@ test("property: lexical normalization preserves external-directory decisions wit
       ] as const) {
         const checker = createOpenCodeFilePermissions(
           sdk([rule("*", "*", "allow"), rule("external_directory", "/external/*", action)]),
-          { sessionID: "session", callID: "call", directory: "/workspace", worktree },
+          {
+            sessionID: "session",
+            callID: "call",
+            directory: "/workspace",
+            ...(worktree === undefined ? {} : { worktree }),
+          },
         );
         for (const path of [
           `/external/dir-${seed}/out`,

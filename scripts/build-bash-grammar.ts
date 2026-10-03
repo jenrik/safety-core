@@ -104,7 +104,7 @@ export function applyPatchFile(source: string, file: PatchFile): string {
 }
 
 async function run(command: readonly string[], cwd: string): Promise<void> {
-  const process = Bun.spawn(command, { cwd, stderr: "inherit", stdout: "inherit" });
+  const process = Bun.spawn([...command], { cwd, stderr: "inherit", stdout: "inherit" });
   if ((await process.exited) !== 0) throw new Error(`${command.join(" ")} failed`);
 }
 

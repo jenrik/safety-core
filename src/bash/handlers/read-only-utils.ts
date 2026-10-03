@@ -1,25 +1,25 @@
 import {
+  type InvocationCursor,
   ignorePolicy,
   observePolicy,
   type PolicyObservation,
   type PolicyObserver,
-  type InvocationCursor,
 } from "../dispatch.js";
-import { hasBinding, lookupBinding, type Environment } from "../environment.js";
+import { type Environment, hasBinding, lookupBinding } from "../environment.js";
 import { policyIndeterminate, policySafe } from "../outcome.js";
+import {
+  type AllowedFlag,
+  isSecretPath,
+  type ReadOnlyInvocationDecision,
+  readOnlyAllow,
+  readOnlyDefer,
+} from "../policies/read-only.js";
 import {
   BASH_FUNCTIONS_CAPTURED_FACT,
   GH_DEFER_ENVIRONMENT_NAMES,
   GH_INHERITED_PAGER_FACT,
   inheritedBashFunctionFact,
 } from "../policy-environment.js";
-import {
-  isSecretPath,
-  readOnlyAllow,
-  readOnlyDefer,
-  type AllowedFlag,
-  type ReadOnlyInvocationDecision,
-} from "../policies/read-only.js";
 
 export type ReadOnlyPolicy = "generic-read-only" | "gh-read-only" | "strict-read-only";
 
@@ -43,7 +43,7 @@ export function readOnlyHandler(
   policy: ReadOnlyPolicy,
   analyze: (args: readonly string[]) => ReadOnlyInvocationDecision | { readonly kind: "ignore" },
 ): PolicyObserver {
-  return Object.freeze({
+  return Object.freeze<PolicyObserver>({
     name,
     observe(cursor, context) {
       const args = knownArguments(cursor);

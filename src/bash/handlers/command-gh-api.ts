@@ -11,7 +11,7 @@ import {
   hasUnsafeGhEnvironmentBinding,
 } from "./read-only-utils.js";
 
-export const ghApiHandler: PolicyObserver = Object.freeze({
+export const ghApiHandler = Object.freeze<PolicyObserver>({
   name: "gh",
   observe(cursor, context) {
     const args = knownArguments(cursor);

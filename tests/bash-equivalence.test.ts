@@ -2,14 +2,14 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { analyzeBashAuthorization, initBashParser } from "../src/index.ts";
-import { observePolicy, type InvocationCursor, type PolicyObserver } from "../src/bash/dispatch.ts";
+import { type InvocationCursor, observePolicy, type PolicyObserver } from "../src/bash/dispatch.ts";
 import { lookupBinding } from "../src/bash/environment.ts";
 import { safe } from "../src/bash/outcome.ts";
+import { analyzeBashAuthorization, initBashParser } from "../src/index.ts";
 import {
   assertEquivalentOracleFinalBindings,
   assertEquivalentOracleTrace,
+  type BashOracleFinalBinding,
   runBashOracle,
   runBashOracleWithFinalBindings,
 } from "./helpers/bash-oracle.ts";
@@ -177,7 +177,7 @@ test("keeps unsupported mutation neutral and taints subsequent expansion", () =>
 function recordingHandler(invocations: InvocationCursor[]): PolicyObserver {
   return Object.freeze({
     name: "record-command",
-    observe(cursor) {
+    observe(cursor: InvocationCursor) {
       invocations.push(cursor);
       return observePolicy(safe());
     },
@@ -221,7 +221,7 @@ function finalBindingHandler(
 ): PolicyObserver {
   return Object.freeze({
     name: "capture-final",
-    observe(cursor) {
+    observe(cursor: InvocationCursor) {
       capture(renderFinalBindings(cursor, names));
       return observePolicy(safe());
     },
@@ -240,15 +240,18 @@ function renderInvocations(invocations: readonly InvocationCursor[], names: read
   }));
 }
 
-function renderFinalBindings(cursor: InvocationCursor, names: readonly string[]) {
+function renderFinalBindings(
+  cursor: InvocationCursor,
+  names: readonly string[],
+): Readonly<Record<string, BashOracleFinalBinding>> {
   return Object.fromEntries(
     names.map((name) => {
       const binding = lookupBinding(cursor.invocation.environment, name);
       return [
         name,
         binding.value.kind === "unset"
-          ? { kind: "unset", exported: false }
-          : { kind: binding.value.kind === "known" ? "set" : "unknown", exported: binding.exported },
+          ? ({ kind: "unset", exported: false } satisfies BashOracleFinalBinding)
+          : ({ kind: "set", exported: binding.exported } satisfies BashOracleFinalBinding),
       ];
     }),
   );

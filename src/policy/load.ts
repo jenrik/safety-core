@@ -3,6 +3,9 @@ import { readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 import { PolicyStartupError, type ResolvedSessionPolicyConfig } from "./config.js";
+import { compilePolicyDocument } from "./dsl/compile.js";
+import { createDslPolicy } from "./dsl/evaluate.js";
+import { parsePolicyDocument } from "./dsl/validate.js";
 import { validateLoadedBashPolicy } from "./evaluate.js";
 import type {
   BashPolicyEvent,
@@ -11,9 +14,6 @@ import type {
   PolicyDecision,
   ValidatedBashPolicy,
 } from "./types.js";
-import { compilePolicyDocument } from "./dsl/compile.js";
-import { createDslPolicy } from "./dsl/evaluate.js";
-import { parsePolicyDocument } from "./dsl/validate.js";
 
 export interface LoadedPolicySource {
   readonly canonicalPath: string;
@@ -30,7 +30,7 @@ export interface PolicyLoaderOptions {
   readonly importCodePolicy?: (url: string) => unknown | Promise<unknown>;
 }
 
-interface CodePolicyDefinition {
+interface CodePolicyDefinition extends Readonly<Record<string, unknown>> {
   readonly apiVersion: 1;
   readonly layer: "guard" | "permission";
   readonly select: readonly unknown[];
@@ -510,19 +510,31 @@ function loadDefinition(path: string, module: unknown): ValidatedBashPolicy {
     throw new PolicyStartupError(path, "code policy must provide selectors and evaluate");
   }
 
-  const select = freezeSelectors(path, definition.select as readonly BashPolicySelector[]);
+  if (!isCodePolicyDefinition(definition)) {
+    throw new PolicyStartupError(path, "code policy must provide selectors and evaluate");
+  }
+  const select = freezeSelectors(path, definition.select);
   const candidate: LoadedBashPolicy = Object.freeze({
     source: Object.freeze({ canonicalPath: path }),
     layer: definition.layer,
     select,
-    evaluate: (event: BashPolicyEvent) => evaluateDefinition(path, definition as CodePolicyDefinition, event),
+    evaluate: (event: BashPolicyEvent) => evaluateDefinition(path, definition, event),
   });
   try {
-    return validateLoadedBashPolicy(candidate as ValidatedBashPolicy);
+    return validateLoadedBashPolicy(candidate);
   } catch (error) {
     const detail = error instanceof Error ? error.message : "invalid code policy definition";
     throw new PolicyStartupError(path, detail, error);
   }
+}
+
+function isCodePolicyDefinition(value: Record<string, unknown>): value is CodePolicyDefinition {
+  return (
+    value.apiVersion === 1 &&
+    (value.layer === "guard" || value.layer === "permission") &&
+    Array.isArray(value.select) &&
+    typeof value.evaluate === "function"
+  );
 }
 
 function evaluateDefinition(path: string, definition: CodePolicyDefinition, event: BashPolicyEvent): PolicyDecision {

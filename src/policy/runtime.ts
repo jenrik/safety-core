@@ -4,16 +4,16 @@ import { readFileSync, realpathSync } from "node:fs";
 import type { BashInitialEnvironment, BashPolicyEvaluation } from "../authorization.js";
 import { analyzeBashWithPolicies } from "../authorization.js";
 import {
-  PolicyStartupError,
-  loadGlobalPolicyConfig,
-  resolveSessionPolicyConfig,
   type BashAnalysisConfig,
   type GlobalPolicyConfig,
+  loadGlobalPolicyConfig,
   type PolicyConfigurationSource,
+  PolicyStartupError,
   type ResolvedPolicySource,
+  resolveSessionPolicyConfig,
 } from "./config.js";
-import { loadPolicySet, loadPolicySources, type LoadedPolicySet, type LoadedPolicySource } from "./load.js";
 import type { ExecutableFilesystem } from "./filesystem.js";
+import { type LoadedPolicySet, type LoadedPolicySource, loadPolicySet, loadPolicySources } from "./load.js";
 
 export interface LoadedPolicyRuntime {
   readonly config: GlobalPolicyConfig;
@@ -98,6 +98,7 @@ export async function loadPolicyRuntimeManifest(manifest: PolicyRuntimeManifest)
     ),
     projectPolicies: Object.freeze({ mode: "disabled", allowedRoots: Object.freeze([]) }),
     bashAnalysis: manifest.limits,
+    pi: Object.freeze({ autoApprove: false, showFullCommand: true }),
   });
   return Object.freeze({
     config,
@@ -118,10 +119,10 @@ export function evaluateLoadedPolicies(
   return analyzeBashWithPolicies({
     source,
     limits: runtime.limits,
-    initialEnvironment,
-    cwd: context.cwd,
-    executableFilesystem: context.executableFilesystem,
     policies: runtime.policySet.policies,
+    ...(initialEnvironment === undefined ? {} : { initialEnvironment }),
+    ...(context.cwd === undefined ? {} : { cwd: context.cwd }),
+    ...(context.executableFilesystem === undefined ? {} : { executableFilesystem: context.executableFilesystem }),
   });
 }
 

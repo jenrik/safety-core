@@ -7,7 +7,7 @@ import { existsSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Language, Node as SyntaxNode, Parser } from "web-tree-sitter";
+import { Language, Parser, Node as SyntaxNode } from "web-tree-sitter";
 import type {
   BashAssignment,
   BashCommand,
@@ -137,8 +137,12 @@ export function isBashParserInitialized(): boolean {
 }
 
 /** Crash rather than evaluating restrictive policy with no parser. */
-export function assertBashParserInitialized(): asserts bashParser is Parser {
-  if (bashParser) return;
+export function assertBashParserInitialized(): void {
+  getInitializedBashParser();
+}
+
+function getInitializedBashParser(): Parser {
+  if (bashParser) return bashParser;
   throw (
     initializationFailure ??
     new BashParserFailure("Bash parser was not initialized before safety-core policy evaluation")
@@ -208,9 +212,10 @@ export function discoverWasmDir(moduleUrl: string): string {
  * parser backends to produce the same model for the authorization walker.
  */
 export function parseBashProgram(source: string): BashProgram | BashParseFailure {
-  assertBashParserInitialized();
+  const parser = getInitializedBashParser();
 
-  const tree = bashParser.parse(source);
+  const tree = parser.parse(source);
+  if (!tree) throw new BashParserFailure("Bash parser did not produce a syntax tree");
   const error = findSyntaxError(tree.rootNode);
   if (error) {
     return freeze({

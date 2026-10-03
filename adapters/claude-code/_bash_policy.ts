@@ -1,10 +1,10 @@
 import {
-  evaluateLoadedPolicies,
-  nodeExecutableFilesystem,
-  completePolicyInitialEnvironment,
   type BashPolicyEvaluation,
-  type LoadedPolicyRuntime,
+  completePolicyInitialEnvironment,
   type ExecutableFilesystem,
+  evaluateLoadedPolicies,
+  type LoadedPolicyRuntime,
+  nodeExecutableFilesystem,
 } from "@safety-core/core";
 import type { HookEvent } from "./_shared.js";
 
@@ -47,7 +47,9 @@ export function evaluateClaudeBashPolicy(
   const trace =
     evaluation.decision === "deny" ? evaluation.traces.find((value) => value.decision.kind === "deny") : undefined;
   const reason =
-    trace?.decision.reason?.map((part) => (part.kind === "literal" ? part.value : String(part.value))).join("") ??
+    (trace?.decision.kind === "deny"
+      ? trace.decision.reason?.map((part) => (part.kind === "literal" ? part.value : String(part.value))).join("")
+      : undefined) ??
     (evaluation.decision === "allow" ? "Bash policy fully covers this command" : "Bash policy denied this command");
   return Object.freeze({ kind: evaluation.decision, reason });
 }

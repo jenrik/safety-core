@@ -2,12 +2,12 @@ import { beforeAll, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
   analyzeBashWithPolicies,
-  checkBashFilePermissions,
-  initBundledBashParser,
-  parseBashProgram,
   type BashPolicyEvent,
+  checkBashFilePermissions,
   type HarnessFileAccessRequest,
   type InvocationView,
+  initBundledBashParser,
+  parseBashProgram,
   type ValidatedBashPolicy,
 } from "../src/index.ts";
 import { compilePolicyDocument } from "../src/policy/dsl/compile.ts";
@@ -91,9 +91,9 @@ test("function definition redirects do not execute until the function is called"
   expect(analyze(definition).events).toHaveLength(0);
   const called = analyze(`${definition}; f; baz`);
   expect(named(called.events, "bar")).toBeDefined();
-  expect(named(called.events, "foo").io?.["1"].kind).toBe("file");
-  expect(named(called.events, "baz").io?.["1"].kind).toBe("inherited");
-  expect(called.fileAccesses![0].path).toBeNull();
+  expect(named(called.events, "foo").io?.["1"]).toMatchObject({ kind: "file" });
+  expect(named(called.events, "baz").io?.["1"]).toMatchObject({ kind: "inherited" });
+  expect(called.fileAccesses![0]!.path).toBeNull();
 });
 
 test("every open is retained while effective stdin and stdout use the last binding", () => {
@@ -170,8 +170,8 @@ test("pipes and process substitutions cover both invocations without harness fil
     expect(result.fileAccesses, source).toHaveLength(0);
   }
   const pipeline = analyze("foo | bar");
-  expect(named(pipeline.events, "foo").io?.["0"].kind).toBe("inherited");
-  expect(named(pipeline.events, "bar").io?.["0"].kind).toBe("pipeline");
+  expect(named(pipeline.events, "foo").io?.["0"]).toMatchObject({ kind: "inherited" });
+  expect(named(pipeline.events, "bar").io?.["0"]).toMatchObject({ kind: "pipeline" });
   expect(analyze("foo | bar >out").fileAccesses).toHaveLength(1);
 });
 
@@ -236,7 +236,7 @@ test("/dev/null requires harness permission for every read and write", async () 
       ).toBe(expected);
     }
   }
-  expect(analyze("foo >/dev/./null").fileAccesses![0].path).toBe("/dev/./null");
+  expect(analyze("foo >/dev/./null").fileAccesses![0]!.path).toBe("/dev/./null");
 });
 
 test("directory changes cannot authorize relative files using stale startup cwd", async () => {
@@ -249,7 +249,7 @@ test("directory changes cannot authorize relative files using stale startup cwd"
     expect(result.fileAccesses![0], source).toMatchObject({ path: null, reason: "unknown-cwd" });
     expect((await checkBashFilePermissions(result, { check: () => "allow" })).decision, source).toBe("defer");
   }
-  expect(analyze("( cd /elsewhere ); foo >out").fileAccesses![0].path).toBe("/workspace/out");
+  expect(analyze("( cd /elsewhere ); foo >out").fileAccesses![0]!.path).toBe("/workspace/out");
 });
 
 test("file denies dominate defers, failed checks defer, and command denies do not ask for file permission", async () => {

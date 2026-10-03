@@ -201,7 +201,7 @@ export function createAnthropicJudge(options: AnthropicJudgeOptions): JudgeProvi
           system: JUDGE_SYSTEM_PROMPT,
           messages: [{ role: "user", content: buildJudgeUserPrompt(command) }],
         }),
-        signal,
+        ...(signal === undefined ? {} : { signal }),
       });
 
       if (!resp.ok) {
@@ -260,7 +260,7 @@ export function createOpenAIJudge(options: OpenAIJudgeOptions): JudgeProvider {
             { role: "user", content: buildJudgeUserPrompt(command) },
           ],
         }),
-        signal,
+        ...(signal === undefined ? {} : { signal }),
       });
 
       if (!resp.ok) {

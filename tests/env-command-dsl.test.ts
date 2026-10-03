@@ -1,7 +1,13 @@
-import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 
-import { analyzeBashWithPolicies, completePolicyInitialEnvironment, initBundledBashParser } from "../src/index.ts";
+import {
+  analyzeBashWithPolicies,
+  type BashPolicyEvent,
+  completePolicyInitialEnvironment,
+  type InvocationView,
+  initBundledBashParser,
+} from "../src/index.ts";
 import { compilePolicyDocument } from "../src/policy/dsl/compile.ts";
 import { createDslPolicy } from "../src/policy/dsl/evaluate.ts";
 import { parsePolicyDocument } from "../src/policy/dsl/validate.ts";
@@ -22,7 +28,7 @@ beforeAll(async () => {
 });
 
 function directDecision(argv: readonly string[]): string {
-  return envPolicy.evaluate({
+  const event: InvocationView = {
     kind: "invocation",
     executable: { kind: "known", value: "env" },
     executionTarget: "external-path",
@@ -42,7 +48,8 @@ function directDecision(argv: readonly string[]): string {
     provenance: { route: ["direct"] },
     inPipeline: false,
     processEffect: "none",
-  } as any).kind;
+  };
+  return envPolicy.evaluate(event).kind;
 }
 
 function analyze(source: string) {
@@ -54,18 +61,23 @@ function analyze(source: string) {
 }
 
 function invocationNames(result: ReturnType<typeof analyze>): string[] {
-  return result.events.flatMap((event) =>
-    event.kind === "invocation" && event.executable.kind === "known" ? [event.executable.value] : [],
-  );
+  return result.events.flatMap((event) => (isKnownInvocation(event) ? [event.executable.value] : []));
 }
 
-function envEvent(result: ReturnType<typeof analyze>): any {
-  const event = result.events.find(
-    (candidate) =>
-      candidate.kind === "invocation" && candidate.executable.kind === "known" && candidate.executable.value === "env",
-  );
+function envEvent(result: ReturnType<typeof analyze>): InvocationView {
+  const event = result.events.find(isEnvInvocation);
   if (!event) throw new Error("missing env invocation");
   return event;
+}
+
+function isKnownInvocation(
+  event: BashPolicyEvent,
+): event is InvocationView & { readonly executable: { readonly kind: "known"; readonly value: string } } {
+  return event.kind === "invocation" && event.executable?.kind === "known";
+}
+
+function isEnvInvocation(event: BashPolicyEvent): event is InvocationView {
+  return isKnownInvocation(event) && event.executable.value === "env";
 }
 
 describe("env command DSL policy", () => {

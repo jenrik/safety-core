@@ -175,12 +175,13 @@ export function policyDeny(span: SourceSpan, policy: PolicyEvidence): DenyOutcom
 
 /** Associate policy evidence with its invocation without retaining source text. */
 export function withPolicySpan(outcome: Outcome, span: SourceSpan): Outcome {
-  const policies = outcome.policies ?? (outcome.policy ? [outcome.policy] : []);
+  const policy = outcomePolicy(outcome);
+  const policies = outcome.policies ?? (policy ? [policy] : []);
   if (policies.length === 0) return outcome;
   const annotated = Object.freeze(policies.map((policy) => freeze({ ...policy, span: copySpan(span) })));
   return freeze({
     ...outcome,
-    ...(outcome.policy ? { policy: annotated[0]! } : {}),
+    ...(policy ? { policy: annotated[0]! } : {}),
     policies: annotated,
   }) as Outcome;
 }
@@ -300,8 +301,13 @@ function redactPolicy(policy: PolicyEvidence): PolicyEvidence {
 }
 
 function redactPolicies(outcome: Outcome): readonly PolicyEvidence[] {
-  const source = outcome.policies ?? (outcome.policy ? [outcome.policy] : []);
+  const policy = outcomePolicy(outcome);
+  const source = outcome.policies ?? (policy ? [policy] : []);
   return Object.freeze(source.map(redactPolicy));
+}
+
+function outcomePolicy(outcome: Outcome): PolicyEvidence | undefined {
+  return "policy" in outcome ? outcome.policy : undefined;
 }
 
 function withPolicies<T extends Outcome>(outcome: T, policies: readonly PolicyEvidence[]): T {

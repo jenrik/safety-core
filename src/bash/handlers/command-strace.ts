@@ -1,6 +1,6 @@
 import type { StructuralDispatchContext } from "../dispatch.js";
-import type { ResolvedWord } from "../expand.js";
 import { assignBinding, known as knownBinding, setExported, unsetBinding } from "../environment.js";
+import type { ResolvedWord } from "../expand.js";
 import { indeterminate } from "../outcome.js";
 import {
   childInvocationFrom,
@@ -152,8 +152,13 @@ function parseStrace(arguments_: readonly ResolvedWord[], context: StructuralDis
       if (long.kind === "ambiguous") return indeterminate(context.span);
       const option = long.option;
       if (VALUE_OPTIONS.has(option)) {
-        if (long.value === undefined && !isKnown(arguments_[index + 1])) return indeterminate(context.span);
-        const value = long.value ?? arguments_[index + 1]!.value;
+        const next = arguments_[index + 1];
+        let value: string;
+        if (long.value !== undefined) value = long.value;
+        else {
+          if (!isKnown(next)) return indeterminate(context.span);
+          value = next.value;
+        }
         if (UNSAFE_VALUE_OPTIONS.has(option) || (option === "--trace" && /^(?:inject|fault)=/.test(value)))
           unsafe = true;
         if (option === "--env") environment = applyEnvironment(environment, value);
@@ -171,14 +176,11 @@ function parseStrace(arguments_: readonly ResolvedWord[], context: StructuralDis
       continue;
     }
     if (VALUE_OPTIONS.has(argument)) {
-      if (!isKnown(arguments_[index + 1])) return indeterminate(context.span);
-      if (
-        UNSAFE_VALUE_OPTIONS.has(argument) ||
-        (argument === "-e" && /^(?:inject|fault)=/.test(arguments_[index + 1]!.value))
-      )
+      const next = arguments_[index + 1];
+      if (!isKnown(next)) return indeterminate(context.span);
+      if (UNSAFE_VALUE_OPTIONS.has(argument) || (argument === "-e" && /^(?:inject|fault)=/.test(next.value)))
         unsafe = true;
-      if (argument === "-E" || argument === "--env")
-        environment = applyEnvironment(environment, arguments_[index + 1]!.value);
+      if (argument === "-E" || argument === "--env") environment = applyEnvironment(environment, next.value);
       if (argument === "-p" || argument === "--attach") return indeterminate(context.span);
       index += 2;
       continue;
@@ -259,8 +261,11 @@ function parseShortOptions(
     if (flags.has(option)) continue;
     if (!values.has(option)) return undefined;
     const attachedValue = options.slice(index + 1);
-    if (!attachedValue && !isKnown(next)) return undefined;
-    const value = attachedValue || next!.value;
+    let value = attachedValue;
+    if (!value) {
+      if (!isKnown(next)) return undefined;
+      value = next.value;
+    }
     if (["o", "u", "E"].includes(option) || (option === "e" && /^(?:inject|fault)=/.test(value))) unsafe = true;
     return Object.freeze({
       consumed: attachedValue ? 1 : 2,

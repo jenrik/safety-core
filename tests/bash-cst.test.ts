@@ -188,7 +188,7 @@ describe("parseBashProgram", () => {
             : statement.kind,
         ),
         source,
-      ).toEqual(names);
+      ).toEqual([...names]);
       expect(result.reason, source).not.toContain(source);
       expect(result.span.start, source).toBeGreaterThanOrEqual(0);
       assertProjectionData(result, source);

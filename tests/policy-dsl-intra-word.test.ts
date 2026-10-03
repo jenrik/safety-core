@@ -1,14 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import type { ResolvedWord } from "../src/bash/expand.ts";
 import { compilePolicyDocument } from "../src/policy/dsl/compile.ts";
 import { createDslPolicy } from "../src/policy/dsl/evaluate.ts";
 import { POLICY_LANGUAGE_V1, POLICY_LANGUAGE_V2, validatePolicyDocument } from "../src/policy/dsl/validate.ts";
 import type { InvocationView } from "../src/policy/types.ts";
 
-type Word =
-  | { readonly kind: "known"; readonly value: string }
-  | { readonly kind: "unknown"; readonly reason: { readonly kind: string } };
-
-function invocation(argv: readonly Word[]): InvocationView {
+function invocation(argv: readonly ResolvedWord[]): InvocationView {
   return {
     kind: "invocation",
     executable: { kind: "known", value: "tool" },
@@ -32,8 +29,8 @@ function invocation(argv: readonly Word[]): InvocationView {
   };
 }
 
-const known = (value: string): Word => ({ kind: "known", value });
-const unknown: Word = { kind: "unknown", reason: { kind: "expansion" } };
+const known = (value: string): ResolvedWord => ({ kind: "known", value });
+const unknown: ResolvedWord = { kind: "unknown", reason: { kind: "unknown-variable", span: { start: 0, end: 0 } } };
 const atEnd = { call: "atEndOfWord", args: [] };
 const span = { call: "span", args: [{ ref: "begin" }, { ref: "cursor" }] };
 const defer = { decision: "defer" };
@@ -110,8 +107,10 @@ describe("DCRM v2 intra-word language", () => {
     expect(() => validatePolicyDocument(v1)).toThrow("atEndOfWord");
 
     const v2 = compilePolicyDocument(validatePolicyDocument(document()));
-    expect(v2.states.start.cases[0]?.action).toMatchObject({ consume: "byte", progress: 1 });
-    expect(v2.states.scan.cases[1]?.action).toMatchObject({ consume: "restOfWord", progress: 1 });
+    const start = required(v2.states.start, "start state");
+    const scan = required(v2.states.scan, "scan state");
+    expect(start.cases[0]?.action).toMatchObject({ consume: "byte", progress: 1 });
+    expect(scan.cases[1]?.action).toMatchObject({ consume: "restOfWord", progress: 1 });
 
     const legacy = document();
     legacy.language = POLICY_LANGUAGE_V1;
@@ -355,3 +354,8 @@ describe("DCRM v2 intra-word language", () => {
     }
   });
 });
+
+function required<T>(value: T | undefined, label: string): T {
+  if (value === undefined) throw new Error(`Expected ${label}`);
+  return value;
+}

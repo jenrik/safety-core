@@ -539,7 +539,10 @@ function expectGuardBlock(
 ): void {
   const result = evaluateBashGuards({ source });
   expect(result, source).toMatchObject({ kind: "block", policy: { name: policy, decision: "deny" } });
-  if (reason !== undefined) expect(result.reason, source).toContain(reason);
+  if (reason !== undefined) {
+    expect(result.kind, source).toBe("block");
+    if (result.kind === "block") expect(result.reason, source).toContain(reason);
+  }
 }
 
 function expectGuardBlockWithLimits(source: string, maxSteps: number, policy: "secret-read" | "github-http"): void {

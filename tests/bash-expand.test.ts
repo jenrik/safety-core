@@ -2,17 +2,16 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { initBashParser, parseBashProgram } from "../src/index.ts";
+import type { BashCommand, BashConcatenationWord, BashWord } from "../src/bash/cst.ts";
+import { fromInitialEnvironment, known, lookupBinding, unknown, unset } from "../src/bash/environment.ts";
 import {
   expandWord,
   normalizeCommand,
   normalizedInvocation,
-  symbolicWordShape,
   type ResolvedWord,
+  symbolicWordShape,
 } from "../src/bash/expand.ts";
-import { fromInitialEnvironment, known, lookupBinding, unknown, unset } from "../src/bash/environment.ts";
-import type { BashCommand, BashConcatenationWord, BashWord } from "../src/bash/cst.ts";
+import { initBashParser, parseBashProgram } from "../src/index.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-bash-expand-"));
 
@@ -38,7 +37,7 @@ describe("static Bash word expansion", () => {
 
     const invocation = normalizedInvocation(words, environment);
 
-    expect(invocation.executable).toEqual(words[0]);
+    expect(invocation.executable).toEqual(words[0]!);
     expect(invocation.argv).toEqual(words.slice(1));
     expect(invocation.environment).toBe(environment);
     expect(invocation.redirects).toEqual([]);

@@ -6,7 +6,7 @@ import { childInvocationFrom, taintWrapperResult } from "./wrapper-utils.js";
 const EXECUTABLE_TARGETS = new Set(["builtin", "command", "exec", "source", "."]);
 
 /** Preserve child evidence for builtins that dispatch code or another command. */
-export const builtinHandler: CommandHandler = Object.freeze({
+export const builtinHandler = Object.freeze<CommandHandler>({
   name: "builtin",
   handle(cursor, context) {
     const args = cursor.invocation.argv;

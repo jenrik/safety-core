@@ -30,6 +30,7 @@ test("property: generated finite machines halt within their token-and-byte consu
     const result = policy.evaluateWithTrace({
       kind: "invocation",
       executable: null,
+      executionTarget: "unresolved",
       executableIdentity: { qualification: "unknown", reason: "unresolved-spelling" },
       argv,
       environment: {},
@@ -71,6 +72,7 @@ test("practical P/B matrix keeps steps, working declarations, and trace output l
       const result = candidate.evaluateWithTrace({
         kind: "invocation",
         executable: null,
+        executionTarget: "unresolved",
         executableIdentity: { qualification: "unknown", reason: "unresolved-spelling" },
         argv: [{ kind: "known", value: `-${"v".repeat(clusterBytes)}` }],
         environment: {},
@@ -157,6 +159,7 @@ test("property: adverse accepted programs stay within derived O(PB²) practical 
       const result = candidate.evaluateWithTrace({
         kind: "invocation",
         executable: null,
+        executionTarget: "unresolved",
         executableIdentity: { qualification: "unknown", reason: "unresolved-spelling" },
         argv,
         environment,

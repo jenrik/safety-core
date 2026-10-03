@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  STRICT_BASH_PROFILE_EXECUTABLES,
+  type BashProfileSnapshot,
   evaluateConfiguredBash,
   initBashParser,
-  type BashProfileSnapshot,
+  STRICT_BASH_PROFILE_EXECUTABLES,
 } from "../src/index.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-read-only-cli-"));
@@ -657,7 +657,7 @@ describe("strict credential-safe CLI profiles", () => {
       expect(strict(["npm", ...args].join(" "), "npm")).toBe("allow");
     }
     for (const command of ["kubectl get pods", "npm ls package", "docker image ls"]) {
-      const executable = command.split(" ")[0];
+      const executable = command.split(" ")[0]!;
       const args = command
         .split(" ")
         .slice(1)

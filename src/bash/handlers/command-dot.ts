@@ -2,7 +2,7 @@ import type { CommandHandler } from "../dispatch.js";
 import { secretReaderHandler } from "./secret-reader-utils.js";
 
 export const dotHandler = secretReaderHandler(".");
-export const dotExecutionHandler: CommandHandler = Object.freeze({
+export const dotExecutionHandler = Object.freeze<CommandHandler>({
   name: ".",
   handle(_cursor, context) {
     return context.continueWithOpaque("source-file-execution", undefined, {

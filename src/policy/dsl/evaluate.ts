@@ -1,17 +1,19 @@
 import type { BindingValue } from "../../bash/environment.js";
-import { isBindingResolvedWord } from "../../bash/word-provenance.js";
 import type { ResolvedWord } from "../../bash/expand.js";
+import { isBindingResolvedWord } from "../../bash/word-provenance.js";
 import type {
   BashPolicyEvent,
   BashPolicySelector,
   DslPolicyTraceStep,
-  LoadedBashPolicy,
+  GuardBashPolicy,
+  GuardPolicyDecision,
+  PermissionBashPolicy,
   PolicyDecision,
   PolicyDiagnosticPart,
   PolicySourceIdentity,
 } from "../types.js";
-import { POLICY_LANGUAGE_V2 } from "./ast.js";
 import type { AuditValue, Expression, FoldDeclaration, RegisterDeclaration, TerminalAction } from "./ast.js";
+import { POLICY_LANGUAGE_V2 } from "./ast.js";
 import type { CompiledCase, CompiledOptionAction, CompiledPolicyProgram } from "./compile.js";
 
 export interface DslMachineStep extends DslPolicyTraceStep {}
@@ -21,9 +23,9 @@ export interface DslEvaluation {
   readonly steps: readonly DslMachineStep[];
 }
 
-export interface DslLoadedBashPolicy extends LoadedBashPolicy {
+export type DslLoadedBashPolicy = (GuardBashPolicy | PermissionBashPolicy) & {
   evaluateWithTrace(event: BashPolicyEvent): DslEvaluation;
-}
+};
 
 type InputReference = { readonly word: ResolvedWord; readonly start?: number; readonly end?: number };
 type InputLocation = { readonly word: ResolvedWord; readonly argvIndex: number; readonly offset: number };
@@ -43,9 +45,22 @@ export function createDslPolicy(
       : Object.freeze({ canonicalPath: source.canonicalPath });
   const selectors = Object.freeze(program.select.map(selectorForLoadedPolicy));
   const evaluateWithTrace = (event: BashPolicyEvent): DslEvaluation => evaluateProgram(program, event);
+  if (program.layer === "guard") {
+    return Object.freeze({
+      source: identity,
+      layer: "guard",
+      select: selectors,
+      evaluate(event: BashPolicyEvent): GuardPolicyDecision {
+        const decision = evaluateWithTrace(event).decision;
+        if (decision.kind === "allow") throw new TypeError("compiled guard policy returned allow");
+        return decision;
+      },
+      evaluateWithTrace,
+    });
+  }
   return Object.freeze({
     source: identity,
-    layer: program.layer,
+    layer: "permission",
     select: selectors,
     evaluate(event: BashPolicyEvent): PolicyDecision {
       return evaluateWithTrace(event).decision;
@@ -84,6 +99,7 @@ function evaluateProgram(program: CompiledPolicyProgram, event: BashPolicyEvent)
       // Transitions are excluded because all authored transitions require remaining input.
       for (const entry of stateProgram.cases) {
         if (entry.action.kind !== "terminal") continue;
+        if (isOptionPredicate(entry.when)) continue;
         const context = runtimeContext(event, undefined, undefined, registers, foldCache, undefined, {}, cursor());
         computeFolds(program, entry.action.fold, event, registers, foldCache);
         if (evaluateExpression(entry.when, context) !== true) continue;
@@ -261,11 +277,10 @@ function evaluateProgram(program: CompiledPolicyProgram, event: BashPolicyEvent)
 
 function selects(program: CompiledPolicyProgram, event: BashPolicyEvent): boolean {
   return program.select.some((selector) => {
-    if ("kind" in selector)
-      return (
-        event.kind === selector.kind &&
-        (selector.kind !== "execution-gap" || selector.reason === undefined || event.reason === selector.reason)
-      );
+    if ("kind" in selector) {
+      if (selector.kind === "invocation") return event.kind === "invocation";
+      return event.kind === "execution-gap" && (selector.reason === undefined || event.reason === selector.reason);
+    }
     if (event.kind !== "invocation") return false;
     const identity = event.executableIdentity;
     switch (selector.executable.projection) {
@@ -283,10 +298,12 @@ function selects(program: CompiledPolicyProgram, event: BashPolicyEvent): boolea
 }
 
 function selectorForLoadedPolicy(selector: CompiledPolicyProgram["select"][number]): BashPolicySelector {
-  if ("kind" in selector)
+  if ("kind" in selector) {
+    if (selector.kind === "invocation") return Object.freeze({ kind: "invocation" });
     return Object.freeze(
-      selector.reason === undefined ? { kind: selector.kind } : { kind: selector.kind, reason: selector.reason },
+      selector.reason === undefined ? { kind: "execution-gap" } : { kind: "execution-gap", reason: selector.reason },
     );
+  }
   const kind =
     selector.executable.projection === "basename"
       ? "executable-basename"
@@ -338,7 +355,16 @@ function runtimeContext(
   captures: Readonly<Record<string, RuntimeValue>> = {},
   cursor?: RuntimeContext["cursor"],
 ): RuntimeContext {
-  return { event, word, optionValue, registers, folds, foldItem, captures, cursor };
+  return {
+    event,
+    word,
+    optionValue,
+    registers,
+    folds,
+    captures,
+    ...(foldItem === undefined ? {} : { foldItem }),
+    ...(cursor === undefined ? {} : { cursor }),
+  };
 }
 
 function evaluateExpression(expression: Expression, context: RuntimeContext): RuntimeValue {
@@ -349,7 +375,7 @@ function evaluateExpression(expression: Expression, context: RuntimeContext): Ru
     typeof expression === "boolean"
   )
     return expression;
-  if (Array.isArray(expression)) return expression;
+  if (isStringList(expression)) return expression;
   if ("ref" in expression) return reference(expression.ref, context);
   if ("call" in expression)
     return builtin(
@@ -375,8 +401,11 @@ function evaluateExpression(expression: Expression, context: RuntimeContext): Ru
     }
     return unknown ? UNKNOWN : false;
   }
-  const value = evaluateExpression(expression.not, context);
-  return value === true ? false : value === false ? true : UNKNOWN;
+  if ("not" in expression) {
+    const value = evaluateExpression(expression.not, context);
+    return value === true ? false : value === false ? true : UNKNOWN;
+  }
+  return UNKNOWN;
 }
 
 function reference(name: string, context: RuntimeContext): RuntimeValue {
@@ -684,8 +713,8 @@ function template(parts: readonly (string | Expression)[], context: RuntimeConte
 function auditValue(value: AuditValue, context: RuntimeContext): unknown {
   if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean")
     return value;
-  if (Array.isArray(value)) return Object.freeze(value.map((item) => auditValue(item, context)));
-  if ("ref" in value) return materialize(reference(value.ref, context));
+  if (isAuditList(value)) return Object.freeze(value.map((item) => auditValue(item, context)));
+  if (isAuditReference(value)) return materialize(reference(value.ref, context));
   return Object.freeze(
     Object.fromEntries(Object.entries(value).map(([key, item]) => [key, auditValue(item, context)])),
   );
@@ -693,6 +722,7 @@ function auditValue(value: AuditValue, context: RuntimeContext): unknown {
 
 function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeContext): RuntimeValue {
   const strings = args.map(stringValue);
+  const string = (index: number): string | typeof UNKNOWN => strings[index] ?? UNKNOWN;
   // String-set arguments are literal arrays, not strings. Their stringValue is
   // intentionally unknown and must not poison finite-set membership.
   if (
@@ -705,17 +735,27 @@ function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeCo
       return strings[0] === strings[1];
     case "inStringSet":
       return isUnknown(strings[0]) ? UNKNOWN : Array.isArray(args[1]) && args[1].includes(strings[0] as string);
-    case "asciiLower":
-      return isUnknown(strings[0]) ? UNKNOWN : asciiCase(strings[0], false);
-    case "asciiUpper":
-      return isUnknown(strings[0]) ? UNKNOWN : asciiCase(strings[0], true);
-    case "equalsAsciiCaseInsensitive":
-      return asciiCase(strings[0] as string, false) === asciiCase(strings[1] as string, false);
-    case "wordInAsciiCaseInsensitiveSet":
-      return isUnknown(strings[0])
+    case "asciiLower": {
+      const input = string(0);
+      return isUnknown(input) ? UNKNOWN : asciiCase(input, false);
+    }
+    case "asciiUpper": {
+      const input = string(0);
+      return isUnknown(input) ? UNKNOWN : asciiCase(input, true);
+    }
+    case "equalsAsciiCaseInsensitive": {
+      const left = string(0);
+      const right = string(1);
+      return isUnknown(left) || isUnknown(right) ? UNKNOWN : asciiCase(left, false) === asciiCase(right, false);
+    }
+    case "wordInAsciiCaseInsensitiveSet": {
+      const input = string(0);
+      const values = args[1];
+      return isUnknown(input)
         ? UNKNOWN
-        : Array.isArray(args[1]) &&
-            args[1].some((value) => asciiCase(value, false) === asciiCase(strings[0] as string, false));
+        : Array.isArray(values) &&
+            values.some((value) => typeof value === "string" && asciiCase(value, false) === asciiCase(input, false));
+    }
     case "startsWith":
       return (strings[0] as string).startsWith(strings[1] as string);
     case "endsWith":
@@ -789,7 +829,7 @@ function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeCo
     case "normalizeGitHubEndpoint":
       return isUnknown(strings[0]) ? UNKNOWN : normalizeEndpoint(strings[0] as string);
     case "environmentLookup":
-      return environmentLookup(context.event, strings[0]);
+      return environmentLookup(context.event, string(0));
     case "environmentIsPresent":
       return !isUnknown(args[0]) && isBinding(args[0]) && args[0].kind !== "unset";
     case "environmentIsKnown":
@@ -826,28 +866,28 @@ function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeCo
       );
     case "hasAnyAssignment":
       return context.event.kind === "invocation" && Object.keys(context.event.assignments).length > 0;
-    case "assignmentsAreSubset":
-      return (
-        context.event.kind === "invocation" &&
-        Array.isArray(args[0]) &&
-        Object.keys(context.event.assignments).every((name) => args[0].includes(name))
-      );
+    case "assignmentsAreSubset": {
+      const allowedNames = args[0];
+      return context.event.kind === "invocation" && Array.isArray(allowedNames)
+        ? Object.keys(context.event.assignments).every((name) => allowedNames.includes(name))
+        : false;
+    }
     case "hasRedirect":
       return context.event.kind === "invocation" && context.event.redirects.length > 0;
     case "descriptorSourceIs": {
-      const source = descriptorSource(context, strings[0]);
-      return source === undefined ? UNKNOWN : source.kind === strings[1];
+      const source = descriptorSource(context, string(0));
+      return source === undefined ? UNKNOWN : source.kind === string(1);
     }
     case "descriptorPath": {
-      const source = descriptorSource(context, strings[0]);
+      const source = descriptorSource(context, string(0));
       return source?.kind === "file" && source.path ? inputReference(source.path) : UNKNOWN;
     }
     case "descriptorContent": {
-      const source = descriptorSource(context, strings[0]);
+      const source = descriptorSource(context, string(0));
       return source?.kind === "here-string" && source.content ? inputReference(source.content) : UNKNOWN;
     }
     case "descriptorContentIsKnown": {
-      const source = descriptorSource(context, strings[0]);
+      const source = descriptorSource(context, string(0));
       return source !== undefined && source.kind === "here-string" && source.content?.kind === "known";
     }
     case "atEndOfWord":
@@ -885,19 +925,21 @@ function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeCo
     case "executionTargetIs":
       return context.event.kind === "invocation" && context.event.executionTarget === strings[0];
     case "hasInheritedExecutableFunction":
-      return inheritedExecutableFunction(context.event, strings[0]);
+      return inheritedExecutableFunction(context.event, string(0));
     case "environmentAnyUnsafe":
       return Array.isArray(args[0]) && args[0].some((name) => environmentIsUnsafe(context.event, name));
-    case "longOptionPrefixesAny":
+    case "longOptionPrefixesAny": {
+      const input = string(0);
+      const options = args[1];
       return (
-        !isUnknown(strings[0]) &&
-        typeof strings[0] === "string" &&
-        strings[0].startsWith("--") &&
-        Array.isArray(args[1]) &&
-        args[1].some((option) => option.startsWith((strings[0] as string).split("=", 1)[0]!))
+        !isUnknown(input) &&
+        input.startsWith("--") &&
+        Array.isArray(options) &&
+        options.some((option) => typeof option === "string" && option.startsWith(input.split("=", 1)[0] ?? ""))
       );
+    }
     case "hasProvenanceRoute":
-      return typeof strings[0] === "string" && context.event.provenance.route.includes(strings[0]);
+      return !isUnknown(string(0)) && context.event.provenance.route.some((route) => route === string(0));
     case "isInPipeline":
       return context.event.inPipeline;
     case "processEffectIs":
@@ -941,6 +983,18 @@ function stringValue(value: RuntimeValue): string | typeof UNKNOWN {
     }
   }
   return typeof value === "string" ? value : UNKNOWN;
+}
+
+function isStringList(value: Expression): value is readonly string[] {
+  return Array.isArray(value);
+}
+
+function isAuditList(value: AuditValue): value is readonly AuditValue[] {
+  return Array.isArray(value);
+}
+
+function isAuditReference(value: AuditValue): value is { readonly ref: string } {
+  return value !== null && typeof value === "object" && !Array.isArray(value) && "ref" in value;
 }
 function materialize(value: RuntimeValue): unknown {
   return isInputReference(value)
@@ -1136,7 +1190,9 @@ function matchesLinearRegex(value: string, pattern: string): boolean {
     return false;
   }
 }
-function isOptionPredicate(value: CompiledCase["when"]): value is { readonly kind: "option" } {
+function isOptionPredicate(
+  value: CompiledCase["when"],
+): value is Extract<CompiledCase["when"], { readonly kind: "option" }> {
   return typeof value === "object" && value !== null && "kind" in value && value.kind === "option";
 }
 function step(

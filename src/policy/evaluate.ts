@@ -1,3 +1,4 @@
+import { matchesExecutableSelector } from "./executable.js";
 import type {
   BashPolicyAnalysis,
   BashPolicyEvent,
@@ -10,7 +11,6 @@ import type {
   TraceableLoadedBashPolicy,
   ValidatedBashPolicy,
 } from "./types.js";
-import { matchesExecutableSelector } from "./executable.js";
 
 /**
  * Validate a loader-provided policy without assigning semantics to its source
@@ -20,6 +20,7 @@ import { matchesExecutableSelector } from "./executable.js";
 export function validateLoadedBashPolicy(policy: GuardBashPolicy): GuardBashPolicy;
 export function validateLoadedBashPolicy(policy: PermissionBashPolicy): PermissionBashPolicy;
 export function validateLoadedBashPolicy(policy: ValidatedBashPolicy): ValidatedBashPolicy;
+export function validateLoadedBashPolicy(policy: LoadedBashPolicy): ValidatedBashPolicy;
 export function validateLoadedBashPolicy(policy: unknown): ValidatedBashPolicy {
   if (!policy || typeof policy !== "object") throw new TypeError("Bash policy must be an object");
   const candidate = policy as Partial<LoadedBashPolicy>;

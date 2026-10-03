@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-
+import type { SourceSpan } from "../src/bash/cst.ts";
+import { fromInitialEnvironment, lookupBinding } from "../src/bash/environment.ts";
+import type { Outcome } from "../src/bash/outcome.ts";
 import {
   analysisFailure,
   appendOutcomeSummary,
@@ -16,15 +18,12 @@ import {
   strongestOutcome,
 } from "../src/bash/outcome.ts";
 import {
-  DEFAULT_BASH_ANALYSIS_LIMITS,
-  runSteps,
   type BashAnalysisLimits,
+  DEFAULT_BASH_ANALYSIS_LIMITS,
   type DispatchTarget,
+  runSteps,
   type Step,
 } from "../src/bash/runner.ts";
-import { fromInitialEnvironment, lookupBinding } from "../src/bash/environment.ts";
-import type { SourceSpan } from "../src/bash/cst.ts";
-import type { Outcome } from "../src/bash/outcome.ts";
 import { BashParserFailure } from "../src/shell.ts";
 
 const span: SourceSpan = { start: 3, end: 9 };
@@ -92,12 +91,16 @@ describe("Bash authorization outcomes", () => {
     if (right.events.kind === "append") expect(right.events.previous).toBe(prefix.events);
     const merged = materializeOutcomeSummary(summary);
 
-    expect(merged.policies?.map((policy) => policy.reason)).toEqual(["prefix", "left", "right"]);
-    expect(merged.policy?.reason).toBe("right");
+    expect(merged).toMatchObject({
+      policies: [{ reason: "prefix" }, { reason: "left" }, { reason: "right" }],
+      policy: { reason: "right" },
+    });
 
     const descendantThenPrefix = materializeOutcomeSummary(mergeOutcomeSummaries([left, prefix]));
-    expect(descendantThenPrefix.policies?.map((policy) => policy.reason)).toEqual(["prefix", "left"]);
-    expect(descendantThenPrefix.policy?.reason).toBe("left");
+    expect(descendantThenPrefix).toMatchObject({
+      policies: [{ reason: "prefix" }, { reason: "left" }],
+      policy: { reason: "left" },
+    });
   });
 
   test("retains physically distinct equal policy observations", () => {

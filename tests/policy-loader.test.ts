@@ -3,8 +3,14 @@ import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { PolicyStartupError, loadGlobalPolicyConfig, resolveSessionPolicyConfig } from "../src/policy/config.ts";
+import {
+  loadGlobalPolicyConfig,
+  PolicyStartupError,
+  type ResolvedSessionPolicyConfig,
+  resolveSessionPolicyConfig,
+} from "../src/policy/config.ts";
 import { loadPolicySet } from "../src/policy/load.ts";
+import type { BashPolicySelector } from "../src/policy/types.ts";
 
 function fixtureDirectory(): string {
   return mkdtempSync(join(tmpdir(), "safety-core-policy-loader-"));
@@ -249,7 +255,8 @@ describe("trusted code policy source loading", () => {
         evaluate: () => ({ kind: "ignore" as const }),
       });
       const loaded = await loadPolicySet(resolved, { importCodePolicy: () => ({ default: definition }) });
-      const selector = loaded.policies[0]!.select[0] as { readonly nested: { readonly seed: number } };
+      const selector = loaded.policies[0]!.select[0];
+      if (!selector || !hasSeededNestedSelector(selector)) throw new Error("Expected a seeded nested selector");
 
       expect(Object.isFrozen(selector), `seed ${seed}`).toBeTrue();
       expect(Object.isFrozen(selector.nested), `seed ${seed}`).toBeTrue();
@@ -377,13 +384,9 @@ describe("trusted code policy source loading", () => {
     ).rejects.toThrow(missing);
 
     await expect(
-      loadPolicySet(
-        {
-          global: loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }),
-          sources: [{ path: missing, scope: "project" }],
-        },
-        { importCodePolicy: () => ({ default: frozenDefinition() }) },
-      ),
+      loadPolicySet(projectSourceConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), home, missing), {
+        importCodePolicy: () => ({ default: frozenDefinition() }),
+      }),
     ).rejects.toThrow("only in global configuration");
   });
 
@@ -430,4 +433,19 @@ function malformedDefinition(seed: number): object {
   const definition = Object.create({ apiVersion: 1 }) as Record<string, unknown>;
   Object.assign(definition, { layer: "permission", select: [], evaluate: () => ({ kind: "ignore" }) });
   return Object.freeze(definition);
+}
+
+function hasSeededNestedSelector(
+  selector: BashPolicySelector,
+): selector is BashPolicySelector & { readonly nested: { readonly seed: number } } {
+  const nested = selector.nested;
+  return typeof nested === "object" && nested !== null && "seed" in nested && typeof nested.seed === "number";
+}
+
+function projectSourceConfig(
+  global: ResolvedSessionPolicyConfig["global"],
+  home: string,
+  path: string,
+): ResolvedSessionPolicyConfig {
+  return { ...resolveSessionPolicyConfig(global, home), sources: [{ path, scope: "project" }] };
 }

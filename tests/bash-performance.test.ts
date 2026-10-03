@@ -2,11 +2,10 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { analyzeBashAuthorization, initBashParser, parseBashProgram } from "../src/index.ts";
-import { fromInitialEnvironment } from "../src/bash/environment.ts";
+import { type Environment, fromInitialEnvironment } from "../src/bash/environment.ts";
 import { safe } from "../src/bash/outcome.ts";
-import { DEFAULT_BASH_ANALYSIS_LIMITS, runSteps, type DispatchTarget } from "../src/bash/runner.ts";
+import { DEFAULT_BASH_ANALYSIS_LIMITS, type DispatchTarget, runSteps } from "../src/bash/runner.ts";
+import { analyzeBashAuthorization, initBashParser, parseBashProgram } from "../src/index.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-bash-performance-"));
 
@@ -116,7 +115,7 @@ function exhaustWorkItems(length: number) {
     span: { start: 0, end: 0 },
     functionDepth: 0,
     nestedScriptDepth: 0,
-    run: (received) =>
+    run: (received: Environment) =>
       Object.freeze({ kind: "result" as const, state: received, outcome: safe(), span: { start: 0, end: 0 } }),
   });
   return runSteps(

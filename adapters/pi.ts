@@ -1,33 +1,31 @@
-import { createBashTool } from "@earendil-works/pi-coding-agent";
-import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createBashTool, getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { Container, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
-import { Type } from "typebox";
-
 import {
-  SECRET_BLOCK_MESSAGE,
+  type BashPolicyEvaluation,
   checkWebfetchUrl,
+  completePolicyInitialEnvironment,
+  createCompletionJudge,
+  createPolicyRuntimeReloader,
+  type ExecutableFilesystem,
   evaluateLoadedPolicies,
+  getJudgeVerdict,
   initBundledBashParser,
+  invokeJudge,
   isSecretPath,
+  type JudgeProvider,
+  type LoadedPolicyRuntime,
   loadPolicyRuntime,
   nodeExecutableFilesystem,
-  persistPiAdapterConfig,
-  completePolicyInitialEnvironment,
-  createPolicyRuntimeReloader,
-  createCompletionJudge,
-  setJudgeVerdict,
-  getJudgeVerdict,
-  invokeJudge,
-  setJudgeProvider,
-  shouldInvokeJudge,
-  type BashPolicyEvaluation,
-  type LoadedPolicyRuntime,
-  type ExecutableFilesystem,
-  type JudgeProvider,
   type PiAdapterConfig,
+  persistPiAdapterConfig,
+  SECRET_BLOCK_MESSAGE,
+  setJudgeProvider,
+  setJudgeVerdict,
+  shouldInvokeJudge,
 } from "@safety-core/core";
+import { Type } from "typebox";
 
 export interface PiExtensionDependencies {
   readonly runtime?: Promise<LoadedPolicyRuntime>;
@@ -43,7 +41,7 @@ export interface PiExtensionDependencies {
 interface PiSessionSettings {
   readonly autoApprove: boolean;
   readonly showFullCommand: boolean;
-  readonly judgeModel?: string;
+  readonly judgeModel?: string | undefined;
 }
 
 interface PiSessionSettingsEntry {
@@ -268,9 +266,11 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
       const approved =
         ctx.hasUI && typeof ctx.ui.confirm === "function"
           ? await ctx.ui
-              .confirm("Safety permission required", permissionPromptMessage(source, settings.showFullCommand), {
-                signal: ctx.signal,
-              })
+              .confirm(
+                "Safety permission required",
+                permissionPromptMessage(source, settings.showFullCommand),
+                ctx.signal === undefined ? {} : { signal: ctx.signal },
+              )
               .catch(() => false)
           : false;
       if (!approved) return { block: true, reason: "Command requires policy approval" };
@@ -289,7 +289,7 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
     description: "Execute a bash command.",
     parameters: Type.Object({ command: Type.String(), timeout: Type.Optional(Type.Number()) }),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      return createBashTool(ctx.cwd).execute(toolCallId, params, signal, onUpdate, ctx);
+      return createBashTool(ctx.cwd).execute(toolCallId, params, signal, onUpdate);
     },
     renderCall(args, theme, context) {
       const container = new Container();
@@ -334,8 +334,9 @@ export default function (pi: ExtensionAPI) {
 function policyReason(result: BashPolicyEvaluation, fallback: string): string {
   const trace = result.traces.find((value) => value.decision.kind === "deny");
   return (
-    trace?.decision.reason?.map((part) => (part.kind === "literal" ? part.value : String(part.value))).join("") ??
-    fallback
+    (trace?.decision.kind === "deny"
+      ? trace.decision.reason?.map((part) => (part.kind === "literal" ? part.value : String(part.value))).join("")
+      : undefined) ?? fallback
   );
 }
 
@@ -383,7 +384,7 @@ async function buildJudgeProvider(
     const response = await runtime.completeSimple(
       model,
       { systemPrompt, messages: [{ role: "user", content: userPrompt, timestamp: Date.now() }] },
-      { maxTokens: 256, temperature: 0, signal, maxRetries: 0 },
+      { maxTokens: 256, temperature: 0, ...(signal === undefined ? {} : { signal }), maxRetries: 0 },
     );
     if (response.stopReason === "error") throw new Error(response.errorMessage ?? "Judge request failed");
     return response.content

@@ -1,17 +1,12 @@
-import type { BashCommand, BashFunction, BashProgram, BashStatement, BashWord, SourceSpan } from "./cst.js";
+import { projectExecutionGapEvent, projectInvocationEvent } from "../policy/events.js";
+import type { ExecutableFilesystem } from "../policy/filesystem.js";
+import type { BashPolicyEvent } from "../policy/types.js";
 import { parseBashProgram } from "../shell.js";
-import {
-  normalizeCommand,
-  normalizeRedirect,
-  normalizedInvocation,
-  type NormalizedCommand,
-  type NormalizedRedirect,
-  type ResolvedWord,
-} from "./expand.js";
-import { inheritedBashIo, redirectBashIo, type BashIoContext } from "./io.js";
+import type { BashCommand, BashFunction, BashProgram, BashStatement, BashWord, SourceSpan } from "./cst.js";
 import {
   assignBinding,
   assignLocalBinding,
+  type Environment,
   endCommandOverlay,
   known,
   lookupBinding,
@@ -21,44 +16,49 @@ import {
   setExported,
   taintFrame,
   unknown,
-  type Environment,
 } from "./environment.js";
 import {
+  type NormalizedCommand,
+  type NormalizedRedirect,
+  normalizeCommand,
+  normalizedInvocation,
+  normalizeRedirect,
+  type ResolvedWord,
+} from "./expand.js";
+import { transitionBuiltin } from "./handlers/builtins.js";
+import { importBashFunctions, isImportedBashFunction, markImportedBashFunction } from "./imported-functions.js";
+import { type BashIoContext, inheritedBashIo, redirectBashIo } from "./io.js";
+import {
+  type AnalysisBudget,
+  analysisFailure,
+  appendOutcomeSummary,
+  dynamicExecutableIndeterminate,
+  emptyOutcomeSummary,
+  failure,
+  indeterminate,
+  materializeOutcomeSummary,
+  mergeOutcomeSummaries,
+  type Outcome,
+  type OutcomeSummary,
+  outcomeSummaryIsDeny,
+  policyDeny,
+  safe,
+  strongestOutcome,
+} from "./outcome.js";
+import { analyzeSecretRedirectInvocation } from "./policies/secrets.js";
+import { type BashExecutionTargetKind, type BashLookupDomain, resolveBashExecutionTarget } from "./resolution.js";
+import type { DispatchTarget, Step } from "./runner.js";
+import {
+  type BashShellState,
   completeShellState,
   defineShellFunction,
   forkShellState,
   initialShellState,
   joinShellStates,
   taintShellState,
-  withShellEnvironment,
   withShellCwd,
-  type BashShellState,
+  withShellEnvironment,
 } from "./state.js";
-import { transitionBuiltin } from "./handlers/builtins.js";
-import {
-  analysisFailure,
-  appendOutcomeSummary,
-  emptyOutcomeSummary,
-  indeterminate,
-  materializeOutcomeSummary,
-  mergeOutcomeSummaries,
-  outcomeSummaryIsDeny,
-  dynamicExecutableIndeterminate,
-  failure,
-  policyDeny,
-  safe,
-  strongestOutcome,
-  type AnalysisBudget,
-  type Outcome,
-  type OutcomeSummary,
-} from "./outcome.js";
-import { analyzeSecretRedirectInvocation } from "./policies/secrets.js";
-import type { DispatchTarget, Step } from "./runner.js";
-import { projectExecutionGapEvent, projectInvocationEvent } from "../policy/events.js";
-import type { BashPolicyEvent } from "../policy/types.js";
-import type { ExecutableFilesystem } from "../policy/filesystem.js";
-import { importBashFunctions, isImportedBashFunction, markImportedBashFunction } from "./imported-functions.js";
-import { resolveBashExecutionTarget, type BashExecutionTargetKind, type BashLookupDomain } from "./resolution.js";
 
 export interface BashWalkContext {
   readonly environment: Environment;
@@ -94,7 +94,7 @@ export interface BashExecutionProvenance {
   readonly route: readonly BashExecutionRoute[];
 }
 
-const DIRECT_PROVENANCE: BashExecutionProvenance = Object.freeze({ route: Object.freeze(["direct"]) });
+const DIRECT_PROVENANCE: BashExecutionProvenance = Object.freeze({ route: Object.freeze(["direct"] as const) });
 
 export interface BashDispatchRequest {
   readonly command: NormalizedCommand;
@@ -370,7 +370,7 @@ function evaluateProgram(
         index: work.index + 1,
         path: restoreIo(next),
         complete: work.complete,
-        inPipeline: work.inPipeline,
+        ...(work.inPipeline !== undefined ? { inPipeline: work.inPipeline } : {}),
       });
     const completeWithDeny = (next: Path): void => {
       if (outcomeSummaryIsDeny(next.outcome)) denied = materializeOutcomeSummary(next.outcome);
@@ -399,7 +399,7 @@ function evaluateProgram(
           path: withRedirectContext(current, redirectInvocation),
           complete: continueWork,
           skipStatementRedirects: true,
-          inPipeline: work.inPipeline,
+          ...(work.inPipeline !== undefined ? { inPipeline: work.inPipeline } : {}),
         });
       };
       if (secretRedirect?.kind === "deny") {
@@ -629,16 +629,18 @@ function executeCommand(
         resolveBashExecutionTarget(preflightCommand, input.state, "shell") === "shell-function";
       if (!definitelyFunction) {
         const preflight = context.preflightCommand(
-          freeze({
+          freeze<BashPreflightRequest>({
             command: preflightCommand,
             span,
             environment: input.state.environment,
             inPipeline,
             provenance: input.provenance,
             processEffect: input.processEffect,
-            recordPolicyEvent: context.recordPolicyEvent,
-            cwd: context.cwd,
-            executableFilesystem: context.executableFilesystem,
+            ...(context.recordPolicyEvent !== undefined ? { recordPolicyEvent: context.recordPolicyEvent } : {}),
+            ...(context.cwd !== undefined ? { cwd: context.cwd } : {}),
+            ...(context.executableFilesystem !== undefined
+              ? { executableFilesystem: context.executableFilesystem }
+              : {}),
           }),
         );
         if (preflight.kind === "deny") {
@@ -963,7 +965,7 @@ function dispatchNormalized(
   executionTarget: BashExecutionTargetKind = resolveBashExecutionTarget(command, input.state, "shell"),
 ): void {
   span = input.sourceSpanOverride ?? span;
-  const request: BashDispatchRequest = freeze({
+  const request = freeze<BashDispatchRequest>({
     command,
     span,
     environment: input.state.environment,
@@ -973,15 +975,15 @@ function dispatchNormalized(
     provenance: input.provenance,
     processEffect: input.processEffect,
     executionTarget,
-    cwd: command.cwd ?? input.state.cwd ?? undefined,
-    executableFilesystem: context.executableFilesystem,
-    recordPolicyEvent: context.recordPolicyEvent,
+    ...((command.cwd ?? input.state.cwd) ? { cwd: command.cwd ?? input.state.cwd! } : {}),
+    ...(context.executableFilesystem !== undefined ? { executableFilesystem: context.executableFilesystem } : {}),
+    ...(context.recordPolicyEvent !== undefined ? { recordPolicyEvent: context.recordPolicyEvent } : {}),
     continueWithSource: (source, environment, options = {}) =>
-      freeze({
+      freeze<BashDispatchResult>({
         outcome: safe(),
         children: Object.freeze([
-          freeze({
-            target: freeze({
+          freeze<BashChildExecution>({
+            target: freeze<BashExecutionTarget>({
               kind: "source",
               source,
               dialect: "bash",
@@ -1001,11 +1003,11 @@ function dispatchNormalized(
       }),
     continueWithInvocation: (words, environment, options = {}) => {
       const childEnvironment = environment ?? command.environment;
-      return freeze({
+      return freeze<BashDispatchResult>({
         outcome: safe(),
         children: Object.freeze([
-          freeze({
-            target: freeze({
+          freeze<BashChildExecution>({
+            target: freeze<BashExecutionTarget>({
               kind: "invocation",
               command: normalizedInvocation(words, childEnvironment),
               lookupDomain: options.lookupDomain ?? "external-path",
@@ -1024,11 +1026,11 @@ function dispatchNormalized(
     },
     continueWithOpaque: (reason, environment, options = {}) => {
       const childEnvironment = environment ?? command.environment;
-      return freeze({
+      return freeze<BashDispatchResult>({
         outcome: safe(),
         children: Object.freeze([
-          freeze({
-            target: freeze({ kind: "opaque", reason }),
+          freeze<BashChildExecution>({
+            target: freeze<BashExecutionTarget>({ kind: "opaque", reason }),
             processEffect: options.processEffect ?? "unknown",
             environment: childEnvironment,
             functionDepth: input.functionDepth,
@@ -1667,7 +1669,9 @@ function withProcessEffect(input: Path, processEffect: ProcessEffect): Path {
 }
 
 function withSourceSpanOverride(input: Path, sourceSpanOverride?: SourceSpan): Path {
-  return freeze({ ...input, sourceSpanOverride });
+  if (sourceSpanOverride !== undefined) return freeze({ ...input, sourceSpanOverride });
+  const { sourceSpanOverride: _, ...withoutSourceSpanOverride } = input;
+  return freeze(withoutSourceSpanOverride);
 }
 
 function recordInvocationEvent(
@@ -1684,8 +1688,8 @@ function recordInvocationEvent(
     provenance: input.provenance,
     inPipeline,
     processEffect: input.processEffect,
-    cwd: input.state.cwd ?? undefined,
-    executableFilesystem: context.executableFilesystem,
+    ...(input.state.cwd !== null ? { cwd: input.state.cwd } : {}),
+    ...(context.executableFilesystem !== undefined ? { executableFilesystem: context.executableFilesystem } : {}),
     executionTarget,
   });
   context.recordPolicyEvent?.(event);
@@ -1721,7 +1725,7 @@ function recordWorkGap(context: BashWalkContext, work: Work, reason: AnalysisBud
 
 function childProvenance(parent: BashExecutionProvenance, options: BashChildExecutionOptions): BashExecutionProvenance {
   const scriptRoute = options.route === "eval" || options.route === "shell-command";
-  const route = [
+  const route: BashExecutionRoute[] = [
     ...parent.route,
     ...(options.route ? [options.route] : []),
     ...(scriptRoute && options.sourceDerivedFromBinding ? ["binding-derived-script" as const] : []),
@@ -1804,7 +1808,7 @@ function statementRedirectInvocation(
 }
 
 function commandWithIo(command: NormalizedCommand, input: Path): NormalizedCommand {
-  return freeze({
+  return freeze<NormalizedCommand>({
     ...command,
     io: command.io ?? redirectBashIo(input.io, command.redirects, input.state.cwd),
     inheritedRedirects: command.inheritedRedirects ?? input.inheritedRedirects,
@@ -1813,7 +1817,7 @@ function commandWithIo(command: NormalizedCommand, input: Path): NormalizedComma
 }
 
 function withRedirectContext(input: Path, command: NormalizedCommand): Path {
-  return freeze({
+  return freeze<Path>({
     ...input,
     io: command.io ?? redirectBashIo(input.io, command.redirects, input.state.cwd),
     inheritedRedirects: freeze([...input.inheritedRedirects, ...command.redirects]),
@@ -1837,7 +1841,7 @@ function projectedBuiltinCommand(
   const executable = words[0];
   if (!executable || executable.kind !== "word" || !["local", "export", "readonly", "unset"].includes(executable.text))
     return undefined;
-  return freeze({
+  return freeze<BashCommand>({
     kind: "command",
     assignments: Object.freeze([]),
     words: Object.freeze(words),

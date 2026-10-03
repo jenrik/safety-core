@@ -19,7 +19,7 @@ async function build(
     target: "node",
     format: "esm",
     external: [...external],
-    banner,
+    ...(banner === undefined ? {} : { banner }),
   });
   if (!result.success) {
     throw new Error(result.logs.map((log) => log.message).join("\n"));

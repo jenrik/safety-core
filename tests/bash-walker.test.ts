@@ -2,16 +2,15 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { initBashParser, parseBashProgram } from "../src/index.ts";
 import type { BashFunction, BashProgram } from "../src/bash/cst.ts";
 import { dispatchCommand, preflightCommand } from "../src/bash/dispatch.ts";
-import type { NormalizedCommand, ResolvedWord } from "../src/bash/expand.ts";
 import { fromInitialEnvironment, lookupBinding } from "../src/bash/environment.ts";
-import { BASH_FUNCTIONS_CAPTURED_FACT } from "../src/bash/policy-environment.ts";
+import type { NormalizedCommand, ResolvedWord } from "../src/bash/expand.ts";
 import { safe } from "../src/bash/outcome.ts";
+import { BASH_FUNCTIONS_CAPTURED_FACT } from "../src/bash/policy-environment.ts";
 import { runSteps } from "../src/bash/runner.ts";
 import { walkProgram } from "../src/bash/walker.ts";
+import { initBashParser, parseBashProgram } from "../src/index.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-bash-walker-"));
 
@@ -735,7 +734,7 @@ describe("stateful Bash statement walker", () => {
 
 function analyze(
   source: string,
-  limits: Parameters<typeof runSteps>[1] = {},
+  limits: Partial<Parameters<typeof runSteps>[1]> = {},
   environment = fromInitialEnvironment({ [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT" }),
 ) {
   return analyzeWith(
@@ -793,7 +792,7 @@ function analyzeWith(
   source: string,
   dispatch: (request: DispatchRequestLike) => unknown,
   environment = fromInitialEnvironment({ [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT" }),
-  limits: Parameters<typeof runSteps>[1] = {},
+  limits: Partial<Parameters<typeof runSteps>[1]> = {},
 ) {
   const program = parseBashProgram(source);
   expect(program.kind).toBe("program");
@@ -806,7 +805,7 @@ function analyzeProgram(
   program: BashProgram,
   dispatch: (request: DispatchRequestLike) => unknown,
   environment = fromInitialEnvironment(),
-  limits: Parameters<typeof runSteps>[1] = {},
+  limits: Partial<Parameters<typeof runSteps>[1]> = {},
 ) {
   const invocations: NormalizedCommand[] = [];
   const depths: number[] = [];

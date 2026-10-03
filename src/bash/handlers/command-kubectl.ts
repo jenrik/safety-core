@@ -2,7 +2,7 @@ import { ignorePolicy, observePolicy, type PolicyObserver } from "../dispatch.js
 import { policyDeny, policyIndeterminate, policySafe } from "../outcome.js";
 import { analyzeKubectlInvocation } from "../policies/kubectl.js";
 
-export const kubectlHandler: PolicyObserver = Object.freeze({
+export const kubectlHandler = Object.freeze<PolicyObserver>({
   name: "kubectl",
   observe(cursor, context) {
     const decision = analyzeKubectlInvocation(cursor.invocation);

@@ -1,5 +1,4 @@
 import type { StructuralDispatchContext } from "../dispatch.js";
-import type { ResolvedWord } from "../expand.js";
 import {
   assignBinding,
   fromInitialEnvironment,
@@ -7,6 +6,7 @@ import {
   setExported,
   unsetBinding,
 } from "../environment.js";
+import type { ResolvedWord } from "../expand.js";
 import { indeterminate } from "../outcome.js";
 import {
   childInvocationFrom,
@@ -58,8 +58,13 @@ function parseEnv(initialArguments: readonly ResolvedWord[], context: Structural
         continue;
       }
       if (ENV_VALUE_OPTIONS.has(option)) {
-        if (long.value === undefined && !isKnown(arguments_[index + 1])) return indeterminate(context.span);
-        const value = long.value ?? arguments_[index + 1]!.value;
+        const next = arguments_[index + 1];
+        let value: string;
+        if (long.value !== undefined) value = long.value;
+        else {
+          if (!isKnown(next)) return indeterminate(context.span);
+          value = next.value;
+        }
         unsafe = true;
         if (option === "--unset") environment = unsetBinding(environment, value);
         if (option === "--split-string") {
@@ -88,8 +93,9 @@ function parseEnv(initialArguments: readonly ResolvedWord[], context: Structural
       continue;
     }
     if (!optionsEnded && (argument === "-u" || argument === "--unset")) {
-      if (!isKnown(arguments_[index + 1])) return indeterminate(context.span);
-      environment = unsetBinding(environment, arguments_[index + 1]!.value);
+      const next = arguments_[index + 1];
+      if (!isKnown(next)) return indeterminate(context.span);
+      environment = unsetBinding(environment, next.value);
       unsafe = true;
       index += 2;
       continue;
@@ -159,8 +165,11 @@ function parseEnv(initialArguments: readonly ResolvedWord[], context: Structural
         const attached = argument.slice(offset + 1);
         const separate = attached.length === 0;
         const next = separate ? arguments_[index + 1] : undefined;
-        if (separate && !isKnown(next)) return indeterminate(context.span);
-        const value = separate ? next!.value : attached;
+        let value = attached;
+        if (separate) {
+          if (!isKnown(next)) return indeterminate(context.span);
+          value = next.value;
+        }
         unsafe = true;
         if (option === "u") environment = unsetBinding(environment, value);
         if (option === "S") {

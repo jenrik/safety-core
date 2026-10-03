@@ -16,7 +16,7 @@ import {
 } from "./read-only-utils.js";
 
 export function ghPrCreateHandler(policy: GhPrCreatePolicy): PolicyObserver {
-  return Object.freeze({
+  return Object.freeze<PolicyObserver>({
     name: "gh",
     observe(cursor, context) {
       const args = knownArguments(cursor);
@@ -164,7 +164,7 @@ const SHELL_INTERPRETERS = ["eval", "sh", "bash", "dash", "fish", "ksh", "zsh"] 
 /** Pipeline-fed interpreters consume unmodelled stdin and cannot safely execute a PR route. */
 export const ghPrCreateInterpreterObservers: readonly PolicyObserver[] = Object.freeze(
   SHELL_INTERPRETERS.map((name) =>
-    Object.freeze({
+    Object.freeze<PolicyObserver>({
       name,
       observe(cursor, context) {
         const args = knownArguments(cursor);

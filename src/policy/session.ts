@@ -2,13 +2,13 @@ import { createHash } from "node:crypto";
 import { readFileSync, realpathSync } from "node:fs";
 
 import {
-  PolicyStartupError,
   type BashAnalysisConfig,
   type GlobalPolicyConfig,
   type PolicyConfigurationSource,
+  PolicyStartupError,
   type ResolvedPolicySource,
 } from "./config.js";
-import { loadPolicySources, type LoadedPolicySource } from "./load.js";
+import { type LoadedPolicySource, loadPolicySources } from "./load.js";
 import type { LoadedPolicyRuntime } from "./runtime.js";
 
 /** Serializable, immutable policy identity selected at session start. */
@@ -42,15 +42,10 @@ export function createPolicySessionManifest(
 
 /** Parse untrusted persisted state into a checked, frozen session snapshot. */
 export function parsePolicySessionManifest(value: unknown): PolicySessionManifest {
-  if (
-    !isRecord(value) ||
-    !Array.isArray(value.configurations) ||
-    !Array.isArray(value.sources) ||
-    !isRecord(value.limits)
-  ) {
+  if (!isPolicySessionManifest(value)) {
     throw new PolicyStartupError("policy session manifest", "session snapshot is invalid");
   }
-  const manifest = value as PolicySessionManifest;
+  const manifest = value;
   validatePolicySessionManifest(manifest);
   return Object.freeze({
     version: manifest.version,
@@ -94,6 +89,7 @@ export async function loadPolicySessionRuntime(manifest: PolicySessionManifest):
     ),
     projectPolicies: Object.freeze({ mode: "disabled", allowedRoots: Object.freeze([]) }),
     bashAnalysis: manifest.limits,
+    pi: Object.freeze({ autoApprove: false, showFullCommand: true }),
   });
   return Object.freeze({
     config,
@@ -206,4 +202,54 @@ function isValidLimits(value: unknown): value is BashAnalysisConfig {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPolicySessionManifest(value: unknown): value is PolicySessionManifest {
+  return (
+    isRecord(value) &&
+    value.version === 1 &&
+    typeof value.sessionID === "string" &&
+    typeof value.cwd === "string" &&
+    (value.projectRoot === undefined || typeof value.projectRoot === "string") &&
+    isBashAnalysisConfig(value.limits) &&
+    Array.isArray(value.configurations) &&
+    value.configurations.every(isPolicyConfigurationSource) &&
+    Array.isArray(value.sources) &&
+    value.sources.every(isLoadedPolicySource)
+  );
+}
+
+function isBashAnalysisConfig(value: unknown): value is BashAnalysisConfig {
+  return (
+    isRecord(value) &&
+    isPositiveLimit(value.maxFunctionDepth) &&
+    isPositiveLimit(value.maxNestedScriptDepth) &&
+    isPositiveLimit(value.maxSteps) &&
+    isPositiveLimit(value.maxWorkItems)
+  );
+}
+
+function isPolicyConfigurationSource(value: unknown): value is PolicyConfigurationSource {
+  return isSnapshotSourceValue(value);
+}
+
+function isLoadedPolicySource(value: unknown): value is LoadedPolicySource {
+  return isSnapshotSourceValue(value);
+}
+
+function isSnapshotSourceValue(value: unknown): value is {
+  readonly canonicalPath: string;
+  readonly scope: "global" | "project";
+  readonly sha256: string;
+} {
+  return (
+    isRecord(value) &&
+    typeof value.canonicalPath === "string" &&
+    (value.scope === "global" || value.scope === "project") &&
+    typeof value.sha256 === "string"
+  );
+}
+
+function isPositiveLimit(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }

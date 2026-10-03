@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-
-import { compilePolicyDocument } from "../src/policy/dsl/compile.ts";
+import type { ResolvedWord } from "../src/bash/expand.ts";
+import { type CompiledPolicyProgram, compilePolicyDocument } from "../src/policy/dsl/compile.ts";
 import { createDslPolicy } from "../src/policy/dsl/evaluate.ts";
 import { validatePolicyDocument } from "../src/policy/dsl/validate.ts";
 import { evaluatePolicyEvents } from "../src/policy/evaluate.ts";
@@ -9,12 +9,7 @@ import type { InvocationView, ValidatedBashPolicy } from "../src/policy/types.ts
 
 const source = "/policy/example.policy.json";
 
-function event(
-  argv: readonly (
-    | { readonly kind: "known"; readonly value: string }
-    | { readonly kind: "unknown"; readonly reason: { readonly kind: string } }
-  )[],
-): InvocationView {
+function event(argv: readonly ResolvedWord[]): InvocationView {
   return {
     kind: "invocation",
     executable: { kind: "known", value: "tool" },
@@ -168,7 +163,7 @@ describe("DCRM evaluation", () => {
         ]),
       ),
     ).toMatchObject({ kind: "deny" });
-    expect(required.evaluate(event([{ kind: "unknown", reason: { kind: "expansion" } }]))).toMatchObject({
+    expect(required.evaluate(event([unknownWord()]))).toMatchObject({
       kind: "deny",
     });
     expect(
@@ -271,7 +266,7 @@ describe("DCRM evaluation", () => {
       },
     ];
     document.states.command.default = { decision: "deny", reason: ["unknown count"] };
-    expect(policy(document).evaluate(event([{ kind: "unknown", reason: { kind: "expansion" } }]))).toMatchObject({
+    expect(policy(document).evaluate(event([unknownWord()]))).toMatchObject({
       kind: "deny",
     });
   });
@@ -330,15 +325,15 @@ describe("DCRM evaluation", () => {
     ];
     document.states.command.default = { decision: "deny", reason: ["unmatched"] };
     const compiled = compilePolicyDocument(validatePolicyDocument(document));
-    const forced = {
+    const command = compiled.states.command;
+    if (!command) throw new Error("Expected command state");
+    const forced: CompiledPolicyProgram = {
       ...compiled,
       states: {
         ...compiled.states,
         command: {
-          ...compiled.states.command,
-          cases: [
-            { ...compiled.states.command.cases[0]!, when: { call: "linearRegex", args: [{ ref: "word" }, "[z-a]"] } },
-          ],
+          ...command,
+          cases: [{ ...command.cases[0]!, when: { call: "linearRegex", args: [{ ref: "word" }, "[z-a]"] } }],
         },
       },
     };
@@ -442,7 +437,9 @@ describe("DCRM evaluation", () => {
     document.states.command.cases = [];
     const program = compilePolicyDocument(validatePolicyDocument(document));
     expect(
-      program.states.command.cases.filter((entry) => entry.origin === "fragment:leaf").map((entry) => entry.source),
+      required(program.states.command, "command state")
+        .cases.filter((entry) => entry.origin === "fragment:leaf")
+        .map((entry) => entry.source),
     ).toEqual(["$.fragments.leaf.cases[0]", "$.fragments.leaf.cases[0]"]);
     const result = createDslPolicy(program, source).evaluateWithTrace(event([{ kind: "known", value: "run" }]));
     expect(result.steps[0]?.source).toBe("$.fragments.leaf.cases[0]");
@@ -464,6 +461,15 @@ function environmentConditionPolicy(condition: Record<string, unknown>): Record<
       },
     },
   };
+}
+
+function unknownWord(): ResolvedWord {
+  return { kind: "unknown", reason: { kind: "unknown-variable", span: { start: 0, end: 0 } } };
+}
+
+function required<T>(value: T | undefined, label: string): T {
+  if (value === undefined) throw new Error(`Expected ${label}`);
+  return value;
 }
 
 function lcg(seed: number): () => number {

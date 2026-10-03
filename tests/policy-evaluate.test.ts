@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-
+import { fromVerifiedInitialEnvironment, modeledBindings } from "../src/bash/environment.ts";
 import { evaluatePolicyEvents, validateLoadedBashPolicy } from "../src/policy/evaluate.ts";
 import type {
   BashPolicyAnalysis,
@@ -10,7 +10,6 @@ import type {
   PolicyDecision,
   ValidatedBashPolicy,
 } from "../src/policy/types.ts";
-import { fromInitialEnvironment } from "../src/bash/environment.ts";
 
 const allow = (reason: string) => ({ kind: "allow" as const, reason: literal(reason) });
 const deny = (reason: string) => ({ kind: "deny" as const, reason: literal(reason) });
@@ -22,21 +21,42 @@ const completeAnalysis = (): BashPolicyAnalysis => ({ complete: true });
 const incompleteAnalysis = (): BashPolicyAnalysis => ({ complete: false });
 
 function invocation(executable: string): BashPolicyEvent {
+  const bindings = modeledBindings(fromVerifiedInitialEnvironment({ TOKEN: "actual-environment-value" }));
   return {
     kind: "invocation",
     executable: { kind: "known", value: executable },
     argv: Object.freeze([{ kind: "known", value: "--actual-argument" }]),
-    environment: fromInitialEnvironment({ TOKEN: "actual-environment-value" }),
+    executionTarget: "external-path",
+    executableIdentity: {
+      qualification: "known",
+      spelling: executable,
+      basename: executable,
+      chain: [],
+      selectedPath: `/bin/${executable}`,
+      canonicalTarget: `/bin/${executable}`,
+    },
+    environment: bindings.values,
+    missingBindings: bindings.missingBindings,
+    redirects: [],
+    assignments: {},
     span: { start: 0, end: executable.length },
+    provenance: { route: ["direct"] },
+    inPipeline: false,
+    processEffect: "none",
   };
 }
 
 function executionGap(reason: string): BashPolicyEvent {
+  const bindings = modeledBindings(fromVerifiedInitialEnvironment({ TOKEN: "actual-environment-value" }));
   return {
     kind: "execution-gap",
     reason,
-    environment: fromInitialEnvironment({ TOKEN: "actual-environment-value" }),
+    environment: bindings.values,
+    missingBindings: bindings.missingBindings,
     span: { start: 0, end: reason.length },
+    provenance: { route: ["direct"] },
+    inPipeline: false,
+    processEffect: "none",
   };
 }
 

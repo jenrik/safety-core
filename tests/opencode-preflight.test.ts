@@ -3,15 +3,15 @@ import { createOpenCodePlugin } from "../adapters/opencode.ts";
 import { createOpenCodeV2Plugin } from "../adapters/opencode-v2.ts";
 import {
   analyzeBashWithPolicies,
+  type BashPolicyEvaluation,
   checkBashFilePermissions,
   combineBashPermissionVerdicts,
   createOpenCodeBashPreflights,
-  initBundledBashParser,
-  openCodeBashPermissionStatus,
-  OPENCODE_POLICY_RELOAD_COMMAND,
-  type BashPolicyEvaluation,
   type HarnessFilePermission,
+  initBundledBashParser,
   type LoadedPolicyRuntime,
+  OPENCODE_POLICY_RELOAD_COMMAND,
+  openCodeBashPermissionStatus,
   type ValidatedBashPolicy,
 } from "../src/index.ts";
 
@@ -139,7 +139,7 @@ test("both adapters use stored file verdicts instead of rechecking or approving 
           evaluated++;
           return analyzeBashWithPolicies({
             source,
-            cwd: context?.cwd,
+            ...(context?.cwd === undefined ? {} : { cwd: context.cwd }),
             policies: loaded.policySet.policies,
             initialEnvironment: { kind: "verified", values: {} },
           });
@@ -288,7 +288,7 @@ test("both adapters retain an older pending file ask after a newer generation re
         evaluatePolicies: (loaded, source, context) =>
           analyzeBashWithPolicies({
             source,
-            cwd: context?.cwd,
+            ...(context?.cwd === undefined ? {} : { cwd: context.cwd }),
             policies: loaded.policySet.policies,
             initialEnvironment: { kind: "verified", values: {} },
           }),
@@ -499,7 +499,7 @@ test("both adapters prevent stale terminal callbacks from dropping a pending ret
               evaluatePolicies: (loaded, source, context) =>
                 analyzeBashWithPolicies({
                   source,
-                  cwd: context?.cwd,
+                  ...(context?.cwd === undefined ? {} : { cwd: context.cwd }),
                   policies: loaded.policySet.policies,
                   initialEnvironment: { kind: "verified", values: {} },
                 }),
