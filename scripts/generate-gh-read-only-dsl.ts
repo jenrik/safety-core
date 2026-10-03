@@ -43,7 +43,7 @@ const document = {
   states,
 };
 
-const output = resolve(import.meta.dirname, "../policies/dsl/gh-read-only.policy.json");
+const output = resolve(import.meta.dirname, "../policies/dsl/github/gh-read-only.policy.json");
 mkdirSync(resolve(output, ".."), { recursive: true });
 writeFileSync(output, `${JSON.stringify(document, null, 2)}\n`);
 

@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import { STRICT_ALLOWED_FLAGS, STRICT_READ_ONLY_COMMANDS } from "../src/bash/policies/read-only-data.ts";
 
@@ -7,6 +7,31 @@ type Expression = unknown;
 type State = { cases: unknown[]; default: unknown; end: unknown };
 
 const output = resolve(import.meta.dirname, "../policies/dsl");
+
+// Generated strict policies are grouped by the credential or resource family
+// they read, matching the reviewed catalogue layout under policies/dsl. Tools
+// mapped to the empty string stay at the catalogue root.
+const STRICT_POLICY_DIRECTORIES: Readonly<Record<string, string>> = {
+  argocd: "kubernetes",
+  cosign: "containers",
+  crane: "containers",
+  docker: "containers",
+  jf: "jfrog",
+  jfrog: "jfrog",
+  kubectl: "kubernetes",
+  nix: "nix",
+  "nix-env": "nix",
+  "nix-store": "nix",
+  npm: "",
+  oc: "kubernetes",
+  pip: "",
+  podman: "containers",
+  "podman-compose": "containers",
+  skopeo: "containers",
+  tofu: "",
+  uv: "",
+  yarn: "",
+};
 const terminal = (decision: string, reason?: string, extra: Record<string, unknown> = {}) => ({
   decision,
   ...(reason ? { reason: [reason] } : {}),
@@ -142,9 +167,10 @@ function document(
   };
 }
 
-function write(name: string, value: unknown) {
-  mkdirSync(output, { recursive: true });
-  writeFileSync(resolve(output, name), `${JSON.stringify(value, null, 2)}\n`);
+function write(relativePath: string, value: unknown) {
+  const target = resolve(output, relativePath);
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 function generic() {
@@ -521,8 +547,9 @@ function strict() {
         set: {},
       };
     }
+    const directory = STRICT_POLICY_DIRECTORIES[executable] ?? "";
     write(
-      `strict-${executable}.policy.json`,
+      `${directory === "" ? "" : `${directory}/`}strict-${executable}.policy.json`,
       document(
         [{ executable: { projection: "basename", equals: executable } }],
         states,

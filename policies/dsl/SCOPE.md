@@ -1,7 +1,8 @@
 # Kubectl DSL Policy Scope
 
-`kubectl.policy.json` is the guard policy for secret-related commands. This
-document describes the separate `strict-kubectl.policy.json` permission policy.
+`kubernetes/kubectl.policy.json` is the guard policy for secret-related
+commands. This document describes the separate
+`kubernetes/strict-kubectl.policy.json` permission policy.
 
 ## Intent And Protected Action
 

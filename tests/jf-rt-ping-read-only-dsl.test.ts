@@ -5,7 +5,7 @@ import { compilePolicyDocument } from "../src/policy/dsl/compile.ts";
 import { createDslPolicy } from "../src/policy/dsl/evaluate.ts";
 import { parsePolicyDocument } from "../src/policy/dsl/validate.ts";
 
-const path = new URL("../policies/dsl/jf-rt-ping-read-only.policy.json", import.meta.url);
+const path = new URL("../policies/dsl/jfrog/jf-rt-ping-read-only.policy.json", import.meta.url);
 const policy = createDslPolicy(compilePolicyDocument(parsePolicyDocument(readFileSync(path, "utf8"))), path.pathname);
 
 function decision(args: readonly string[], overrides: Record<string, unknown> = {}): string {

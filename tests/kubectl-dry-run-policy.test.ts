@@ -7,7 +7,7 @@ import { compilePolicyDocument } from "../src/policy/dsl/compile.ts";
 import { createDslPolicy } from "../src/policy/dsl/evaluate.ts";
 import { parsePolicyDocument } from "../src/policy/dsl/validate.ts";
 
-const strictArtifactPath = new URL("../policies/dsl/strict-kubectl.policy.json", import.meta.url);
+const strictArtifactPath = new URL("../policies/dsl/kubernetes/strict-kubectl.policy.json", import.meta.url);
 const strictArtifact = JSON.parse(readFileSync(strictArtifactPath, "utf8")) as Record<string, any>;
 const strictPolicy = createDslPolicy(
   compilePolicyDocument(parsePolicyDocument(strictArtifact)),
