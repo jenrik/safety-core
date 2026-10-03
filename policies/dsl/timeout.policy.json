@@ -1,0 +1,328 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "permission",
+  "select": [
+    {
+      "executable": {
+        "projection": "basename",
+        "equals": "timeout"
+      }
+    }
+  ],
+  "registers": {
+    "informationalMode": {
+      "type": "bool",
+      "initial": false
+    },
+    "timeoutOptionValuesSafe": {
+      "type": "bool",
+      "initial": true
+    }
+  },
+  "folds": {},
+  "options": {
+    "foreground": {
+      "names": ["-f", "--foreground"],
+      "value": "absent",
+      "forms": [],
+      "availableIn": ["start"],
+      "set": {}
+    },
+    "killAfter": {
+      "names": ["-k", "--kill-after"],
+      "value": "required",
+      "forms": ["separate", "attachedShort", "equalsLong", "cluster"],
+      "availableIn": ["start"],
+      "set": {
+        "timeoutOptionValuesSafe": {
+          "all": [
+            {
+              "ref": "timeoutOptionValuesSafe"
+            },
+            {
+              "not": {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "option.value"
+                  },
+                  ""
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "preserveStatus": {
+      "names": ["-p", "--preserve-status"],
+      "value": "absent",
+      "forms": [],
+      "availableIn": ["start"],
+      "set": {}
+    },
+    "signal": {
+      "names": ["-s", "--signal"],
+      "value": "required",
+      "forms": ["separate", "attachedShort", "equalsLong", "cluster"],
+      "availableIn": ["start"],
+      "set": {
+        "timeoutOptionValuesSafe": {
+          "all": [
+            {
+              "ref": "timeoutOptionValuesSafe"
+            },
+            {
+              "not": {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "option.value"
+                  },
+                  ""
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "verbose": {
+      "names": ["-v", "--verbose"],
+      "value": "absent",
+      "forms": [],
+      "availableIn": ["start"],
+      "set": {}
+    },
+    "help": {
+      "names": ["--help"],
+      "value": "absent",
+      "forms": [],
+      "availableIn": ["start"],
+      "set": {
+        "informationalMode": true
+      }
+    },
+    "version": {
+      "names": ["--version"],
+      "value": "absent",
+      "forms": [],
+      "availableIn": ["start"],
+      "set": {
+        "informationalMode": true
+      }
+    }
+  },
+  "fragments": {},
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [
+        {
+          "when": {
+            "ref": "informationalMode"
+          },
+          "action": {
+            "decision": "defer",
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            }
+          }
+        },
+        {
+          "when": {
+            "call": "equals",
+            "args": [
+              {
+                "ref": "word"
+              },
+              "--"
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "durationAfterTerminator"
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "executionTargetIs",
+                "args": ["external-path"]
+              },
+              {
+                "not": {
+                  "call": "hasInheritedExecutableFunction",
+                  "args": ["timeout"]
+                }
+              },
+              {
+                "ref": "timeoutOptionValuesSafe"
+              },
+              {
+                "not": {
+                  "call": "equals",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    ""
+                  ]
+                }
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "child"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      }
+    },
+    "durationAfterTerminator": {
+      "cases": [
+        {
+          "when": {
+            "all": [
+              {
+                "call": "executionTargetIs",
+                "args": ["external-path"]
+              },
+              {
+                "not": {
+                  "call": "hasInheritedExecutableFunction",
+                  "args": ["timeout"]
+                }
+              },
+              {
+                "ref": "timeoutOptionValuesSafe"
+              },
+              {
+                "not": {
+                  "call": "equals",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    ""
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "child"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      }
+    },
+    "child": {
+      "cases": [
+        {
+          "when": {
+            "all": [
+              {
+                "call": "executionTargetIs",
+                "args": ["external-path"]
+              },
+              {
+                "not": {
+                  "call": "hasInheritedExecutableFunction",
+                  "args": ["timeout"]
+                }
+              },
+              {
+                "ref": "timeoutOptionValuesSafe"
+              },
+              {
+                "not": {
+                  "call": "equals",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    ""
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "timeout wrapper with a duration and direct child command auto-allowed"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            }
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      }
+    }
+  }
+}

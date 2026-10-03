@@ -1,5 +1,26 @@
 # Known Bugs
 
+## `timeout --help` and `--version` incorrectly dispatch a modeled child
+
+The structural `timeout` handler treats `--help` and `--version` as ordinary
+flags, then continues to locate a duration and child command. GNU coreutils
+9.11 instead prints the requested information and exits successfully without
+executing trailing words. For example, analysis of:
+
+```sh
+timeout --help 1s false
+```
+
+models both `timeout` and `false`, although GNU `timeout` exits 0 without
+starting `false`. A policy that defers the informational form remains
+conservative overall, but policy decisions, denials, and audit records for the
+spurious child are inaccurate.
+
+The timeout structural parser must make `--help` and `--version` terminal,
+including any GNU-accepted unambiguous long-option prefixes, and emit no child
+invocation for those forms. Add parser and Bash-oracle regression tests that
+verify no child event is emitted.
+
 ## Executable-basename selectors cannot also exclude shell-function declarations
 
 Permission-policy selection currently distinguishes an invocation by its modeled
