@@ -121,9 +121,10 @@ export interface FragmentDeclaration {
 }
 
 export type Selector =
-  | { readonly kind: "invocation" }
+  | { readonly kind: "invocation"; readonly environmentIndependent?: boolean }
   | { readonly kind: "execution-gap"; readonly reason?: string }
   | {
+      readonly environmentIndependent?: boolean;
       readonly executable: {
         readonly projection: "basename" | "selected-path" | "canonical-target" | "chain-contains";
         readonly equals: string;

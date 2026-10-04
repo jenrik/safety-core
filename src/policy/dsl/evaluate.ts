@@ -299,7 +299,10 @@ function selects(program: CompiledPolicyProgram, event: BashPolicyEvent): boolea
 
 function selectorForLoadedPolicy(selector: CompiledPolicyProgram["select"][number]): BashPolicySelector {
   if ("kind" in selector) {
-    if (selector.kind === "invocation") return Object.freeze({ kind: "invocation" });
+    if (selector.kind === "invocation") {
+      const environmentIndependent = selector.environmentIndependent === true ? { environmentIndependent: true } : {};
+      return Object.freeze({ kind: "invocation", ...environmentIndependent });
+    }
     return Object.freeze(
       selector.reason === undefined ? { kind: "execution-gap" } : { kind: "execution-gap", reason: selector.reason },
     );
@@ -312,7 +315,8 @@ function selectorForLoadedPolicy(selector: CompiledPolicyProgram["select"][numbe
         : selector.executable.projection === "canonical-target"
           ? "executable-canonical-target"
           : "executable-chain-contains";
-  return Object.freeze({ kind, value: selector.executable.equals });
+  const environmentIndependent = selector.environmentIndependent === true ? { environmentIndependent: true } : {};
+  return Object.freeze({ kind, value: selector.executable.equals, ...environmentIndependent });
 }
 
 function initialRegisters(

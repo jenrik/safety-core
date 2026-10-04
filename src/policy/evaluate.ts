@@ -51,11 +51,7 @@ export function evaluatePolicyEvents(
   let hasExecutionGap = false;
 
   for (const [eventIndex, event] of events.entries()) {
-    if (
-      event.kind === "execution-gap" ||
-      (event.kind === "invocation" && event.executable !== null && event.executionTarget === "unresolved")
-    )
-      hasExecutionGap = true;
+    let unresolvedInvocationHasEnvironmentIndependentAllow = false;
     for (const policy of validatedPolicies) {
       if (!policySelectsEvent(policy, event)) continue;
       const traced = isTraceablePolicy(policy) ? policy.evaluateWithTrace(event) : undefined;
@@ -76,16 +72,34 @@ export function evaluatePolicyEvents(
       );
 
       if (decision.kind === "deny") denied = true;
+      const environmentIndependent = policyEnvironmentIndependentForEvent(policy, event);
       if (
         event.kind === "invocation" &&
         policy.layer === "permission" &&
         decision.kind === "allow" &&
         (event.missingBindings !== "unknown" ||
-          policy.select.some((selector) => selector.environmentIndependent === true))
+          (environmentIndependent && event.executionTarget !== "shell-function"))
       ) {
         coveredInvocations.add(eventIndex);
       }
+      if (
+        event.kind === "invocation" &&
+        event.executionTarget === "unresolved" &&
+        policy.layer === "permission" &&
+        decision.kind === "allow" &&
+        environmentIndependent
+      ) {
+        unresolvedInvocationHasEnvironmentIndependentAllow = true;
+      }
     }
+    if (event.kind === "execution-gap") hasExecutionGap = true;
+    if (
+      event.kind === "invocation" &&
+      event.executable !== null &&
+      event.executionTarget === "unresolved" &&
+      !unresolvedInvocationHasEnvironmentIndependentAllow
+    )
+      hasExecutionGap = true;
   }
 
   const allInvocationsCovered = events.every(
@@ -114,6 +128,18 @@ function policySelectsEvent(policy: ValidatedBashPolicy, event: BashPolicyEvent)
     event.kind === "invocation" &&
     selectors.some((selector) => matchesExecutableSelector(event.executableIdentity, selector))
   );
+}
+
+/** An environment-independent allow applies only to the selector that selected this event. */
+function policyEnvironmentIndependentForEvent(policy: ValidatedBashPolicy, event: BashPolicyEvent): boolean {
+  return policy.select.some(
+    (selector) => selector.environmentIndependent === true && selectorSelectsEvent(selector, event),
+  );
+}
+
+function selectorSelectsEvent(selector: import("./types.js").BashPolicySelector, event: BashPolicyEvent): boolean {
+  if (selector.kind === "invocation") return event.kind === "invocation";
+  return event.kind === "invocation" && isExecutableSelector(selector) && matchesExecutableSelector(event.executableIdentity, selector);
 }
 
 function isExecutableSelector(selector: import("./types.js").BashPolicySelector): boolean {

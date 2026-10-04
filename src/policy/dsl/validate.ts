@@ -179,8 +179,12 @@ function parseSelector(value: unknown, pointer: string): Selector {
   const candidate = record(value, pointer);
   if (hasOwn(candidate, "kind")) {
     if (candidate.kind === "invocation") {
-      exactKeys(candidate, ["kind"], [], pointer);
-      return { kind: "invocation" };
+      exactKeys(candidate, ["kind", "environmentIndependent"], ["environmentIndependent"], pointer);
+      if (candidate.environmentIndependent !== undefined && typeof candidate.environmentIndependent !== "boolean")
+        fail(`${pointer}.environmentIndependent`, "environmentIndependent must be a boolean");
+      return candidate.environmentIndependent === undefined
+        ? { kind: "invocation" }
+        : { kind: "invocation", environmentIndependent: candidate.environmentIndependent };
     }
     if (candidate.kind === "execution-gap") {
       exactKeys(candidate, ["kind", "reason"], ["reason"], pointer);
@@ -192,23 +196,37 @@ function parseSelector(value: unknown, pointer: string): Selector {
     }
     fail(`${pointer}.kind`, "unknown selector kind");
   }
-  exactKeys(candidate, ["executable"], [], pointer);
+  exactKeys(candidate, ["executable", "environmentIndependent"], ["environmentIndependent"], pointer);
+  if (candidate.environmentIndependent !== undefined && typeof candidate.environmentIndependent !== "boolean")
+    fail(`${pointer}.environmentIndependent`, "environmentIndependent must be a boolean");
   const executable = record(candidate.executable, `${pointer}.executable`);
   exactKeys(executable, ["projection", "equals"], [], `${pointer}.executable`);
   if (!isOneOf(executable.projection, ["basename", "selected-path", "canonical-target", "chain-contains"])) {
     fail(`${pointer}.executable.projection`, "projection must be an exact executable projection");
   }
   if (typeof executable.equals !== "string") fail(`${pointer}.executable.equals`, "equals must be a string");
-  return {
-    executable: {
-      projection: executable.projection as Selector extends { readonly executable: infer E }
-        ? E extends { readonly projection: infer P }
-          ? P
-          : never
-        : never,
-      equals: executable.equals,
-    },
-  };
+  return candidate.environmentIndependent === undefined
+    ? {
+        executable: {
+          projection: executable.projection as Selector extends { readonly executable: infer E }
+            ? E extends { readonly projection: infer P }
+              ? P
+              : never
+            : never,
+          equals: executable.equals,
+        },
+      }
+    : {
+        environmentIndependent: candidate.environmentIndependent,
+        executable: {
+          projection: executable.projection as Selector extends { readonly executable: infer E }
+            ? E extends { readonly projection: infer P }
+              ? P
+              : never
+            : never,
+          equals: executable.equals,
+        },
+      };
 }
 
 function parseRegister(value: unknown, pointer: string, language: PolicyDocument["language"]): RegisterDeclaration {

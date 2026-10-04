@@ -48,6 +48,14 @@ falling back to all-invocation evaluation.
 [{ "kind": "invocation" }]
 ```
 
+An invocation or executable selector may add
+`"environmentIndependent": true`. This is an explicit, policy-local opt-in:
+that same permission policy's `allow` can cover the selected invocation when
+the initial environment is unavailable. It never covers an invocation resolved
+as a Bash shell function, does not cover a different selector or policy, and
+does not suppress other execution gaps. It is unavailable on execution-gap
+selectors.
+
 ```json
 [{ "kind": "execution-gap", "reason": "unsupported-shell-source" }]
 ```

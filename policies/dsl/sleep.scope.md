@@ -9,9 +9,9 @@ child command from its operands.
 ## Protected action and asset
 
 The protected action is automatic authorization of the selected modeled
-`sleep` invocation. The protected boundary is command resolution: this policy
-must authorize an external executable, not Bash code that happens to be named
-`sleep`.
+`sleep` invocation. The protected boundary is command resolution: every known
+basename match is permitted except a positively identified Bash function named
+`sleep`; this is not executable-provenance enforcement.
 
 ## In scope
 
@@ -28,13 +28,14 @@ multiple operands, GNU options (`-`/`--` spellings), `--`, malformed operands,
 empty arguments, unknown or binding-derived arguments, and arbitrary argument
 ordering. The policy intentionally does not parse GNU `sleep` options or
 operands. Both unqualified `sleep` and path-qualified external executable
-spellings ending in `/sleep` are selected.
+spellings ending in `/sleep` are selected; a matching builtin or unresolved
+spelling is selected and permitted as well.
 
 The policy imposes no independent restriction on prefix assignments,
 redirections, pipelines, or surrounding shell constructs attached to the
-selected external invocation. Those are not argv parsing concerns: separately
-modeled commands and every file-access permission check retain their own
-authorization decisions.
+selected invocation. Those are not argv parsing concerns: separately modeled
+commands and every file-access permission check retain their own authorization
+decisions.
 
 ## Out of scope and threat-model exclusions
 

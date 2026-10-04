@@ -6,6 +6,7 @@ import type {
   BashPolicyEvent,
   GuardBashPolicy,
   GuardPolicyDecision,
+  InvocationView,
   PermissionBashPolicy,
   PolicyDecision,
   ValidatedBashPolicy,
@@ -163,6 +164,29 @@ describe("open Bash policy decision algebra", () => {
     expect(evaluatePolicyEvents([executionGap("opaque-child")], permissions, completeAnalysis())).toMatchObject({
       decision: "defer",
     });
+  });
+
+  test("an environment-independent permission may cover only its selected unresolved invocation", () => {
+    const unresolved: InvocationView = {
+      ...invocation("sleep"),
+      executionTarget: "unresolved" as const,
+      missingBindings: "unknown" as const,
+    } as InvocationView;
+    const independent = {
+      ...policy("/p/sleep", "permission", () => allow("sleep")),
+      select: [{ kind: "executable-basename", value: "sleep", environmentIndependent: true }],
+    } as ValidatedBashPolicy;
+    const ordinary = policy("/p/ordinary", "permission", () => allow("ordinary"));
+
+    expect(evaluatePolicyEvents([unresolved], [independent], completeAnalysis()).decision).toBe("allow");
+    expect(evaluatePolicyEvents([unresolved], [ordinary], completeAnalysis()).decision).toBe("defer");
+    expect(
+      evaluatePolicyEvents(
+        [{ ...unresolved, executionTarget: "shell-function" as const }],
+        [independent],
+        completeAnalysis(),
+      ).decision,
+    ).toBe("defer");
   });
 
   test("a policy may deny an execution gap", () => {

@@ -96,6 +96,21 @@ describe("DCRM evaluation", () => {
       expect(decision.kind, target).toBe(target === "external-path" ? "allow" : "ignore");
     }
   });
+
+  test("preserves an environment-independent executable selector", () => {
+    const document = base();
+    document.select = [
+      {
+        executable: { projection: "basename", equals: "tool" },
+        environmentIndependent: true,
+      },
+    ];
+    document.states.command.cases = [{ when: true, action: { decision: "allow", reason: ["allowed"] } }];
+
+    expect(policy(document).select).toEqual([
+      { kind: "executable-basename", value: "tool", environmentIndependent: true },
+    ]);
+  });
   test("honors first-match order, guards against pre-state, and applies updates simultaneously", () => {
     const document = base();
     document.states.command.cases.unshift({
