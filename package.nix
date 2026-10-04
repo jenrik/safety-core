@@ -76,7 +76,7 @@ let
 
   src = ./src;
   data = ./data;
-  policyArtifacts = import ./nix/dsl-policies.nix { inherit stdenv; };
+  policyArtifacts = import ./nix/dsl-policies.nix { inherit lib stdenv; };
   inherit (policyArtifacts) policySources dslPolicies;
   core = stdenv.mkDerivation {
     pname = "safety-core-core";

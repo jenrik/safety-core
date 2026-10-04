@@ -44,18 +44,7 @@
             allowedRepositories = [ "acme/widgets" ];
             allowedOrganizations = [ ];
           };
-          completePolicySources = [
-            sc.dslPolicies.secretRead
-            sc.dslPolicies.githubHttp
-            sc.dslPolicies.kubectl
-            sc.dslPolicies.unsupportedShellSource
-            sc.dslPolicies.cat
-            sc.dslPolicies.genericReadOnly
-            sc.dslPolicies.ghReadOnly
-            sc.dslPolicies.helmReadOnly
-            sc.dslPolicies.ghApi
-          ]
-          ++ sc.dslPolicies.strictReadOnly;
+          completePolicySources = sc.dslPolicies.all;
           productionDslPolicies = completePolicySources ++ [ "${prPolicy}/gh-pr-create.policy.json" ];
           evalPermissions =
             module:
@@ -145,6 +134,26 @@
             ' ${sc.codePolicies.apiFixture}/api-fixture.policy.mjs
             touch $out
           '';
+          dsl-policies-complete =
+            pkgs.runCommand "safety-core-dsl-policies-complete-check"
+              {
+                buildInputs = [
+                  pkgs.coreutils
+                  pkgs.diffutils
+                  pkgs.findutils
+                ];
+              }
+              ''
+                set -e
+                for path in ${lib.concatStringsSep " " sc.dslPolicies.all}; do
+                  echo "$path"
+                done > "$TMPDIR/registered"
+                find ${sc.policySources} -name '*.policy.json' | LC_ALL=C sort > "$TMPDIR/packaged"
+                LC_ALL=C sort -o "$TMPDIR/registered" "$TMPDIR/registered"
+                diff -u "$TMPDIR/registered" "$TMPDIR/packaged"
+                test "$(wc -l < "$TMPDIR/registered")" -gt 0
+                touch $out
+              '';
           cli-loads = pkgs.runCommand "safety-core-cli-loads-check" { } ''
             set -e
             test -x ${sc.core}/bin/safety-core
@@ -171,7 +180,7 @@
                 };
               }
             }' > config/safety-core/config.json
-            test "$(SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core validate | grep -Ec '^[0-9a-f]{64}  /nix/store/')" -eq 30
+            test "$(SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core validate | grep -Ec '^[0-9a-f]{64}  /nix/store/')" -eq ${toString (builtins.length productionDslPolicies)}
             SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core explain --json -- 'git --version' | grep -q '"decision": "allow"'
             SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core explain --json -- 'cat credentials.json' | grep -q '"decision": "deny"'
             SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core explain --json -- 'echo uncovered' | grep -q '"decision": "defer"'
