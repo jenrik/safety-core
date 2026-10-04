@@ -18,6 +18,7 @@ in
     githubHttp = "${policySources}/github/github-http.policy.json";
     kubectl = "${policySources}/kubernetes/kubectl.policy.json";
     unsupportedShellSource = "${policySources}/unsupported-shell-source.policy.json";
+    cat = "${policySources}/cat.policy.json";
     genericReadOnly = "${policySources}/generic-read-only.policy.json";
     ghReadOnly = "${policySources}/github/gh-read-only.policy.json";
     helmReadOnly = "${policySources}/kubernetes/helm-read-only.policy.json";

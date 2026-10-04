@@ -178,7 +178,7 @@ describe("env command DSL policy", () => {
       );
       expect(gap, source).toBeDefined();
       expect(result.decision, source).toBe("defer");
-      expect(invocationNames(result), source).toEqual(["command"]);
+      expect(invocationNames(result), source).toEqual(["env", "command"]);
     }
   });
 

@@ -4,8 +4,8 @@ import { readFileSync } from "node:fs";
 import {
   analyzeBashWithPolicies,
   completePolicyInitialEnvironment,
-  initBundledBashParser,
   type InvocationView,
+  initBundledBashParser,
 } from "../src/index.ts";
 import { compilePolicyDocument } from "../src/policy/dsl/compile.ts";
 import { createDslPolicy } from "../src/policy/dsl/evaluate.ts";
@@ -135,12 +135,13 @@ describe("timeout DSL policy", () => {
   test("does not authorize a function shadowing timeout", () => {
     expect(timeoutDecision([known("1s"), known("printf")], { executionTarget: "shell-function" })).toBe("defer");
     const result = analyze("timeout() { :; }; timeout 1s printf OK");
-    expect(
-      result.events.some(
-        (event) =>
-          event.kind === "invocation" && event.executable?.kind === "known" && event.executable.value === "timeout",
-      ),
-    ).toBeFalse();
+    expect(result.events).toContainEqual(
+      expect.objectContaining({
+        kind: "invocation",
+        executable: { kind: "known", value: "timeout" },
+        executionTarget: "shell-function",
+      }),
+    );
   });
 
   test("property: documented short clusters and value forms preserve the wrapper boundary", () => {

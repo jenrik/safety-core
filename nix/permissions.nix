@@ -14,6 +14,7 @@ let
     policyArtifacts.dslPolicies.githubHttp
     policyArtifacts.dslPolicies.kubectl
     policyArtifacts.dslPolicies.unsupportedShellSource
+    policyArtifacts.dslPolicies.cat
     policyArtifacts.dslPolicies.genericReadOnly
     policyArtifacts.dslPolicies.ghReadOnly
     policyArtifacts.dslPolicies.helmReadOnly

@@ -49,6 +49,7 @@
             sc.dslPolicies.githubHttp
             sc.dslPolicies.kubectl
             sc.dslPolicies.unsupportedShellSource
+            sc.dslPolicies.cat
             sc.dslPolicies.genericReadOnly
             sc.dslPolicies.ghReadOnly
             sc.dslPolicies.helmReadOnly
@@ -170,7 +171,7 @@
                 };
               }
             }' > config/safety-core/config.json
-            test "$(SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core validate | grep -Ec '^[0-9a-f]{64}  /nix/store/')" -eq 29
+            test "$(SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core validate | grep -Ec '^[0-9a-f]{64}  /nix/store/')" -eq 30
             SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core explain --json -- 'git --version' | grep -q '"decision": "allow"'
             SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core explain --json -- 'cat credentials.json' | grep -q '"decision": "deny"'
             SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core explain --json -- 'echo uncovered' | grep -q '"decision": "defer"'

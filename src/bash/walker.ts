@@ -799,6 +799,9 @@ function executeNormalizedInvocation(
 
   const executionTarget = resolveBashExecutionTarget(normalized, input.state, lookupDomain);
   if (executionTarget === "shell-function") {
+    // Policies need the resolved call as well as the function body to reject shadowed external commands.
+    // The function body owns inherited redirect effects, so do not report them twice on this synthetic event.
+    recordInvocationEvent({ ...normalized, redirects: [] }, input, context, span, inPipeline, executionTarget);
     const definitions = input.state.functionCandidates.get(normalized.executable.value)!;
     const shadowedEnv = normalized.executable.value === "env";
     if (shadowedEnv) {

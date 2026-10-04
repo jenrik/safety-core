@@ -143,7 +143,7 @@ describe("Bash generic policy events", () => {
       result.events
         .filter((event) => event.kind === "invocation")
         .map((event) => (event.executable?.kind === "known" ? event.executable.value : null)),
-    ).toEqual(["gh"]);
+    ).toEqual(["helm", "gh"]);
     expect(onlyInvocation(result.events).environment["BASH_FUNC_helm%%"]).toEqual({ kind: "known", value: body });
     expect(onlyInvocation(result.events)).toMatchObject({
       span: { start: 0, end: "helm list".length },
@@ -187,9 +187,18 @@ describe("Bash generic policy events", () => {
       analyzeBashWithPolicies({ source, initialEnvironment, policies: [policy("permission", () => allow)] })
         .events.filter((event) => event.kind === "invocation")
         .map((event) => [event.executable?.kind === "known" ? event.executable.value : null, event.executionTarget]);
-    expect(targets("helm list")).toEqual([["gh", "external-path"]]);
-    expect(targets("printf ok")).toEqual([["gh", "external-path"]]);
-    expect(targets("command helm list")).toEqual([["gh", "external-path"]]);
+    expect(targets("helm list")).toEqual([
+      ["helm", "shell-function"],
+      ["gh", "external-path"],
+    ]);
+    expect(targets("printf ok")).toEqual([
+      ["printf", "shell-function"],
+      ["gh", "external-path"],
+    ]);
+    expect(targets("command helm list")).toEqual([
+      ["command", "shell-function"],
+      ["gh", "external-path"],
+    ]);
     expect(targets("builtin command helm list")).toEqual([
       ["builtin", "builtin"],
       ["command", "builtin"],
@@ -220,7 +229,7 @@ describe("Bash generic policy events", () => {
           (event): event is InvocationView => event.kind === "invocation" && event.executable?.kind === "known",
         )
         .map((event) => (event.argv[0]?.kind === "known" ? event.argv[0].value : "")),
-    ).toEqual(["local"]);
+    ).toEqual(["", "local"]);
     const unset = run("unset -f helm; helm list");
     expect(unset.events).toContainEqual(
       expect.objectContaining({
