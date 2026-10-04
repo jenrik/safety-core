@@ -740,6 +740,30 @@ describe("named Bash command dispatch", () => {
     );
   });
 
+  test("recognizes only the valid GNU -newerXY spellings as value-taking primaries", () => {
+    // GNU find 4.11: -newerXY has X in {a,B,c,m} and Y in {a,B,c,m,t}; -newertY is invalid.
+    const referenceTypes = ["a", "B", "c", "m"];
+    const allTypes = ["a", "B", "c", "m", "t"];
+    let valid = 0;
+    for (const referenceType of allTypes) {
+      for (const testType of allTypes) {
+        const primary = `-newer${referenceType}${testType}`;
+        const result = directWrapperDispatch("find", [".", primary, "-exec", "canary", ";"]);
+        if (referenceTypes.includes(referenceType)) {
+          valid++;
+          // A valid -newerXY consumes the following word as its reference file, so the
+          // -exec token is an operand, not an action.
+          expect(result.targets, primary).not.toContain("invocation");
+        } else {
+          // An invalid -newertY is unresolved, and the following -exec stays an action.
+          expect(result.targets, primary).toContain("opaque");
+          expect(result.targets, primary).toContain("invocation");
+        }
+      }
+    }
+    expect(valid).toBe(20);
+  });
+
   test("keeps unresolved find primary and action positions opaque beside concrete siblings", () => {
     for (const argv of [
       [".", undefined, "-exec", "known-command", ";"],
@@ -946,7 +970,7 @@ describe("named Bash command dispatch", () => {
           undefined,
           ...argv.slice(boundary),
         ]);
-        const expected = executable === "sh" && boundary === 1 ? "safe" : "indeterminate";
+        const expected = executable === "find" || (executable === "sh" && boundary === 1) ? "safe" : "indeterminate";
         expect(dispatchOutcome(result.result), `${executable}:${boundary}`).toMatchObject({ kind: expected });
         if (expected === "safe") expect(result.targets).toContain("opaque");
       }

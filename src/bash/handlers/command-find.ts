@@ -2,8 +2,8 @@ import { isSecretPath } from "../../secrets.js";
 import { basename } from "../../shell.js";
 import type { StructuralDispatchContext } from "../dispatch.js";
 import type { ResolvedWord } from "../expand.js";
-import { indeterminate, type Outcome, policyDeny, strongestOutcome } from "../outcome.js";
-import type { BashChildExecution } from "../walker.js";
+import { policyDeny, safe } from "../outcome.js";
+import type { BashChildExecution, BashDispatchResult } from "../walker.js";
 import { childInvocationFrom, wrapperHandler } from "./wrapper-utils.js";
 
 export const findHandler = wrapperHandler("find", parseFind);
@@ -83,10 +83,14 @@ const UNARY_PRIMARIES = new Set([
 ]);
 const VARIABLE_ACTIONS = new Set(["-exec", "-execdir", "-ok", "-okdir"]);
 
-function parseFind(arguments_: readonly ResolvedWord[], context: StructuralDispatchContext) {
+/**
+ * Extract the commands a GNU find expression can run. This handler never decides
+ * whether the find invocation itself is allowed: unresolved regions become opaque
+ * child executions and every `-exec`-family action becomes a child invocation, so
+ * policy sees them and the find invocation's own permission stays with policy.
+ */
+function parseFind(arguments_: readonly ResolvedWord[], context: StructuralDispatchContext): BashDispatchResult {
   const children: BashChildExecution[] = [];
-  const outcomes: Outcome[] = [];
-  let executionPossible = false;
   const pending = [{ index: 0, expression: false }];
   const visited = new Set<string>();
   const handledActions = new Set<number>();
@@ -102,9 +106,7 @@ function parseFind(arguments_: readonly ResolvedWord[], context: StructuralDispa
       const current = arguments_[index]!;
       if (!expression) {
         if (current.kind !== "known") {
-          executionPossible = true;
-          outcomes.push(indeterminate(context.span));
-          appendOpaque(context, outcomes, children);
+          appendOpaque(context, children);
           index++;
           continue;
         }
@@ -113,7 +115,10 @@ function parseFind(arguments_: readonly ResolvedWord[], context: StructuralDispa
           continue;
         }
         if (current.value === "-D") {
-          if (index + 1 >= arguments_.length) return indeterminate(context.span);
+          if (index + 1 >= arguments_.length) {
+            appendOpaque(context, children);
+            return result(children);
+          }
           index += 2;
           continue;
         }
@@ -130,15 +135,12 @@ function parseFind(arguments_: readonly ResolvedWord[], context: StructuralDispa
 
       const argument = arguments_[index]!;
       if (argument.kind !== "known") {
-        executionPossible = true;
-        outcomes.push(indeterminate(context.span));
-        appendOpaque(context, outcomes, children);
+        appendOpaque(context, children);
         index++;
         continue;
       }
 
       if (VARIABLE_ACTIONS.has(argument.value)) {
-        executionPossible = true;
         const action = findActionEnd(
           arguments_,
           index + 1,
@@ -151,16 +153,13 @@ function parseFind(arguments_: readonly ResolvedWord[], context: StructuralDispa
         if (!handledActions.has(index)) {
           handledActions.add(index);
           if (!action) {
-            outcomes.push(indeterminate(context.span));
-            appendOpaque(context, outcomes, children);
+            appendOpaque(context, children);
             break;
           }
           const command = arguments_.slice(index + 1, action.end);
           if (command.length === 0 || command.some((word) => word.kind !== "known")) {
-            outcomes.push(indeterminate(context.span));
-            appendOpaque(context, outcomes, children);
+            appendOpaque(context, children);
           } else {
-            const hasPlaceholder = command.some((word) => word.kind === "known" && word.value.includes("{}"));
             const template = command.map((word) =>
               word.kind === "known" && word.value.includes("{}")
                 ? Object.freeze({
@@ -169,8 +168,7 @@ function parseFind(arguments_: readonly ResolvedWord[], context: StructuralDispa
                   })
                 : word,
             );
-            if (hasPlaceholder) outcomes.push(indeterminate(context.span));
-            appendResult(childInvocationFrom(template, 0, context, undefined, "spawn-repeated"), outcomes, children);
+            appendResult(childInvocationFrom(template, 0, context, undefined, "spawn-repeated"), children);
           }
         }
         if (!action) break;
@@ -181,13 +179,11 @@ function parseFind(arguments_: readonly ResolvedWord[], context: StructuralDispa
       if (argument.value === "-files0-from") {
         const input = arguments_[index + 1];
         if (!input) {
-          executionPossible = true;
-          outcomes.push(indeterminate(context.span));
-          appendOpaque(context, outcomes, children);
+          appendOpaque(context, children);
           break;
         }
         if (input.kind !== "known") {
-          outcomes.push(indeterminate(context.span));
+          appendOpaque(context, children);
         } else if (isSecretPath(input.value)) {
           return policyDeny(
             context.span,
@@ -203,19 +199,13 @@ function parseFind(arguments_: readonly ResolvedWord[], context: StructuralDispa
       }
 
       if (argument.value === "-fprintf") {
-        index = consumeFixed(arguments_, index, 2, context, outcomes, children);
-        if (index < 0) {
-          executionPossible = true;
-          break;
-        }
+        index = consumeFixed(arguments_, index, 2, context, children);
+        if (index < 0) break;
         continue;
       }
       if (isNewerPrimary(argument.value) || UNARY_PRIMARIES.has(argument.value)) {
-        index = consumeFixed(arguments_, index, 1, context, outcomes, children);
-        if (index < 0) {
-          executionPossible = true;
-          break;
-        }
+        index = consumeFixed(arguments_, index, 1, context, children);
+        if (index < 0) break;
         continue;
       }
       if (OPERATORS.has(argument.value) || NULLARY_PRIMARIES.has(argument.value)) {
@@ -223,15 +213,16 @@ function parseFind(arguments_: readonly ResolvedWord[], context: StructuralDispa
         continue;
       }
 
-      executionPossible = true;
-      outcomes.push(indeterminate(context.span));
-      appendOpaque(context, outcomes, children);
+      appendOpaque(context, children);
       index++;
     }
   }
 
-  if (!executionPossible) return indeterminate(context.span);
-  return { outcome: strongestOutcome(outcomes), children: Object.freeze(children) };
+  return result(children);
+}
+
+function result(children: readonly BashChildExecution[]): BashDispatchResult {
+  return Object.freeze({ outcome: safe(), children: Object.freeze([...children]) });
 }
 
 function consumeFixed(
@@ -239,12 +230,10 @@ function consumeFixed(
   index: number,
   arity: number,
   context: StructuralDispatchContext,
-  outcomes: Outcome[],
   children: BashChildExecution[],
 ): number {
   if (index + arity >= arguments_.length) {
-    outcomes.push(indeterminate(context.span));
-    appendOpaque(context, outcomes, children);
+    appendOpaque(context, children);
     return -1;
   }
   return index + arity + 1;
@@ -278,25 +267,17 @@ function findActionEnd(
   return undefined;
 }
 
-function appendOpaque(context: StructuralDispatchContext, outcomes: Outcome[], children: BashChildExecution[]): void {
+function appendOpaque(context: StructuralDispatchContext, children: BashChildExecution[]): void {
   appendResult(
     context.continueWithOpaque("unsupported-execution", undefined, {
       route: "transparent-wrapper",
       processEffect: "spawn-repeated",
     }),
-    outcomes,
     children,
   );
 }
 
-function appendResult(
-  result: ReturnType<StructuralDispatchContext["continueWithOpaque"]>,
-  outcomes: Outcome[],
-  children: BashChildExecution[],
-): void {
-  if ("kind" in result) outcomes.push(result);
-  else {
-    outcomes.push(result.outcome);
-    if (result.children) children.push(...result.children);
-  }
+function appendResult(result: BashDispatchResult, children: BashChildExecution[]): void {
+  if ("kind" in result) return;
+  if (result.children) children.push(...result.children);
 }
