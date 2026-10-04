@@ -143,7 +143,9 @@ export function policyTestForFile(testUrl: string): PolicyTestSuite {
     return policyTestFromEnvironment();
   }
   const stem = testPath.slice(0, -".test.ts".length);
-  const candidates = [".json", ".mjs"].map((extension) => `${stem}${extension}`).filter(existsSync);
+  const candidates = [".policy.json", ".policy.mjs", ".json", ".mjs"]
+    .map((extension) => `${stem}${extension}`)
+    .filter(existsSync);
   if (candidates.length !== 1) {
     throw new Error(`${testPath}: expected exactly one colocated policy source`);
   }

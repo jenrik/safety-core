@@ -77,8 +77,7 @@ export function evaluatePolicyEvents(
         event.kind === "invocation" &&
         policy.layer === "permission" &&
         decision.kind === "allow" &&
-        (event.missingBindings !== "unknown" ||
-          (environmentIndependent && event.executionTarget !== "shell-function"))
+        (event.missingBindings !== "unknown" || (environmentIndependent && event.executionTarget !== "shell-function"))
       ) {
         coveredInvocations.add(eventIndex);
       }
@@ -139,7 +138,11 @@ function policyEnvironmentIndependentForEvent(policy: ValidatedBashPolicy, event
 
 function selectorSelectsEvent(selector: import("./types.js").BashPolicySelector, event: BashPolicyEvent): boolean {
   if (selector.kind === "invocation") return event.kind === "invocation";
-  return event.kind === "invocation" && isExecutableSelector(selector) && matchesExecutableSelector(event.executableIdentity, selector);
+  return (
+    event.kind === "invocation" &&
+    isExecutableSelector(selector) &&
+    matchesExecutableSelector(event.executableIdentity, selector)
+  );
 }
 
 function isExecutableSelector(selector: import("./types.js").BashPolicySelector): boolean {
