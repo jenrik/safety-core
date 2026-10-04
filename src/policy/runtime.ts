@@ -4,16 +4,16 @@ import { readFileSync, realpathSync } from "node:fs";
 import type { BashInitialEnvironment, BashPolicyEvaluation } from "../authorization.js";
 import { analyzeBashWithPolicies } from "../authorization.js";
 import {
-  PolicyStartupError,
-  loadGlobalPolicyConfig,
-  resolveSessionPolicyConfig,
   type BashAnalysisConfig,
   type GlobalPolicyConfig,
+  loadGlobalPolicyConfig,
   type PolicyConfigurationSource,
+  PolicyStartupError,
   type ResolvedPolicySource,
+  resolveSessionPolicyConfig,
 } from "./config.js";
-import { loadPolicySet, loadPolicySources, type LoadedPolicySet, type LoadedPolicySource } from "./load.js";
 import type { ExecutableFilesystem } from "./filesystem.js";
+import { type LoadedPolicySet, type LoadedPolicySource, loadPolicySet, loadPolicySources } from "./load.js";
 
 export interface LoadedPolicyRuntime {
   readonly config: GlobalPolicyConfig;
@@ -37,9 +37,10 @@ export async function loadPolicyRuntime(
   cwd: string,
   env: Readonly<Record<string, string | undefined>> = process.env,
   configPath?: string,
+  projectConfigPath?: string,
 ): Promise<LoadedPolicyRuntime> {
   const config = loadGlobalPolicyConfig(env, configPath);
-  const resolved = resolveSessionPolicyConfig(config, cwd);
+  const resolved = resolveSessionPolicyConfig(config, cwd, projectConfigPath);
   const policySet = await loadPolicySet(resolved);
   return Object.freeze({
     config,
@@ -66,26 +67,38 @@ export function policyRuntimeManifest(runtime: LoadedPolicyRuntime, cwd: string)
 export async function loadPolicyRuntimeManifest(manifest: PolicyRuntimeManifest): Promise<LoadedPolicyRuntime> {
   validateManifest(manifest);
   verifyConfigurationSources(manifest.configurations);
-  const references: readonly ResolvedPolicySource[] = manifest.sources.map((source) => Object.freeze({ path: source.canonicalPath, scope: source.scope }));
+  const references: readonly ResolvedPolicySource[] = manifest.sources.map((source) =>
+    Object.freeze({ path: source.canonicalPath, scope: source.scope }),
+  );
   const policySet = await loadPolicySources(references);
-  if (policySet.sources.length !== manifest.sources.length || policySet.sources.some((source, index) =>
-    source.canonicalPath !== manifest.sources[index]?.canonicalPath || source.sha256 !== manifest.sources[index]?.sha256)) {
-    const path = policySet.sources.find((source, index) => source.sha256 !== manifest.sources[index]?.sha256)?.canonicalPath
-      ?? manifest.sources[policySet.sources.length]?.canonicalPath
-      ?? manifest.configurations[0]?.canonicalPath
-      ?? "policy session manifest";
+  if (
+    policySet.sources.length !== manifest.sources.length ||
+    policySet.sources.some(
+      (source, index) =>
+        source.canonicalPath !== manifest.sources[index]?.canonicalPath ||
+        source.sha256 !== manifest.sources[index]?.sha256,
+    )
+  ) {
+    const path =
+      policySet.sources.find((source, index) => source.sha256 !== manifest.sources[index]?.sha256)?.canonicalPath ??
+      manifest.sources[policySet.sources.length]?.canonicalPath ??
+      manifest.configurations[0]?.canonicalPath ??
+      "policy session manifest";
     throw new PolicyStartupError(path, "policy source digest changed since session startup");
   }
   const globalConfiguration = manifest.configurations.find((source) => source.scope === "global");
-  if (globalConfiguration === undefined) throw new PolicyStartupError("policy session manifest", "global configuration snapshot is missing");
+  if (globalConfiguration === undefined)
+    throw new PolicyStartupError("policy session manifest", "global configuration snapshot is missing");
   const config: GlobalPolicyConfig = Object.freeze({
     path: globalConfiguration.canonicalPath,
     configuration: globalConfiguration,
     version: 1,
-    policies: Object.freeze(manifest.sources.filter((source) => source.scope === "global").map((source) => source.canonicalPath)),
+    policies: Object.freeze(
+      manifest.sources.filter((source) => source.scope === "global").map((source) => source.canonicalPath),
+    ),
     projectPolicies: Object.freeze({ mode: "disabled", allowedRoots: Object.freeze([]) }),
     bashAnalysis: manifest.limits,
-    pi: Object.freeze({ autoApprove: false }),
+    pi: Object.freeze({ autoApprove: false, showFullCommand: true }),
     redact: Object.freeze({ opencode: Object.freeze({ enabled: false }) }),
   });
   return Object.freeze({
@@ -107,10 +120,10 @@ export function evaluateLoadedPolicies(
   return analyzeBashWithPolicies({
     source,
     limits: runtime.limits,
-    initialEnvironment,
-    cwd: context.cwd,
-    executableFilesystem: context.executableFilesystem,
     policies: runtime.policySet.policies,
+    ...(initialEnvironment === undefined ? {} : { initialEnvironment }),
+    ...(context.cwd === undefined ? {} : { cwd: context.cwd }),
+    ...(context.executableFilesystem === undefined ? {} : { executableFilesystem: context.executableFilesystem }),
   });
 }
 
@@ -133,8 +146,11 @@ function verifyConfigurationSources(sources: readonly PolicyConfigurationSource[
 function validateManifest(manifest: PolicyRuntimeManifest): void {
   const globalConfigurations = manifest.configurations.filter((source) => source.scope === "global");
   const projectConfigurations = manifest.configurations.filter((source) => source.scope === "project");
-  if (globalConfigurations.length !== 1 || projectConfigurations.length > 1
-    || (manifest.projectRoot === undefined) !== (projectConfigurations.length === 0)) {
+  if (
+    globalConfigurations.length !== 1 ||
+    projectConfigurations.length > 1 ||
+    (manifest.projectRoot === undefined) !== (projectConfigurations.length === 0)
+  ) {
     throw new PolicyStartupError("policy session manifest", "configuration snapshot is invalid");
   }
   const configurationPaths = new Set<string>();
@@ -146,16 +162,30 @@ function validateManifest(manifest: PolicyRuntimeManifest): void {
   }
   const sourcePaths = new Set<string>();
   for (const source of manifest.sources) {
-    if (!isSnapshotSource(source) || sourcePaths.has(source.canonicalPath)
-      || (source.scope === "project" && !source.canonicalPath.endsWith(".policy.json"))) {
+    if (
+      !isSnapshotSource(source) ||
+      sourcePaths.has(source.canonicalPath) ||
+      (source.scope === "project" && !source.canonicalPath.endsWith(".policy.json"))
+    ) {
       throw new PolicyStartupError("policy session manifest", "policy source snapshot is invalid");
     }
     sourcePaths.add(source.canonicalPath);
   }
 }
 
-function isSnapshotSource(source: { readonly canonicalPath: string; readonly scope: string; readonly sha256: string }): boolean {
-  return (source.scope === "global" || source.scope === "project")
-    && (source.canonicalPath === "/" || (source.canonicalPath.startsWith("/") && source.canonicalPath.split("/").slice(1).every((part) => part !== "" && part !== "." && part !== "..")))
-    && /^[a-f0-9]{64}$/.test(source.sha256);
+function isSnapshotSource(source: {
+  readonly canonicalPath: string;
+  readonly scope: string;
+  readonly sha256: string;
+}): boolean {
+  return (
+    (source.scope === "global" || source.scope === "project") &&
+    (source.canonicalPath === "/" ||
+      (source.canonicalPath.startsWith("/") &&
+        source.canonicalPath
+          .split("/")
+          .slice(1)
+          .every((part) => part !== "" && part !== "." && part !== ".."))) &&
+    /^[a-f0-9]{64}$/.test(source.sha256)
+  );
 }

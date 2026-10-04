@@ -7,15 +7,24 @@ import { compilePolicyDocument } from "../src/policy/dsl/compile.ts";
 import { createDslPolicy } from "../src/policy/dsl/evaluate.ts";
 import { parsePolicyDocument } from "../src/policy/dsl/validate.ts";
 
-const strictArtifactPath = new URL("../policies/dsl/strict-kubectl.policy.json", import.meta.url);
+const strictArtifactPath = new URL("../policies/dsl/kubernetes/strict-kubectl.policy.json", import.meta.url);
 const strictArtifact = JSON.parse(readFileSync(strictArtifactPath, "utf8")) as Record<string, any>;
-const strictPolicy = createDslPolicy(compilePolicyDocument(parsePolicyDocument(strictArtifact)), strictArtifactPath.pathname);
+const strictPolicy = createDslPolicy(
+  compilePolicyDocument(parsePolicyDocument(strictArtifact)),
+  strictArtifactPath.pathname,
+);
 
 function strictDryRunDecision(args: readonly string[], overrides: Record<string, unknown> = {}): string {
   return strictPolicy.evaluate({
     kind: "invocation",
     executable: { kind: "known", value: "kubectl" },
-    executableIdentity: { qualification: "incomplete", spelling: "kubectl", basename: "kubectl", chain: [], failure: { kind: "not-found" } },
+    executableIdentity: {
+      qualification: "incomplete",
+      spelling: "kubectl",
+      basename: "kubectl",
+      chain: [],
+      failure: { kind: "not-found" },
+    },
     argv: args.map((value) => ({ kind: "known" as const, value })),
     environment: {},
     missingBindings: "unset",
@@ -47,7 +56,11 @@ describe("declarative kubectl apply dry-run policy", () => {
       kubectlHasFilename: { type: "bool", initial: false },
       kubectlHasKustomize: { type: "bool", initial: false },
     });
-    expect(strictArtifact.options.kubectlDryRun).toMatchObject({ names: ["--dry-run"], value: "required", forms: ["equalsLong"] });
+    expect(strictArtifact.options.kubectlDryRun).toMatchObject({
+      names: ["--dry-run"],
+      value: "required",
+      forms: ["equalsLong"],
+    });
     expect(builtinCalls(strictArtifact).every((name) => Object.hasOwn(BUILTINS_V1, name))).toBeTrue();
   });
 
@@ -59,9 +72,28 @@ describe("declarative kubectl apply dry-run policy", () => {
       ["apply", "-k", "plugin-enabled-overlay", "--dry-run=server"],
       ["apply", "--dry-run=client", "-f", "manifests"],
       ["apply", "--dry-run=client", "-Rfmanifest.yaml"],
-      ["apply", "--dry-run=server", "--cascade=foreground", "--validate", "--context=", "--namespace=", "-f", "manifest.yaml"],
-      ["apply", "--dry-run=client", "--field-manager=", "--selector=", "--subresource=", "--prune-allowlist=", "-f", "manifest.yaml"],
-    ]) expect(strictDryRunDecision(args), args.join(" ")).toBe("allow");
+      [
+        "apply",
+        "--dry-run=server",
+        "--cascade=foreground",
+        "--validate",
+        "--context=",
+        "--namespace=",
+        "-f",
+        "manifest.yaml",
+      ],
+      [
+        "apply",
+        "--dry-run=client",
+        "--field-manager=",
+        "--selector=",
+        "--subresource=",
+        "--prune-allowlist=",
+        "-f",
+        "manifest.yaml",
+      ],
+    ])
+      expect(strictDryRunDecision(args), args.join(" ")).toBe("allow");
   });
 
   test("property: every declared non-dry-run value option consumes a dry-run-looking value instead of establishing dry-run", () => {
@@ -77,24 +109,42 @@ describe("declarative kubectl apply dry-run policy", () => {
 
   test("property: modes and source forms are ordering-insensitive within the declared grammar", () => {
     const modes = [["--dry-run=client"], ["--dry-run=server"]] as const;
-    const inputs = [["-f", "-"], ["--filename", "manifest.yaml"], ["-k", "plugin-overlay"]] as const;
-    for (const mode of modes) for (const input of inputs) {
-      for (const args of [
-        ["apply", ...mode, ...input],
-        [...mode, "apply", ...input],
-        [...input, "apply", ...mode],
-        ["apply", ...input, ...mode],
-      ]) expect(strictDryRunDecision(args), args.join(" ")).toBe("allow");
-    }
+    const inputs = [
+      ["-f", "-"],
+      ["--filename", "manifest.yaml"],
+      ["-k", "plugin-overlay"],
+    ] as const;
+    for (const mode of modes)
+      for (const input of inputs) {
+        for (const args of [
+          ["apply", ...mode, ...input],
+          [...mode, "apply", ...input],
+          [...input, "apply", ...mode],
+          ["apply", ...input, ...mode],
+        ])
+          expect(strictDryRunDecision(args), args.join(" ")).toBe("allow");
+      }
   });
 
   test("property: every approved boolean is bare and every explicit value defers", () => {
-    const booleans = Object.entries(strictArtifact.options as Record<string, { names: readonly string[]; value: string; availableIn: readonly string[] }>)
-      .filter(([name, option]) => (name.startsWith("kubectlApplyBoolean") || name.startsWith("kubectlApplyBare")) && option.value === "absent")
+    const booleans = Object.entries(
+      strictArtifact.options as Record<
+        string,
+        { names: readonly string[]; value: string; availableIn: readonly string[] }
+      >,
+    )
+      .filter(
+        ([name, option]) =>
+          (name.startsWith("kubectlApplyBoolean") || name.startsWith("kubectlApplyBare")) && option.value === "absent",
+      )
       .map(([, option]) => option.names[0]!);
     for (const option of booleans) {
       expect(strictDryRunDecision(["apply", "--dry-run=client", option, "-f", "manifest.yaml"]), option).toBe("allow");
-      if (option.startsWith("--")) expect(strictDryRunDecision(["apply", "--dry-run=client", `${option}=maybe`, "-f", "manifest.yaml"]), option).toBe("defer");
+      if (option.startsWith("--"))
+        expect(
+          strictDryRunDecision(["apply", "--dry-run=client", `${option}=maybe`, "-f", "manifest.yaml"]),
+          option,
+        ).toBe("defer");
     }
   });
 
@@ -104,18 +154,27 @@ describe("declarative kubectl apply dry-run policy", () => {
       ["--filename", "manifest.yaml", "apply", "--dry-run=client"],
       ["--cascade=foreground", "apply", "--dry-run=client", "-f", "manifest.yaml"],
       ["--context=dev", "apply", "--dry-run=client", "-f", "manifest.yaml"],
-    ]) expect(strictDryRunDecision(args), args.join(" ")).toBe("allow");
+    ])
+      expect(strictDryRunDecision(args), args.join(" ")).toBe("allow");
 
     for (const args of [
       ["--force", "apply", "--dry-run=client", "-f", "manifest.yaml"],
       ["--validate", "apply", "--dry-run=client", "-f", "manifest.yaml"],
       ["-R", "apply", "--dry-run=client", "-f", "manifest.yaml"],
-    ]) expect(strictDryRunDecision(args), args.join(" ")).toBe("defer");
+    ])
+      expect(strictDryRunDecision(args), args.join(" ")).toBe("defer");
   });
 
   test("property: every apply-local bare option is post-apply only", () => {
-    const options = Object.entries(strictArtifact.options as Record<string, { names: readonly string[]; value: string; availableIn: readonly string[] }>)
-      .filter(([name, option]) => (name.startsWith("kubectlApplyBoolean") || name.startsWith("kubectlApplyBare")) && option.value === "absent");
+    const options = Object.entries(
+      strictArtifact.options as Record<
+        string,
+        { names: readonly string[]; value: string; availableIn: readonly string[] }
+      >,
+    ).filter(
+      ([name, option]) =>
+        (name.startsWith("kubectlApplyBoolean") || name.startsWith("kubectlApplyBare")) && option.value === "absent",
+    );
     expect(options.length).toBe(13);
     for (const [, option] of options) {
       expect(option.availableIn).toEqual(["kubectlApply"]);
@@ -146,13 +205,16 @@ describe("declarative kubectl apply dry-run policy", () => {
       ["apply", "--dry-run=client", "--validate=warn", "-f", "manifest.yaml"],
       ["apply", "--dry-run=client", "--output=json", "-f", "manifest.yaml"],
       ["apply", "--dry-run=client", "--unknown", "-f", "manifest.yaml"],
-    ]) expect(strictDryRunDecision(args), args.join(" ")).toBe("defer");
+    ])
+      expect(strictDryRunDecision(args), args.join(" ")).toBe("defer");
   });
 
   test("defers unsafe routes even where the native strict profile separately remains conservative", () => {
     const args = ["apply", "--dry-run=client", "-f", "manifest.yaml"];
     expect(strictDryRunDecision(args, { assignments: { KUBECONFIG: { kind: "known", value: "x" } } })).toBe("defer");
-    expect(strictDryRunDecision(args, { redirects: [{ kind: "output", target: { kind: "known", value: "out" } }] })).toBe("defer");
+    expect(
+      strictDryRunDecision(args, { redirects: [{ kind: "output", target: { kind: "known", value: "out" } }] }),
+    ).toBe("defer");
     expect(strictDryRunDecision(args, { provenance: { route: ["transparent-wrapper"] } })).toBe("defer");
     expect(strictDryRunDecision(args, { environment: { KUBECONFIG: { kind: "known", value: "x" } } })).toBe("defer");
   });

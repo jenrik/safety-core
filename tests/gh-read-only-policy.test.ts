@@ -1,16 +1,26 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
-
-import { ghCommandGrammarMatches, ghNativeAliasesForRule, parseGhCommandLine } from "../src/bash/handlers/gh-command-line.ts";
-import { BASH_FUNCTIONS_CAPTURED_FACT, completePolicyInitialEnvironment, POLICY_ENVIRONMENT_ROUTES, policyInitialEnvironment } from "../src/bash/policy-environment.ts";
-import {
-  GH_HELP_TOPIC_RULES,
-  GH_READ_ONLY_RULES,
-} from "../src/bash/policies/gh-read-only.ts";
+import { readFileSync } from "node:fs";
 import { renderGhReadOnlyAudit } from "../scripts/render-gh-read-only-audit.ts";
+import {
+  ghCommandGrammarMatches,
+  ghNativeAliasesForRule,
+  parseGhCommandLine,
+} from "../src/bash/handlers/gh-command-line.ts";
+import { GH_HELP_TOPIC_RULES, GH_READ_ONLY_RULES, type GhCommandRule } from "../src/bash/policies/gh-read-only.ts";
+import {
+  BASH_FUNCTIONS_CAPTURED_FACT,
+  completePolicyInitialEnvironment,
+  POLICY_ENVIRONMENT_ROUTES,
+  policyInitialEnvironment,
+} from "../src/bash/policy-environment.ts";
 
 const fixture = JSON.parse(readFileSync(new URL("../data/gh-cli-2.100.0-reference.json", import.meta.url), "utf8")) as {
-  commands: Array<{ path: string[]; aliases: string[][]; preview: boolean; kind: string }>;
+  commands: Array<{
+    path: string[];
+    aliases: string[][];
+    preview: boolean;
+    kind: GhCommandRule["kind"];
+  }>;
   helpTopics: Array<{ name: string }>;
   environment: Array<{ name: string }>;
 };
@@ -28,7 +38,10 @@ describe("ghReadOnly classification manifest", () => {
     const rules = new Map(GH_READ_ONLY_RULES.map((rule) => [rule.path.join(" "), rule]));
     for (const entry of fixture.commands) {
       const rule = rules.get(entry.path.join(" "))!;
-      expect(rule.aliases.map((alias) => alias.join(" ")), entry.path.join(" ")).toEqual(entry.aliases.map((alias) => alias.join(" ")));
+      expect(
+        rule.aliases.map((alias) => alias.join(" ")),
+        entry.path.join(" "),
+      ).toEqual(entry.aliases.map((alias) => alias.join(" ")));
       expect(rule.kind).toBe(entry.kind);
       expect(rule.preview).toBe(entry.preview);
     }
@@ -45,8 +58,14 @@ describe("ghReadOnly classification manifest", () => {
       if (rule.disposition === "owned") expect(rule.owner).toBeDefined();
     }
     expect(GH_READ_ONLY_RULES.filter((rule) => rule.disposition === "allow")).toEqual([]);
-    expect(GH_READ_ONLY_RULES.filter((rule) => rule.disposition === "owned").map((rule) => [rule.path.join(" "), rule.owner])).toEqual([
-      ["api", "ghApiReadOnly"], ["pr create", "ghPrCreate"],
+    expect(
+      GH_READ_ONLY_RULES.filter((rule) => rule.disposition === "owned").map((rule) => [
+        rule.path.join(" "),
+        rule.owner,
+      ]),
+    ).toEqual([
+      ["api", "ghApiReadOnly"],
+      ["pr create", "ghPrCreate"],
     ]);
   });
 
@@ -84,20 +103,41 @@ describe("scoped gh command parser", () => {
 
   test("keeps dynamic aliases, extensions, unknown commands, and malformed roots invalid", () => {
     for (const args of [
-      ["co", "123"], ["my-alias"], ["my-extension", "run"], ["unknown"],
-      ["--unknown", "api", "user"], ["pr", "--unknown", "create"], ["--repo"], ["--repo", "-bad", "licenses"],
-    ]) expect(parseGhCommandLine(args).kind, args.join(" ")).toBe("invalid");
+      ["co", "123"],
+      ["my-alias"],
+      ["my-extension", "run"],
+      ["unknown"],
+      ["--unknown", "api", "user"],
+      ["pr", "--unknown", "create"],
+      ["--repo"],
+      ["--repo", "-bad", "licenses"],
+    ])
+      expect(parseGhCommandLine(args).kind, args.join(" ")).toBe("invalid");
   });
 
   test("property: option boundary and malformed forms never become a local metadata allow", () => {
     for (const args of [
-      ["--version", "extra"], ["--version=true"], ["--ver"], ["version", "--"], ["version", "--help"],
-      ["-R"], ["-R="], ["--repo="], ["--hostname"], ["--hostname="],
-      ["--repo", "acme/widgets", "version"], ["version", "--repo", "acme/widgets"],
-      ["--repo=acme/widgets", "version"], ["-Racme/widgets", "version"],
+      ["--version", "extra"],
+      ["--version=true"],
+      ["--ver"],
+      ["version", "--"],
+      ["version", "--help"],
+      ["-R"],
+      ["-R="],
+      ["--repo="],
+      ["--hostname"],
+      ["--hostname="],
+      ["--repo", "acme/widgets", "version"],
+      ["version", "--repo", "acme/widgets"],
+      ["--repo=acme/widgets", "version"],
+      ["-Racme/widgets", "version"],
     ]) {
       const parsed = parseGhCommandLine(args);
-      expect(parsed.kind === "root-version" || (parsed.kind === "command" && parsed.rule.disposition === "allow" && ghCommandGrammarMatches(parsed)), args.join(" ")).toBe(false);
+      expect(
+        parsed.kind === "root-version" ||
+          (parsed.kind === "command" && parsed.rule.disposition === "allow" && ghCommandGrammarMatches(parsed)),
+        args.join(" "),
+      ).toBe(false);
     }
   });
 
@@ -119,7 +159,10 @@ describe("scoped gh command parser", () => {
       if (parsed.kind === "command") expect(ghCommandGrammarMatches(parsed)).toBe(true);
     }
     for (const args of [
-      ["licenses", "extra"], ["licenses", "--help"], ["version", "extra"], ["--repo", "acme/widgets", "version"],
+      ["licenses", "extra"],
+      ["licenses", "--help"],
+      ["version", "extra"],
+      ["--repo", "acme/widgets", "version"],
     ]) {
       const parsed = parseGhCommandLine(args);
       expect(parsed.kind).toBe("command");
@@ -142,7 +185,10 @@ describe("policy environment manifest", () => {
     for (const name of documented) expect(reviewed, name).toContain(name);
     const secretNames = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
     for (const name of secretNames) {
-      expect(POLICY_ENVIRONMENT_ROUTES.find((route) => route.name === name)).toMatchObject({ disposition: "excluded-secret", capture: false });
+      expect(POLICY_ENVIRONMENT_ROUTES.find((route) => route.name === name)).toMatchObject({
+        disposition: "excluded-secret",
+        capture: false,
+      });
     }
     const snapshot = policyInitialEnvironment(Object.fromEntries(secretNames.map((name) => [name, `canary-${name}`])));
     expect(snapshot).toMatchObject({ kind: "filtered", values: {} });
@@ -152,19 +198,31 @@ describe("policy environment manifest", () => {
   test("defines present, empty, unset, and unavailable behavior without emitting values", () => {
     expect(policyInitialEnvironment({ GH_PAGER: "" })).toMatchObject({ kind: "filtered", values: { GH_PAGER: "" } });
     const pager = policyInitialEnvironment({ PAGER: "less" });
-    expect(pager.kind === "filtered" ? Object.keys(pager.values) : []).toEqual([BASH_FUNCTIONS_CAPTURED_FACT, "__SAFETY_CORE_INHERITED_GH_PAGER"]);
+    expect(pager.kind === "filtered" ? Object.keys(pager.values) : []).toEqual([
+      BASH_FUNCTIONS_CAPTURED_FACT,
+      "__SAFETY_CORE_INHERITED_GH_PAGER",
+    ]);
     const empty = policyInitialEnvironment({});
-    expect(empty).toMatchObject({ kind: "filtered", values: { [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT" } });
+    expect(empty).toMatchObject({
+      kind: "filtered",
+      values: { [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT" },
+    });
     expect(empty.kind === "filtered" ? empty.unset : []).toContain("GH_PAGER");
     expect(POLICY_ENVIRONMENT_ROUTES.every((route) => route.rationale.length > 0)).toBe(true);
-    expect(POLICY_ENVIRONMENT_ROUTES.find((route) => route.name === "GH_TELEMETRY_SAMPLE_RATE")).toMatchObject({ disposition: "defer", capture: true });
+    expect(POLICY_ENVIRONMENT_ROUTES.find((route) => route.name === "GH_TELEMETRY_SAMPLE_RATE")).toMatchObject({
+      disposition: "defer",
+      capture: true,
+    });
   });
 
   test("property: complete adapter snapshots preserve exact inherited values and prove other names absent", () => {
     for (let index = 0; index < 256; index++) {
       const canary = `inherited-value-${index}-!$%`;
       const snapshot = completePolicyInitialEnvironment({ CANARY_INHERITED: canary, EMPTY: "" });
-      expect(snapshot, `seed ${index}`).toEqual({ kind: "verified", values: { CANARY_INHERITED: canary, EMPTY: "", [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT" } });
+      expect(snapshot, `seed ${index}`).toEqual({
+        kind: "verified",
+        values: { CANARY_INHERITED: canary, EMPTY: "", [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT" },
+      });
     }
   });
 
@@ -173,7 +231,11 @@ describe("policy environment manifest", () => {
       const name = `tool_${index}`;
       const key = `BASH_FUNC_${name}%%`;
       const body = `() { printf '%s' 'value-${index}'; }`;
-      for (const snapshot of [policyInitialEnvironment({ [key]: body }), completePolicyInitialEnvironment({ [key]: body })]) {
+      for (const snapshot of [
+        policyInitialEnvironment({ [key]: body }),
+        completePolicyInitialEnvironment({ [key]: body }),
+      ]) {
+        if (snapshot.kind === "unavailable") throw new Error("expected captured function environment");
         expect(snapshot.values[key], key).toBe(body);
         expect(snapshot.values[`__SAFETY_CORE_BASH_FUNCTION_${name}`], key).toBe("__SAFETY_CORE_PRESENT");
       }

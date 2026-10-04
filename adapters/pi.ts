@@ -1,47 +1,52 @@
-import { createBashTool } from "@earendil-works/pi-coding-agent";
-import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createBashTool, getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { Container, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
-import { Type } from "typebox";
-
 import {
-  SECRET_BLOCK_MESSAGE,
+  type BashPolicyEvaluation,
   checkWebfetchUrl,
+  completePolicyInitialEnvironment,
+  createCompletionJudge,
+  createPolicyRuntimeReloader,
+  type ExecutableFilesystem,
   evaluateLoadedPolicies,
+  getJudgeVerdict,
   initBundledBashParser,
+  invokeJudge,
   isSecretPath,
+  type JudgeProvider,
+  type LoadedPolicyRuntime,
   loadPolicyRuntime,
   nodeExecutableFilesystem,
-  completePolicyInitialEnvironment,
-  createPolicyRuntimeReloader,
-  createCompletionJudge,
-  setJudgeVerdict,
-  getJudgeVerdict,
-  invokeJudge,
-  setJudgeProvider,
-  shouldInvokeJudge,
-  type BashPolicyEvaluation,
-  type LoadedPolicyRuntime,
-  type ExecutableFilesystem,
-  type JudgeProvider,
   type PiAdapterConfig,
+  persistPiAdapterConfig,
+  SECRET_BLOCK_MESSAGE,
+  setJudgeProvider,
+  setJudgeVerdict,
+  shouldInvokeJudge,
 } from "@safety-core/core";
+import { Type } from "typebox";
 
 export interface PiExtensionDependencies {
   readonly runtime?: Promise<LoadedPolicyRuntime>;
   readonly loadRuntime?: (cwd: string) => Promise<LoadedPolicyRuntime>;
-  readonly evaluatePolicies?: (runtime: LoadedPolicyRuntime, source: string, context?: { readonly cwd?: string; readonly executableFilesystem?: ExecutableFilesystem }) => BashPolicyEvaluation;
+  readonly evaluatePolicies?: (
+    runtime: LoadedPolicyRuntime,
+    source: string,
+    context?: { readonly cwd?: string; readonly executableFilesystem?: ExecutableFilesystem },
+  ) => BashPolicyEvaluation;
   readonly executableFilesystem?: ExecutableFilesystem;
 }
 
 interface PiSessionSettings {
   readonly autoApprove: boolean;
-  readonly judgeModel?: string;
+  readonly showFullCommand: boolean;
+  readonly judgeModel?: string | undefined;
 }
 
 interface PiSessionSettingsEntry {
   readonly autoApprove: boolean;
+  readonly showFullCommand?: boolean;
   readonly judgeModel: string | null;
 }
 
@@ -59,8 +64,11 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
   let poisoned: string | undefined;
   const ensureRuntime = (cwd: string) => runtime.ensure(cwd);
   const executableFilesystem = dependencies.executableFilesystem ?? nodeExecutableFilesystem;
-  const evaluate = dependencies.evaluatePolicies ?? ((runtime, source, context) => evaluateLoadedPolicies(runtime, source, completePolicyInitialEnvironment(process.env), context));
-  let settings: PiSessionSettings = { autoApprove: false };
+  const evaluate =
+    dependencies.evaluatePolicies ??
+    ((runtime, source, context) =>
+      evaluateLoadedPolicies(runtime, source, completePolicyInitialEnvironment(process.env), context));
+  let settings: PiSessionSettings = { autoApprove: false, showFullCommand: true };
   let activeModel: Model<any> | undefined;
   let modelRegistry: { getAvailable(): Model<any>[]; getAll(): Model<any>[] } | undefined;
 
@@ -87,8 +95,21 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
   const persistSettings = () => {
     pi.appendEntry<PiSessionSettingsEntry>(PI_SETTINGS_ENTRY, {
       autoApprove: settings.autoApprove,
+      showFullCommand: settings.showFullCommand,
       judgeModel: settings.judgeModel ?? null,
     });
+  };
+  // TODO: Extend config write-back to the other /safety-core settings
+  // (autoApprove, judgeModel) once their persistence semantics are defined.
+  // Only showFullCommand is persisted today; the session entry always records
+  // the choice even when the config file cannot be written.
+  const persistShowFullCommand = async (ctx: ExtensionContext, value: boolean) => {
+    try {
+      const active = await ensureRuntime(ctx.cwd);
+      persistPiAdapterConfig(active.config.path, { showFullCommand: value });
+    } catch {
+      // Best-effort: an unavailable or nix-managed config stays runtime-only.
+    }
   };
 
   pi.on("session_start", async (_event, ctx) => {
@@ -143,23 +164,33 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
             values: ["disabled", "enabled"],
           },
           {
+            id: "show-full-command",
+            label: "Show full command in permission prompt",
+            description: "Include the complete Bash command in the one-time approval prompt.",
+            currentValue: settings.showFullCommand ? "enabled" : "disabled",
+            values: ["disabled", "enabled"],
+          },
+          {
             id: "judge",
             label: "Judge",
             description: "Configure the model that reviews secret-adjacent commands.",
             currentValue: currentJudge,
-            submenu: (currentValue, close) => new SettingsList(
-              [{
-                id: "judge-model",
-                label: "Model",
-                description: "Use the active model or choose an authenticated Pi provider/model.",
-                currentValue,
-                values: judgeChoices,
-              }],
-              1,
-              getSettingsListTheme(),
-              (_id, value) => close(value),
-              () => close(),
-            ),
+            submenu: (currentValue, close) =>
+              new SettingsList(
+                [
+                  {
+                    id: "judge-model",
+                    label: "Model",
+                    description: "Use the active model or choose an authenticated Pi provider/model.",
+                    currentValue,
+                    values: judgeChoices,
+                  },
+                ],
+                1,
+                getSettingsListTheme(),
+                (_id, value) => close(value),
+                () => close(),
+              ),
           },
           {
             id: "reload-policies",
@@ -179,6 +210,11 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
               return;
             }
             if (id === "auto-approve") settings = { ...settings, autoApprove: value === "enabled" };
+            if (id === "show-full-command") {
+              const showFullCommand = value === "enabled";
+              settings = { ...settings, showFullCommand };
+              await persistShowFullCommand(ctx, showFullCommand);
+            }
             if (id === "judge") settings = { ...settings, judgeModel: value === ACTIVE_MODEL ? undefined : value };
             persistSettings();
             await refreshJudge();
@@ -227,9 +263,16 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
       return { block: true, reason };
     }
     if (result.decision === "defer" && !settings.autoApprove) {
-      const approved = ctx.hasUI && typeof ctx.ui.confirm === "function"
-        ? await ctx.ui.confirm("Safety permission required", "The configured policy could not fully authorize this command. Allow it once?", { signal: ctx.signal }).catch(() => false)
-        : false;
+      const approved =
+        ctx.hasUI && typeof ctx.ui.confirm === "function"
+          ? await ctx.ui
+              .confirm(
+                "Safety permission required",
+                permissionPromptMessage(source, settings.showFullCommand),
+                ctx.signal === undefined ? {} : { signal: ctx.signal },
+              )
+              .catch(() => false)
+          : false;
       if (!approved) return { block: true, reason: "Command requires policy approval" };
     }
     // As in the other adapters, deterministic policy denial is considered first.
@@ -246,7 +289,7 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
     description: "Execute a bash command.",
     parameters: Type.Object({ command: Type.String(), timeout: Type.Optional(Type.Number()) }),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      return createBashTool(ctx.cwd).execute(toolCallId, params, signal, onUpdate, ctx);
+      return createBashTool(ctx.cwd).execute(toolCallId, params, signal, onUpdate);
     },
     renderCall(args, theme, context) {
       const container = new Container();
@@ -258,13 +301,26 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
   });
 }
 
+/** Build the one-time approval message, embedding the full command when enabled. */
+export function permissionPromptMessage(command: string, showFullCommand: boolean): string {
+  const request = "The configured policy could not fully authorize this command.";
+  return showFullCommand && command.length > 0
+    ? `${request}\n\n${command}\n\nAllow it once?`
+    : `${request} Allow it once?`;
+}
+
 /** Reconstruct branch-local settings, accepting only entries emitted by this adapter. */
 export function resolvePiSessionSettings(entries: readonly unknown[], configured: PiAdapterConfig): PiSessionSettings {
-  let settings: PiSessionSettings = { autoApprove: configured.autoApprove, judgeModel: configured.judgeModel };
+  let settings: PiSessionSettings = {
+    autoApprove: configured.autoApprove,
+    showFullCommand: configured.showFullCommand,
+    judgeModel: configured.judgeModel,
+  };
   for (const entry of entries) {
     if (!isPiSettingsEntry(entry)) continue;
     settings = {
       autoApprove: entry.data.autoApprove,
+      showFullCommand: entry.data.showFullCommand ?? configured.showFullCommand,
       judgeModel: entry.data.judgeModel === null ? undefined : entry.data.judgeModel,
     };
   }
@@ -277,19 +333,37 @@ export default function (pi: ExtensionAPI) {
 
 function policyReason(result: BashPolicyEvaluation, fallback: string): string {
   const trace = result.traces.find((value) => value.decision.kind === "deny");
-  return trace?.decision.reason?.map((part) => part.kind === "literal" ? part.value : String(part.value)).join("") ?? fallback;
+  return (
+    (trace?.decision.kind === "deny"
+      ? trace.decision.reason?.map((part) => (part.kind === "literal" ? part.value : String(part.value))).join("")
+      : undefined) ?? fallback
+  );
 }
 
 function policyFailureReason(error: unknown): string {
   return error instanceof Error ? `Safety policy failed: ${error.message}` : "Safety policy failed";
 }
 
-function isPiSettingsEntry(entry: unknown): entry is { readonly type: "custom"; readonly customType: typeof PI_SETTINGS_ENTRY; readonly data: PiSessionSettingsEntry } {
+function isPiSettingsEntry(entry: unknown): entry is {
+  readonly type: "custom";
+  readonly customType: typeof PI_SETTINGS_ENTRY;
+  readonly data: PiSessionSettingsEntry;
+} {
   if (typeof entry !== "object" || entry === null) return false;
   const record = entry as Record<string, unknown>;
-  if (record.type !== "custom" || record.customType !== PI_SETTINGS_ENTRY || typeof record.data !== "object" || record.data === null) return false;
+  if (
+    record.type !== "custom" ||
+    record.customType !== PI_SETTINGS_ENTRY ||
+    typeof record.data !== "object" ||
+    record.data === null
+  )
+    return false;
   const data = record.data as Record<string, unknown>;
-  return typeof data.autoApprove === "boolean" && (typeof data.judgeModel === "string" || data.judgeModel === null);
+  return (
+    typeof data.autoApprove === "boolean" &&
+    (typeof data.judgeModel === "string" || data.judgeModel === null) &&
+    (data.showFullCommand === undefined || typeof data.showFullCommand === "boolean")
+  );
 }
 
 function sessionEntries(ctx: ExtensionContext): readonly unknown[] {
@@ -310,7 +384,7 @@ async function buildJudgeProvider(
     const response = await runtime.completeSimple(
       model,
       { systemPrompt, messages: [{ role: "user", content: userPrompt, timestamp: Date.now() }] },
-      { maxTokens: 256, temperature: 0, signal, maxRetries: 0 },
+      { maxTokens: 256, temperature: 0, ...(signal === undefined ? {} : { signal }), maxRetries: 0 },
     );
     if (response.stopReason === "error") throw new Error(response.errorMessage ?? "Judge request failed");
     return response.content
@@ -320,17 +394,27 @@ async function buildJudgeProvider(
   });
 }
 
-function availableJudgeModels(registry: { getAvailable(): Model<any>[]; getAll(): Model<any>[] } | undefined): Model<any>[] {
+function availableJudgeModels(
+  registry: { getAvailable(): Model<any>[]; getAll(): Model<any>[] } | undefined,
+): Model<any>[] {
   if (!registry) return [];
   const models = registry.getAvailable();
-  return (models.length > 0 ? models : registry.getAll()).slice().sort((left, right) => modelKey(left).localeCompare(modelKey(right)));
+  return (models.length > 0 ? models : registry.getAll())
+    .slice()
+    .sort((left, right) => modelKey(left).localeCompare(modelKey(right)));
 }
 
-function resolveJudgeModel(configured: string | undefined, models: Model<any>[], active: Model<any> | undefined): Model<any> | undefined {
+function resolveJudgeModel(
+  configured: string | undefined,
+  models: Model<any>[],
+  active: Model<any> | undefined,
+): Model<any> | undefined {
   if (!configured) return active;
-  return models.find((model) => modelKey(model) === configured)
-    ?? models.find((model) => model.provider === active?.provider && model.id === configured)
-    ?? models.find((model) => model.id === configured);
+  return (
+    models.find((model) => modelKey(model) === configured) ??
+    models.find((model) => model.provider === active?.provider && model.id === configured) ??
+    models.find((model) => model.id === configured)
+  );
 }
 
 function modelKey(model: Model<any>): string {

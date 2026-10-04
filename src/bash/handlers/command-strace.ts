@@ -1,36 +1,138 @@
 import type { StructuralDispatchContext } from "../dispatch.js";
-import type { ResolvedWord } from "../expand.js";
 import { assignBinding, known as knownBinding, setExported, unsetBinding } from "../environment.js";
+import type { ResolvedWord } from "../expand.js";
 import { indeterminate } from "../outcome.js";
-import { childInvocationFrom, isKnown, known, resolveLongOption, taintWrapperResult, wrapperHandler } from "./wrapper-utils.js";
+import {
+  childInvocationFrom,
+  isKnown,
+  known,
+  resolveLongOption,
+  taintWrapperResult,
+  wrapperHandler,
+} from "./wrapper-utils.js";
 
 const VALUE_OPTIONS = new Set([
-  "-e", "-o", "-p", "-P", "-s", "-u", "-E", "-a", "-I", "-b", "-X", "-O", "-S", "-U", "-Y",
-  "--env", "--output", "--attach", "--trace-path", "--string-limit", "--user", "--columns", "--interruptible",
-  "--detach-on", "--const-print-style", "--summary-syscall-overhead", "--summary-sort-by", "--summary-columns",
-  "--argv0", "--stack-trace-frame-limit", "--syscall-limit", "--decode-pids",
-  "--trace", "--signal", "--status", "--trace-fds", "--abbrev", "--verbose", "--raw", "--read", "--write",
-  "--kvm", "--namespace", "--inject", "--fault",
+  "-e",
+  "-o",
+  "-p",
+  "-P",
+  "-s",
+  "-u",
+  "-E",
+  "-a",
+  "-I",
+  "-b",
+  "-X",
+  "-O",
+  "-S",
+  "-U",
+  "-Y",
+  "--env",
+  "--output",
+  "--attach",
+  "--trace-path",
+  "--string-limit",
+  "--user",
+  "--columns",
+  "--interruptible",
+  "--detach-on",
+  "--const-print-style",
+  "--summary-syscall-overhead",
+  "--summary-sort-by",
+  "--summary-columns",
+  "--argv0",
+  "--stack-trace-frame-limit",
+  "--syscall-limit",
+  "--decode-pids",
+  "--trace",
+  "--signal",
+  "--status",
+  "--trace-fds",
+  "--abbrev",
+  "--verbose",
+  "--raw",
+  "--read",
+  "--write",
+  "--kvm",
+  "--namespace",
+  "--inject",
+  "--fault",
 ]);
 const FLAGS = new Set([
-  "-f", "-c", "-C", "-D", "-DD", "-DDD", "-d", "-h", "-i", "-k", "-kk", "-n", "-N", "-q", "-qq", "-qqq",
-  "-r", "-t", "-tt", "-ttt", "-T", "-v", "-V", "-w", "-x", "-xx", "-y", "-yy", "-z", "-Z",
-  "--follow-forks", "--seccomp-bpf", "--kill-on-exit", "--successful-only", "--failed-only", "--instruction-pointer",
-  "--syscall-number", "--arg-names", "--no-abbrev", "--always-show-pid", "--summary-only", "--summary", "--summary-wall-clock",
-  "--debug", "--help", "--version",
+  "-f",
+  "-c",
+  "-C",
+  "-D",
+  "-DD",
+  "-DDD",
+  "-d",
+  "-h",
+  "-i",
+  "-k",
+  "-kk",
+  "-n",
+  "-N",
+  "-q",
+  "-qq",
+  "-qqq",
+  "-r",
+  "-t",
+  "-tt",
+  "-ttt",
+  "-T",
+  "-v",
+  "-V",
+  "-w",
+  "-x",
+  "-xx",
+  "-y",
+  "-yy",
+  "-z",
+  "-Z",
+  "--follow-forks",
+  "--seccomp-bpf",
+  "--kill-on-exit",
+  "--successful-only",
+  "--failed-only",
+  "--instruction-pointer",
+  "--syscall-number",
+  "--arg-names",
+  "--no-abbrev",
+  "--always-show-pid",
+  "--summary-only",
+  "--summary",
+  "--summary-wall-clock",
+  "--debug",
+  "--help",
+  "--version",
 ]);
 const OPTIONAL_VALUE_OPTIONS = [
-  "--daemonize", "--color", "--stack-trace", "--quiet", "--relative-timestamps", "--absolute-timestamps",
-  "--syscall-times", "--strings-in-hex", "--decode-fds", "--tips",
+  "--daemonize",
+  "--color",
+  "--stack-trace",
+  "--quiet",
+  "--relative-timestamps",
+  "--absolute-timestamps",
+  "--syscall-times",
+  "--strings-in-hex",
+  "--decode-fds",
+  "--tips",
 ] as const;
 const UNSAFE_FLAGS = new Set(["--output-append-mode", "--output-separately"]);
-const LONG_OPTIONS = [
-  ...VALUE_OPTIONS,
-  ...FLAGS,
-  ...OPTIONAL_VALUE_OPTIONS,
-  ...UNSAFE_FLAGS,
-].filter((option) => option.startsWith("--"));
-const UNSAFE_VALUE_OPTIONS = new Set(["-o", "-u", "-E", "--output", "--user", "--env", "--argv0", "--inject", "--fault"]);
+const LONG_OPTIONS = [...VALUE_OPTIONS, ...FLAGS, ...OPTIONAL_VALUE_OPTIONS, ...UNSAFE_FLAGS].filter((option) =>
+  option.startsWith("--"),
+);
+const UNSAFE_VALUE_OPTIONS = new Set([
+  "-o",
+  "-u",
+  "-E",
+  "--output",
+  "--user",
+  "--env",
+  "--argv0",
+  "--inject",
+  "--fault",
+]);
 
 export const straceHandler = wrapperHandler("strace", parseStrace);
 
@@ -50,9 +152,15 @@ function parseStrace(arguments_: readonly ResolvedWord[], context: StructuralDis
       if (long.kind === "ambiguous") return indeterminate(context.span);
       const option = long.option;
       if (VALUE_OPTIONS.has(option)) {
-        if (long.value === undefined && !isKnown(arguments_[index + 1])) return indeterminate(context.span);
-        const value = long.value ?? arguments_[index + 1]!.value;
-        if (UNSAFE_VALUE_OPTIONS.has(option) || (option === "--trace" && /^(?:inject|fault)=/.test(value))) unsafe = true;
+        const next = arguments_[index + 1];
+        let value: string;
+        if (long.value !== undefined) value = long.value;
+        else {
+          if (!isKnown(next)) return indeterminate(context.span);
+          value = next.value;
+        }
+        if (UNSAFE_VALUE_OPTIONS.has(option) || (option === "--trace" && /^(?:inject|fault)=/.test(value)))
+          unsafe = true;
         if (option === "--env") environment = applyEnvironment(environment, value);
         if (option === "--attach") return indeterminate(context.span);
         index += long.value === undefined ? 2 : 1;
@@ -68,9 +176,11 @@ function parseStrace(arguments_: readonly ResolvedWord[], context: StructuralDis
       continue;
     }
     if (VALUE_OPTIONS.has(argument)) {
-      if (!isKnown(arguments_[index + 1])) return indeterminate(context.span);
-      if (UNSAFE_VALUE_OPTIONS.has(argument) || (argument === "-e" && /^(?:inject|fault)=/.test(arguments_[index + 1]!.value))) unsafe = true;
-      if (argument === "-E" || argument === "--env") environment = applyEnvironment(environment, arguments_[index + 1]!.value);
+      const next = arguments_[index + 1];
+      if (!isKnown(next)) return indeterminate(context.span);
+      if (UNSAFE_VALUE_OPTIONS.has(argument) || (argument === "-e" && /^(?:inject|fault)=/.test(next.value)))
+        unsafe = true;
+      if (argument === "-E" || argument === "--env") environment = applyEnvironment(environment, next.value);
       if (argument === "-p" || argument === "--attach") return indeterminate(context.span);
       index += 2;
       continue;
@@ -87,7 +197,11 @@ function parseStrace(arguments_: readonly ResolvedWord[], context: StructuralDis
     const longValue = [...VALUE_OPTIONS].find((option) => option.startsWith("--") && argument.startsWith(`${option}=`));
     if (longValue) {
       if (longValue === "--attach") return indeterminate(context.span);
-      if (UNSAFE_VALUE_OPTIONS.has(longValue) || ((longValue === "--trace") && /^(?:inject|fault)=/.test(argument.slice(longValue.length + 1)))) unsafe = true;
+      if (
+        UNSAFE_VALUE_OPTIONS.has(longValue) ||
+        (longValue === "--trace" && /^(?:inject|fault)=/.test(argument.slice(longValue.length + 1)))
+      )
+        unsafe = true;
       if (longValue === "--env") environment = applyEnvironment(environment, argument.slice(longValue.length + 1));
       index++;
       continue;
@@ -126,12 +240,17 @@ function applyEnvironment(environment: StructuralDispatchContext["environment"],
     : setExported(assignBinding(environment, name, knownBinding(match[2])), name, true);
 }
 
-function parseShortOptions(argument: string, next: ResolvedWord | undefined): {
-  readonly consumed: 1 | 2;
-  readonly unsafe: boolean;
-  readonly attach: boolean;
-  readonly environment?: string;
-} | undefined {
+function parseShortOptions(
+  argument: string,
+  next: ResolvedWord | undefined,
+):
+  | {
+      readonly consumed: 1 | 2;
+      readonly unsafe: boolean;
+      readonly attach: boolean;
+      readonly environment?: string;
+    }
+  | undefined {
   if (!argument.startsWith("-") || argument.startsWith("--") || argument.length < 2) return undefined;
   const options = argument.slice(1);
   const flags = new Set("ACDcdfhijkNnqrTtvVwxyzZ".split(""));
@@ -142,8 +261,11 @@ function parseShortOptions(argument: string, next: ResolvedWord | undefined): {
     if (flags.has(option)) continue;
     if (!values.has(option)) return undefined;
     const attachedValue = options.slice(index + 1);
-    if (!attachedValue && !isKnown(next)) return undefined;
-    const value = attachedValue || next!.value;
+    let value = attachedValue;
+    if (!value) {
+      if (!isKnown(next)) return undefined;
+      value = next.value;
+    }
     if (["o", "u", "E"].includes(option) || (option === "e" && /^(?:inject|fault)=/.test(value))) unsafe = true;
     return Object.freeze({
       consumed: attachedValue ? 1 : 2,

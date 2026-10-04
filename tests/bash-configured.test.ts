@@ -4,20 +4,27 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  STRICT_BASH_PROFILE_EXECUTABLES,
+  type BashProfileSnapshot,
   evaluateConfiguredBash,
   initBashParser,
-  type BashProfileSnapshot,
+  STRICT_BASH_PROFILE_EXECUTABLES,
 } from "../src/index.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-bash-configured-"));
-const limits = Object.freeze({ maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 7_500, maxWorkItems: 10_000 });
+const limits = Object.freeze({
+  maxFunctionDepth: 128,
+  maxNestedScriptDepth: 64,
+  maxSteps: 7_500,
+  maxWorkItems: 10_000,
+});
 
 beforeAll(async () => {
   mkdirSync(join(wasmDir, "node_modules"), { recursive: true });
   const packagedWasm = join(process.cwd(), "packages", "core", "tree-sitter-bash.wasm");
   copyFileSync(
-    existsSync(packagedWasm) ? packagedWasm : join(process.cwd(), "node_modules", "tree-sitter-bash", "tree-sitter-bash.wasm"),
+    existsSync(packagedWasm)
+      ? packagedWasm
+      : join(process.cwd(), "node_modules", "tree-sitter-bash", "tree-sitter-bash.wasm"),
     join(wasmDir, "tree-sitter-bash.wasm"),
   );
   symlinkSync(join(process.cwd(), "node_modules", "web-tree-sitter"), join(wasmDir, "node_modules", "web-tree-sitter"));
@@ -31,8 +38,14 @@ function snapshot(overrides: Partial<BashProfileSnapshot> = {}): BashProfileSnap
     readOnlyBash: false,
     ghApiReadOnly: false,
     ghReadOnly: false,
-    strictProfiles: Object.freeze(Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false]))) as BashProfileSnapshot["strictProfiles"],
-    ghPrCreate: Object.freeze({ enabled: false, allowedRepositories: Object.freeze([]), allowedOrganizations: Object.freeze([]) }),
+    strictProfiles: Object.freeze(
+      Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false])),
+    ) as BashProfileSnapshot["strictProfiles"],
+    ghPrCreate: Object.freeze({
+      enabled: false,
+      allowedRepositories: Object.freeze([]),
+      allowedOrganizations: Object.freeze([]),
+    }),
     limits,
     ...overrides,
   });
@@ -54,13 +67,21 @@ describe("configured Bash permissions", () => {
     expect(evaluate("gh label list; docker image ls", profiles).permission).toEqual({ kind: "defer" });
     expect(evaluate("docker image ls; gh label list", profiles).permission).toEqual({ kind: "defer" });
     expect(evaluate("gh label list; unknown-command", profiles).permission).toEqual({ kind: "defer" });
-    expect(evaluate("gh api user; cat README.md", snapshot({ ghApiReadOnly: true })).permission).toEqual({ kind: "defer" });
+    expect(evaluate("gh api user; cat README.md", snapshot({ ghApiReadOnly: true })).permission).toEqual({
+      kind: "defer",
+    });
 
     const jfrog = snapshot({
       strictProfiles: Object.freeze({ ...snapshot().strictProfiles, jfrogReadOnly: true }),
     });
-    expect(evaluate("jf rt search artifact", jfrog).permission).toMatchObject({ kind: "allow", profile: "jfrogReadOnly" });
-    expect(evaluate("jfrog rt search artifact", jfrog).permission).toMatchObject({ kind: "allow", profile: "jfrogReadOnly" });
+    expect(evaluate("jf rt search artifact", jfrog).permission).toMatchObject({
+      kind: "allow",
+      profile: "jfrogReadOnly",
+    });
+    expect(evaluate("jfrog rt search artifact", jfrog).permission).toMatchObject({
+      kind: "allow",
+      profile: "jfrogReadOnly",
+    });
   });
 
   test("keeps gh ownership deterministic while ghPrCreate is active", () => {
@@ -74,8 +95,9 @@ describe("configured Bash permissions", () => {
       }),
     });
 
-    expect(evaluate("GH_PROMPT_DISABLED=1 gh pr create --repo github.com/acme/widgets --fill", profiles).permission)
-      .toEqual({ kind: "defer" });
+    expect(
+      evaluate("GH_PROMPT_DISABLED=1 gh pr create --repo github.com/acme/widgets --fill", profiles).permission,
+    ).toEqual({ kind: "defer" });
     expect(evaluate("gh api user", profiles).permission).toMatchObject({ kind: "deny", profile: "ghPrCreate" });
     expect(evaluate("gh api user", profiles).guards).toMatchObject({ kind: "block", policy: { name: "gh-pr-create" } });
     expect(evaluate("gh version", profiles).permission).toEqual({ kind: "defer" });
@@ -86,24 +108,39 @@ describe("configured Bash permissions", () => {
     expect(noProfiles.guards).toMatchObject({ kind: "pass" });
     expect(noProfiles.permission).toEqual({ kind: "ignore" });
 
-    const kubectl = evaluate("kubectl get Secret application", snapshot({
-      strictProfiles: Object.freeze({ ...snapshot().strictProfiles, kubectlReadOnly: true }),
-    }));
+    const kubectl = evaluate(
+      "kubectl get Secret application",
+      snapshot({
+        strictProfiles: Object.freeze({ ...snapshot().strictProfiles, kubectlReadOnly: true }),
+      }),
+    );
     expect(kubectl.permission).toEqual({ kind: "defer" });
-    expect(kubectl.audit.events).toEqual([{
-      kind: "kubectl-secret",
-      policy: "kubectl",
-      fields: { kubectl_subcommand: "get", resource: "secret", command_length: "kubectl get Secret application".length },
-    }]);
+    expect(kubectl.audit.events).toEqual([
+      {
+        kind: "kubectl-secret",
+        policy: "kubectl",
+        fields: {
+          kubectl_subcommand: "get",
+          resource: "secret",
+          command_length: "kubectl get Secret application".length,
+        },
+      },
+    ]);
     expect(evaluate("kubectl get pods", snapshot()).audit.events).toEqual([]);
-    expect(evaluate("RESOURCE=secret; kubectl get \"$RESOURCE\"", snapshot()).audit.events[0]?.fields).toEqual({
-      kubectl_subcommand: "get", resource: null, command_length: "RESOURCE=secret; kubectl get \"$RESOURCE\"".length,
+    expect(evaluate('RESOURCE=secret; kubectl get "$RESOURCE"', snapshot()).audit.events[0]?.fields).toEqual({
+      kubectl_subcommand: "get",
+      resource: null,
+      command_length: 'RESOURCE=secret; kubectl get "$RESOURCE"'.length,
     });
     expect(evaluate("kubectl get secrets.v1 application", snapshot()).audit.events[0]?.fields).toEqual({
-      kubectl_subcommand: "get", resource: "secrets", command_length: "kubectl get secrets.v1 application".length,
+      kubectl_subcommand: "get",
+      resource: "secrets",
+      command_length: "kubectl get secrets.v1 application".length,
     });
 
-    const serialized = JSON.stringify(evaluate("CANARY_VALUE=never-emit; gh label list", snapshot({ ghReadOnly: true })));
+    const serialized = JSON.stringify(
+      evaluate("CANARY_VALUE=never-emit; gh label list", snapshot({ ghReadOnly: true })),
+    );
     expect(serialized).not.toContain("CANARY_VALUE");
     expect(serialized).not.toContain("never-emit");
     expect(Object.isFrozen(kubectl)).toBe(true);
@@ -113,15 +150,17 @@ describe("configured Bash permissions", () => {
 
   test("preserves wrapper coverage and native deferral for incomplete analysis", () => {
     const gh = snapshot({ ghReadOnly: true });
-    expect(evaluate("TOOL=gh; strace $TOOL version", gh).permission)
-      .toEqual({ kind: "defer" });
+    expect(evaluate("TOOL=gh; strace $TOOL version", gh).permission).toEqual({ kind: "defer" });
     expect(evaluate("strace -o trace.log gh label list", gh).permission).toEqual({ kind: "defer" });
     expect(evaluate("if then", gh).permission.kind).not.toBe("allow");
 
-    const exhausted = evaluate("gh label list", snapshot({
-      ghReadOnly: true,
-      limits: Object.freeze({ ...limits, maxSteps: 0 }),
-    }));
+    const exhausted = evaluate(
+      "gh label list",
+      snapshot({
+        ghReadOnly: true,
+        limits: Object.freeze({ ...limits, maxSteps: 0 }),
+      }),
+    );
     expect(exhausted.analysis.status).toBe("failure");
     expect(exhausted.analysis.failure).toEqual({ budget: "max-steps" });
     expect(exhausted.permission.kind).not.toBe("allow");
@@ -135,10 +174,13 @@ describe("configured Bash permissions", () => {
   });
 
   test("maps incomplete analysis to an explicit approval boundary", () => {
-    const exhausted = evaluate("gh api user -X POST", snapshot({
-      ghApiReadOnly: true,
-      limits: Object.freeze({ ...limits, maxSteps: 0 }),
-    }));
+    const exhausted = evaluate(
+      "gh api user -X POST",
+      snapshot({
+        ghApiReadOnly: true,
+        limits: Object.freeze({ ...limits, maxSteps: 0 }),
+      }),
+    );
 
     expect(exhausted.analysis.status).toBe("failure");
     expect(exhausted.permission).toEqual({ kind: "defer" });

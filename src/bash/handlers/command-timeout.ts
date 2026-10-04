@@ -33,9 +33,15 @@ function parseTimeout(arguments_: readonly ResolvedWord[], context: StructuralDi
       continue;
     }
     const short = parseShortOptions(argument, arguments_[index + 1]);
-    if (short) { index += short; continue; }
-    if (argument.startsWith("--kill-after=") || argument.startsWith("--signal=")
-      || ["-f", "--foreground", "-p", "--preserve-status", "-v", "--verbose"].includes(argument)) {
+    if (short) {
+      index += short;
+      continue;
+    }
+    if (
+      argument.startsWith("--kill-after=") ||
+      argument.startsWith("--signal=") ||
+      ["-f", "--foreground", "-p", "--preserve-status", "-v", "--verbose"].includes(argument)
+    ) {
       index++;
       continue;
     }

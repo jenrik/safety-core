@@ -2,55 +2,122 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createOpenCodePlugin, blockReason } from "../adapters/opencode.ts";
-import { loadPolicyRuntime, type BashPolicyEvaluation, type LoadedPolicyRuntime, type ValidatedBashPolicy } from "../src/index.ts";
+import { blockReason, createOpenCodePlugin } from "../adapters/opencode.ts";
+import { type BashPolicyEvaluation, type LoadedPolicyRuntime, loadPolicyRuntime } from "../src/index.ts";
 
 const limits = { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 };
-const runtime = { config: { bashAnalysis: limits }, policySet: { policies: [], sources: [] }, limits } as unknown as LoadedPolicyRuntime;
-const deny: BashPolicyEvaluation = { decision: "deny", analysis: { complete: true }, events: [], traces: [{ source: { canonicalPath: "/p/deny" }, layer: "guard", event: {} as never, decision: { kind: "deny", reason: [{ kind: "literal", value: "generic denial" }] } }] };
+const runtime = {
+  config: { bashAnalysis: limits },
+  policySet: { policies: [], sources: [] },
+  limits,
+} as unknown as LoadedPolicyRuntime;
+const deny: BashPolicyEvaluation = {
+  decision: "deny",
+  analysis: { complete: true },
+  events: [],
+  traces: [
+    {
+      source: { canonicalPath: "/p/deny" },
+      layer: "guard",
+      event: {} as never,
+      decision: { kind: "deny", reason: [{ kind: "literal", value: "generic denial" }] },
+    },
+  ],
+};
 const allow: BashPolicyEvaluation = { decision: "allow", analysis: { complete: true }, events: [], traces: [] };
 const defer: BashPolicyEvaluation = { decision: "defer", analysis: { complete: false }, events: [], traces: [] };
 
-test("OpenCode maps generic allow and deny to native status and leaves defer unchanged", async () => {
-  const plugin = await createOpenCodePlugin({ runtime, evaluatePolicies: (_runtime, source) => source === "deny" ? deny : source === "allow" ? allow : defer });
+test("OpenCode uses cached command verdicts and rejects denials during preflight", async () => {
+  const plugin = await createOpenCodePlugin({
+    runtime,
+    evaluatePolicies: (_runtime, source) => (source === "deny" ? deny : source === "allow" ? allow : defer),
+  });
   const output = { status: "ask" };
-  await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "allow" }, output);
+  const identity = { sessionID: "session", callID: "call" };
+  await (plugin["tool.execute.before"] as Function)({ tool: "bash", ...identity }, { args: { command: "allow" } });
+  await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "allow", ...identity }, output);
   expect(output.status).toBe("allow");
-  await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "deny" }, output);
-  expect(output.status).toBe("deny");
+  await expect(
+    (plugin["tool.execute.before"] as Function)({ tool: "bash", ...identity }, { args: { command: "deny" } }),
+  ).rejects.toThrow("generic denial");
   output.status = "ask";
-  await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "defer" }, output);
+  await (plugin["tool.execute.before"] as Function)({ tool: "bash", ...identity }, { args: { command: "defer" } });
+  await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "defer", ...identity }, output);
   expect(output.status).toBe("ask");
   expect(blockReason(deny)).toBe("Blocked by safety policy: generic denial");
 });
 
 test("OpenCode supplies plugin cwd and an explicit executable resolver", async () => {
   let context: { readonly cwd?: string; readonly executableFilesystem?: unknown } | undefined;
-  const plugin = await createOpenCodePlugin({
-    runtime,
-    evaluatePolicies: (_runtime, _source, value) => {
-      context = value;
-      return defer;
+  const plugin = await createOpenCodePlugin(
+    {
+      runtime,
+      evaluatePolicies: (_runtime, _source, value) => {
+        context = value;
+        return defer;
+      },
     },
-  }, undefined, "/workspace");
-  await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "id" }, { status: "ask" });
+    undefined,
+    "/workspace",
+  );
+  await (plugin["tool.execute.before"] as Function)(
+    { tool: "bash", sessionID: "session", callID: "call" },
+    { args: { command: "id" } },
+  );
   expect(context).toMatchObject({ cwd: "/workspace", executableFilesystem: expect.any(Object) });
 });
 
 test("OpenCode rejects runtime evaluation failures rather than falling back", async () => {
-  const plugin = await createOpenCodePlugin({ runtime, evaluatePolicies: () => { throw new Error("policy failure"); } });
-  await expect((plugin["tool.execute.before"] as Function)({ tool: "bash" }, { args: { command: "anything" } })).rejects.toThrow("policy failure");
+  const plugin = await createOpenCodePlugin({
+    runtime,
+    evaluatePolicies: () => {
+      throw new Error("policy failure");
+    },
+  });
+  await expect(
+    (plugin["tool.execute.before"] as Function)({ tool: "bash" }, { args: { command: "anything" } }),
+  ).rejects.toThrow("policy failure");
 });
 
 test("OpenCode rejects the current permission event and poisons later Bash callbacks", async () => {
   let calls = 0;
   const replies: unknown[] = [];
-  const plugin = await createOpenCodePlugin({ runtime, evaluatePolicies: () => { calls++; throw new Error("policy failure"); } }, {
-    permission: { reply: async (reply: unknown) => { replies.push(reply); } },
-  } as never, "/workspace");
+  const plugin = await createOpenCodePlugin(
+    {
+      runtime,
+      evaluatePolicies: () => {
+        calls++;
+        throw new Error("policy failure");
+      },
+    },
+    {
+      permission: {
+        reply: async (reply: unknown) => {
+          replies.push(reply);
+        },
+      },
+    } as never,
+    "/workspace",
+  );
   const event = plugin.event as Function;
-  await event({ event: { type: "permission.asked", properties: { id: "first", sessionID: "session", permission: "bash", patterns: ["first"] } } });
-  await event({ event: { type: "permission.asked", properties: { id: "second", sessionID: "later-session", permission: "bash", patterns: ["second"] } } });
+  await expect(
+    (plugin["tool.execute.before"] as Function)(
+      { tool: "bash", sessionID: "session", callID: "call" },
+      { args: { command: "first" } },
+    ),
+  ).rejects.toThrow("policy failure");
+  await event({
+    event: {
+      type: "permission.asked",
+      properties: { id: "first", sessionID: "session", permission: "bash", patterns: ["first"] },
+    },
+  });
+  await event({
+    event: {
+      type: "permission.asked",
+      properties: { id: "second", sessionID: "later-session", permission: "bash", patterns: ["second"] },
+    },
+  });
   expect(calls).toBe(1);
   expect(replies).toEqual([
     { directory: "/workspace", requestID: "first", reply: "reject", message: "Safety policy failed: policy failure" },
@@ -69,7 +136,8 @@ test("OpenCode source-load failure aborts startup", async () => {
     process.env.SAFETY_CORE_CONFIG_HOME = home;
     await expect(createOpenCodePlugin()).rejects.toThrow("config.json");
   } finally {
-    if (previous === undefined) delete process.env.SAFETY_CORE_CONFIG_HOME; else process.env.SAFETY_CORE_CONFIG_HOME = previous;
+    if (previous === undefined) delete process.env.SAFETY_CORE_CONFIG_HOME;
+    else process.env.SAFETY_CORE_CONFIG_HOME = previous;
   }
 });
 
@@ -79,7 +147,10 @@ test("property: OpenCode supplies every exact inherited canary to a real DSL per
   const policy = join(root, "environment.policy.json");
   mkdirSync(join(home, "safety-core"), { recursive: true });
   writeFileSync(policy, JSON.stringify(environmentPermissionPolicy()));
-  writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({ version: 1, policies: [policy], projectPolicies: { mode: "disabled" }, bashAnalysis: limits }));
+  writeFileSync(
+    join(home, "safety-core", "config.json"),
+    JSON.stringify({ version: 1, policies: [policy], projectPolicies: { mode: "disabled" }, bashAnalysis: limits }),
+  );
   const loaded = await loadPolicyRuntime(root, { SAFETY_CORE_CONFIG_HOME: home });
   const previous = process.env.CANARY_INHERITED;
   try {
@@ -87,15 +158,27 @@ test("property: OpenCode supplies every exact inherited canary to a real DSL per
     for (let index = 0; index < 64; index++) {
       process.env.CANARY_INHERITED = `exact-inherited-${index}-!$%`;
       const output = { status: "ask" };
-      await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "printf canary" }, output);
+      const identity = { sessionID: "session", callID: String(index) };
+      await (plugin["tool.execute.before"] as Function)(
+        { tool: "bash", ...identity },
+        { args: { command: "printf canary" } },
+      );
+      await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "printf canary", ...identity }, output);
+      await (plugin["tool.execute.after"] as Function)({ tool: "bash", ...identity }, {});
       expect(output.status, `seed ${index}`).toBe("allow");
     }
     delete process.env.CANARY_INHERITED;
     const output = { status: "ask" };
-    await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "printf canary" }, output);
+    const identity = { sessionID: "session", callID: "unset" };
+    await (plugin["tool.execute.before"] as Function)(
+      { tool: "bash", ...identity },
+      { args: { command: "printf canary" } },
+    );
+    await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "printf canary", ...identity }, output);
     expect(output.status).toBe("ask");
   } finally {
-    if (previous === undefined) delete process.env.CANARY_INHERITED; else process.env.CANARY_INHERITED = previous;
+    if (previous === undefined) delete process.env.CANARY_INHERITED;
+    else process.env.CANARY_INHERITED = previous;
   }
 });
 
@@ -107,31 +190,58 @@ test("OpenCode startup loads an all-mode project DSL policy from its plugin dire
   try {
     mkdirSync(join(home, "safety-core"), { recursive: true });
     mkdirSync(join(project, ".safety-core"), { recursive: true });
-    writeFileSync(join(home, "safety-core", "config.json"), JSON.stringify({
-      version: 1,
-      policies: [],
-      projectPolicies: { mode: "all" },
-      bashAnalysis: limits,
-    }));
-    writeFileSync(join(project, ".safety-core", "config.json"), JSON.stringify({ version: 1, policies: ["project.policy.json"] }));
-    writeFileSync(join(project, "project.policy.json"), JSON.stringify({
-      language: "safety-core/bash-policy-v1", layer: "permission", select: [{ kind: "invocation" }], registers: {}, start: "start",
-      states: { start: { cases: [], default: { decision: "ignore" }, end: { decision: "allow", reason: ["project allow"] } } },
-    }));
+    writeFileSync(
+      join(home, "safety-core", "config.json"),
+      JSON.stringify({
+        version: 1,
+        policies: [],
+        projectPolicies: { mode: "all" },
+        bashAnalysis: limits,
+      }),
+    );
+    writeFileSync(
+      join(project, ".safety-core", "config.json"),
+      JSON.stringify({ version: 1, policies: ["project.policy.json"] }),
+    );
+    writeFileSync(
+      join(project, "project.policy.json"),
+      JSON.stringify({
+        language: "safety-core/bash-policy-v1",
+        layer: "permission",
+        select: [{ kind: "invocation" }],
+        registers: {},
+        start: "start",
+        states: {
+          start: { cases: [], default: { decision: "ignore" }, end: { decision: "allow", reason: ["project allow"] } },
+        },
+      }),
+    );
     process.env.SAFETY_CORE_CONFIG_HOME = home;
     await expect(createOpenCodePlugin({}, undefined, project)).resolves.toBeDefined();
   } finally {
-    if (previous === undefined) delete process.env.SAFETY_CORE_CONFIG_HOME; else process.env.SAFETY_CORE_CONFIG_HOME = previous;
+    if (previous === undefined) delete process.env.SAFETY_CORE_CONFIG_HOME;
+    else process.env.SAFETY_CORE_CONFIG_HOME = previous;
   }
 });
 
 test("property: generic outcomes map deterministically across 1,024 permission requests", async () => {
-  const plugin = await createOpenCodePlugin({ runtime, evaluatePolicies: (_runtime, source) =>
-    source === "allow" ? allow : source === "deny" ? deny : defer });
+  const plugin = await createOpenCodePlugin({
+    runtime,
+    evaluatePolicies: (_runtime, source) => (source === "allow" ? allow : source === "deny" ? deny : defer),
+  });
   for (let seed = 0; seed < 1_024; seed++) {
     const source = ["allow", "deny", "defer"][seed % 3]!;
     const output = { status: "ask" };
-    await (plugin["permission.ask"] as Function)({ type: "bash", pattern: source }, output);
+    const identity = { sessionID: "session", callID: String(seed) };
+    if (source === "deny") {
+      await expect(
+        (plugin["tool.execute.before"] as Function)({ tool: "bash", ...identity }, { args: { command: source } }),
+      ).rejects.toThrow("generic denial");
+      continue;
+    }
+    await (plugin["tool.execute.before"] as Function)({ tool: "bash", ...identity }, { args: { command: source } });
+    await (plugin["permission.ask"] as Function)({ type: "bash", pattern: source, ...identity }, output);
+    await (plugin["tool.execute.after"] as Function)({ tool: "bash", ...identity }, {});
     expect(output.status, `seed ${seed}`).toBe(source === "defer" ? "ask" : source);
   }
 });
@@ -141,13 +251,19 @@ function environmentPermissionPolicy(): Record<string, unknown> {
     language: "safety-core/bash-policy-v1",
     layer: "permission",
     select: [{ kind: "invocation" }],
-    registers: {}, folds: {}, options: {}, fragments: {}, start: "start",
+    registers: {},
+    folds: {},
+    options: {},
+    fragments: {},
+    start: "start",
     states: {
       start: {
-        cases: [{
-          when: { call: "environmentIsKnown", args: [{ call: "environmentLookup", args: ["CANARY_INHERITED"] }] },
-          action: { decision: "allow", reason: ["inherited environment canary"] },
-        }],
+        cases: [
+          {
+            when: { call: "environmentIsKnown", args: [{ call: "environmentLookup", args: ["CANARY_INHERITED"] }] },
+            action: { decision: "allow", reason: ["inherited environment canary"] },
+          },
+        ],
         default: { decision: "defer" },
         end: { decision: "defer" },
       },

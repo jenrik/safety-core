@@ -38,7 +38,13 @@ export const POLICY_ENVIRONMENT_ROUTES: readonly PolicyEnvironmentRoute[] = Obje
   ghDefer("GH_DEBUG", "Can emit request, response, and authentication diagnostics."),
   ghDefer("DEBUG", "Can emit verbose diagnostics."),
   ghDefer("GH_PAGER", "Can execute an arbitrary pager command."),
-  Object.freeze({ name: "PAGER", disposition: "defer", scope: "gh", rationale: "Can execute an arbitrary gh pager command; ambient Git paging remains trusted.", capture: true }),
+  Object.freeze({
+    name: "PAGER",
+    disposition: "defer",
+    scope: "gh",
+    rationale: "Can execute an arbitrary gh pager command; ambient Git paging remains trusted.",
+    capture: true,
+  }),
   ghDefer("GLAMOUR_STYLE", "Redirects Markdown rendering through an unreviewed style or path."),
   ignored("NO_COLOR", "Disables color and terminal escape sequences."),
   ignored("CLICOLOR", "Only changes color rendering."),
@@ -74,7 +80,9 @@ export const POLICY_ENVIRONMENT_ROUTES: readonly PolicyEnvironmentRoute[] = Obje
 ]);
 
 export const GH_DEFER_ENVIRONMENT_NAMES: readonly string[] = Object.freeze([
-  ...POLICY_ENVIRONMENT_ROUTES.filter((route) => route.scope === "gh" && route.disposition === "defer").map((route) => route.name),
+  ...POLICY_ENVIRONMENT_ROUTES.filter((route) => route.scope === "gh" && route.disposition === "defer").map(
+    (route) => route.name,
+  ),
   GH_INHERITED_PAGER_FACT,
 ]);
 
@@ -104,7 +112,9 @@ export const GH_API_DEFER_ENVIRONMENT_NAMES: readonly string[] = Object.freeze([
  * tokens and other unknown process variables are omitted; function values are
  * retained because they are both policy-visible environment data and Bash code.
  */
-export function policyInitialEnvironment(environment: Readonly<Record<string, string | undefined>>): BashInitialEnvironment {
+export function policyInitialEnvironment(
+  environment: Readonly<Record<string, string | undefined>>,
+): BashInitialEnvironment {
   const captured = new Set(POLICY_ENVIRONMENT_ROUTES.filter((route) => route.capture).map((route) => route.name));
   const values: Record<string, string> = { [BASH_FUNCTIONS_CAPTURED_FACT]: PRESENT_REDACTED_VALUE };
   for (const [name, value] of Object.entries(environment)) {
@@ -133,8 +143,12 @@ export function policyInitialEnvironment(environment: Readonly<Record<string, st
  * Complete harness environment for configuration-loaded policy evaluation.
  * The verified form retains every inherited value and proves omitted names unset.
  */
-export function completePolicyInitialEnvironment(environment: Readonly<Record<string, string | undefined>>): BashInitialEnvironment {
-  const values: Record<string, string> = Object.fromEntries(Object.entries(environment).filter((entry): entry is [string, string] => entry[1] !== undefined));
+export function completePolicyInitialEnvironment(
+  environment: Readonly<Record<string, string | undefined>>,
+): BashInitialEnvironment {
+  const values: Record<string, string> = Object.fromEntries(
+    Object.entries(environment).filter((entry): entry is [string, string] => entry[1] !== undefined),
+  );
   values[BASH_FUNCTIONS_CAPTURED_FACT] = PRESENT_REDACTED_VALUE;
   for (const name of Object.keys(values)) {
     const functionName = exportedBashFunctionName(name);
@@ -149,7 +163,13 @@ export function inheritedBashFunctionFact(executable: string): string {
 }
 
 function excludedSecret(name: string): PolicyEnvironmentRoute {
-  return Object.freeze({ name, disposition: "excluded-secret", scope: "gh", rationale: "Authentication values must never enter policy analysis.", capture: false });
+  return Object.freeze({
+    name,
+    disposition: "excluded-secret",
+    scope: "gh",
+    rationale: "Authentication values must never enter policy analysis.",
+    capture: false,
+  });
 }
 
 function ghDefer(name: string, rationale: string): PolicyEnvironmentRoute {

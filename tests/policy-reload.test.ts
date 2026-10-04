@@ -22,7 +22,10 @@ test("policy runtime reload keeps the active runtime when a replacement fails", 
 
 test("policy runtime reload lets the most recently requested replacement win", async () => {
   const pending = new Map<string, { resolve: (value: LoadedPolicyRuntime) => void }>();
-  const reloader = createPolicyRuntimeReloader((cwd) => new Promise((resolve) => pending.set(cwd, { resolve })), Promise.resolve(runtime(0)));
+  const reloader = createPolicyRuntimeReloader(
+    (cwd) => new Promise((resolve) => pending.set(cwd, { resolve })),
+    Promise.resolve(runtime(0)),
+  );
   await reloader.ensure("initial");
 
   const first = reloader.reload("1");
@@ -38,11 +41,14 @@ test("policy runtime reload lets the most recently requested replacement win", a
 test("property: failed reloads never replace the last successful runtime across 1,024 sequences", async () => {
   for (let seed = 0; seed < 1_024; seed++) {
     let expected = 0;
-    const reloader = createPolicyRuntimeReloader(async (cwd) => {
-      const revision = Number(cwd);
-      if ((revision * 17 + seed) % 5 === 0) throw new Error("invalid policy");
-      return runtime(revision);
-    }, Promise.resolve(runtime(expected)));
+    const reloader = createPolicyRuntimeReloader(
+      async (cwd) => {
+        const revision = Number(cwd);
+        if ((revision * 17 + seed) % 5 === 0) throw new Error("invalid policy");
+        return runtime(revision);
+      },
+      Promise.resolve(runtime(expected)),
+    );
     await reloader.ensure("0");
 
     for (let revision = 1; revision <= 1 + (seed % 16); revision++) {

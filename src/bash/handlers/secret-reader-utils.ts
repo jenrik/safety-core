@@ -3,13 +3,13 @@ import { policyDeny, policySafe } from "../outcome.js";
 import { analyzeSecretReadInvocation } from "../policies/secrets.js";
 
 export function secretReaderHandler(name: string): PolicyObserver {
-  return Object.freeze({
+  return Object.freeze<PolicyObserver>({
     name,
     observe(cursor, context) {
       const decision = analyzeSecretReadInvocation(cursor.invocation);
-      return observePolicy(decision.kind === "deny"
-        ? policyDeny(context.span, decision.evidence)
-        : policySafe(decision.evidence));
+      return observePolicy(
+        decision.kind === "deny" ? policyDeny(context.span, decision.evidence) : policySafe(decision.evidence),
+      );
     },
   });
 }

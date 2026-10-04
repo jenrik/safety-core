@@ -1,8 +1,8 @@
+import { isSecretPath } from "../../secrets.js";
+import { basename } from "../../shell.js";
 import type { StructuralDispatchContext } from "../dispatch.js";
 import type { ResolvedWord } from "../expand.js";
-import { indeterminate, policyDeny, strongestOutcome, type Outcome } from "../outcome.js";
-import { basename } from "../../shell.js";
-import { isSecretPath } from "../../secrets.js";
+import { indeterminate, type Outcome, policyDeny, strongestOutcome } from "../outcome.js";
 import type { BashChildExecution } from "../walker.js";
 import { childInvocationFrom, wrapperHandler } from "./wrapper-utils.js";
 
@@ -11,17 +11,75 @@ export const findHandler = wrapperHandler("find", parseFind);
 const GLOBAL_FLAGS = new Set(["-H", "-L", "-P"]);
 const OPERATORS = new Set(["(", ")", "!", "-not", "-a", "-and", "-o", "-or", ","]);
 const NULLARY_PRIMARIES = new Set([
-  "-daystart", "-delete", "-depth", "-empty", "-false", "-follow", "-ignore_readdir_race",
-  "-ls", "-mount", "-noignore_readdir_race", "-nogroup", "-noleaf", "-nouser", "-nowarn",
-  "-print", "-print0", "-prune", "-quit", "-readable", "-true", "-warn", "-writable",
-  "-executable", "-help", "--help", "-version", "--version", "-xdev",
+  "-daystart",
+  "-delete",
+  "-depth",
+  "-empty",
+  "-false",
+  "-follow",
+  "-ignore_readdir_race",
+  "-ls",
+  "-mount",
+  "-noignore_readdir_race",
+  "-nogroup",
+  "-noleaf",
+  "-nouser",
+  "-nowarn",
+  "-print",
+  "-print0",
+  "-prune",
+  "-quit",
+  "-readable",
+  "-true",
+  "-warn",
+  "-writable",
+  "-executable",
+  "-help",
+  "--help",
+  "-version",
+  "--version",
+  "-xdev",
 ]);
 const UNARY_PRIMARIES = new Set([
-  "-amin", "-anewer", "-atime", "-cmin", "-cnewer", "-context", "-ctime", "-fls", "-fprint",
-  "-fprint0", "-fstype", "-gid", "-group", "-ilname", "-iname", "-inum", "-ipath", "-iregex",
-  "-iwholename", "-links", "-lname", "-maxdepth", "-mindepth", "-mmin", "-mtime", "-name",
-  "-newer", "-path", "-perm", "-printf", "-regextype", "-samefile", "-size", "-type", "-uid",
-  "-used", "-user", "-wholename", "-xtype",
+  "-amin",
+  "-anewer",
+  "-atime",
+  "-cmin",
+  "-cnewer",
+  "-context",
+  "-ctime",
+  "-fls",
+  "-fprint",
+  "-fprint0",
+  "-fstype",
+  "-gid",
+  "-group",
+  "-ilname",
+  "-iname",
+  "-inum",
+  "-ipath",
+  "-iregex",
+  "-iwholename",
+  "-links",
+  "-lname",
+  "-maxdepth",
+  "-mindepth",
+  "-mmin",
+  "-mtime",
+  "-name",
+  "-newer",
+  "-path",
+  "-perm",
+  "-printf",
+  "-regextype",
+  "-samefile",
+  "-size",
+  "-type",
+  "-uid",
+  "-used",
+  "-user",
+  "-wholename",
+  "-xtype",
 ]);
 const VARIABLE_ACTIONS = new Set(["-exec", "-execdir", "-ok", "-okdir"]);
 
@@ -81,7 +139,11 @@ function parseFind(arguments_: readonly ResolvedWord[], context: StructuralDispa
 
       if (VARIABLE_ACTIONS.has(argument.value)) {
         executionPossible = true;
-        const action = findActionEnd(arguments_, index + 1, argument.value === "-exec" || argument.value === "-execdir");
+        const action = findActionEnd(
+          arguments_,
+          index + 1,
+          argument.value === "-exec" || argument.value === "-execdir",
+        );
         const possibleBodyEnd = action?.end ?? arguments_.length;
         for (let bodyIndex = index + 1; bodyIndex < possibleBodyEnd; bodyIndex++) {
           if (arguments_[bodyIndex]!.kind !== "known") pending.push({ index: bodyIndex + 1, expression: true });
@@ -99,9 +161,14 @@ function parseFind(arguments_: readonly ResolvedWord[], context: StructuralDispa
             appendOpaque(context, outcomes, children);
           } else {
             const hasPlaceholder = command.some((word) => word.kind === "known" && word.value.includes("{}"));
-            const template = command.map((word) => word.kind === "known" && word.value.includes("{}")
-              ? Object.freeze({ kind: "known" as const, value: word.value.replaceAll("{}", "safety-core-dynamic-argument") })
-              : word);
+            const template = command.map((word) =>
+              word.kind === "known" && word.value.includes("{}")
+                ? Object.freeze({
+                    kind: "known" as const,
+                    value: word.value.replaceAll("{}", "safety-core-dynamic-argument"),
+                  })
+                : word,
+            );
             if (hasPlaceholder) outcomes.push(indeterminate(context.span));
             appendResult(childInvocationFrom(template, 0, context, undefined, "spawn-repeated"), outcomes, children);
           }
@@ -122,11 +189,14 @@ function parseFind(arguments_: readonly ResolvedWord[], context: StructuralDispa
         if (input.kind !== "known") {
           outcomes.push(indeterminate(context.span));
         } else if (isSecretPath(input.value)) {
-          return policyDeny(context.span, Object.freeze({
-            name: "secret-read",
-            decision: "deny" as const,
-            reason: `bash \`find\` on '${basename(input.value)}'`,
-          }));
+          return policyDeny(
+            context.span,
+            Object.freeze({
+              name: "secret-read",
+              decision: "deny" as const,
+              reason: `bash \`find\` on '${basename(input.value)}'`,
+            }),
+          );
         }
         index += 2;
         continue;
@@ -199,7 +269,8 @@ function findActionEnd(
     if (argument.value === ";") return { end: index };
     if (allowsBatch && argument.value === "+" && index > start) {
       const previous = arguments_[index - 1];
-      const placeholders = arguments_.slice(start, index)
+      const placeholders = arguments_
+        .slice(start, index)
         .filter((word) => word.kind === "known" && word.value === "{}");
       if (previous?.kind === "known" && previous.value === "{}" && placeholders.length === 1) return { end: index };
     }
@@ -207,15 +278,15 @@ function findActionEnd(
   return undefined;
 }
 
-function appendOpaque(
-  context: StructuralDispatchContext,
-  outcomes: Outcome[],
-  children: BashChildExecution[],
-): void {
-  appendResult(context.continueWithOpaque("unsupported-execution", undefined, {
-    route: "transparent-wrapper",
-    processEffect: "spawn-repeated",
-  }), outcomes, children);
+function appendOpaque(context: StructuralDispatchContext, outcomes: Outcome[], children: BashChildExecution[]): void {
+  appendResult(
+    context.continueWithOpaque("unsupported-execution", undefined, {
+      route: "transparent-wrapper",
+      processEffect: "spawn-repeated",
+    }),
+    outcomes,
+    children,
+  );
 }
 
 function appendResult(

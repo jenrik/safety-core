@@ -10,7 +10,8 @@ function parseCommand(arguments_: readonly ResolvedWord[], context: StructuralDi
   while (index < arguments_.length) {
     const argument = known(arguments_[index]!, context);
     if (typeof argument !== "string") return argument;
-    if (argument === "--") return childInvocationFrom(arguments_, index + 1, context, undefined, "none", "shell-no-functions");
+    if (argument === "--")
+      return childInvocationFrom(arguments_, index + 1, context, undefined, "none", "shell-no-functions");
     if (argument === "-p") {
       index++;
       continue;

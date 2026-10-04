@@ -7,7 +7,12 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { analyzeBashWithPolicies, analyzeKubectlInvocation, appendAuditRecord, initBundledBashParser } from "@safety-core/core";
+import {
+  analyzeBashWithPolicies,
+  analyzeKubectlInvocation,
+  appendAuditRecord,
+  initBundledBashParser,
+} from "@safety-core/core";
 
 import { parseHookEvent, readStdin, run } from "./_shared.js";
 
@@ -32,13 +37,24 @@ run(async () => {
 });
 
 export function classifyKubectlSecretAudit(command: string) {
-  const analysis = analyzeBashWithPolicies({ source: command, policies: [], initialEnvironment: { kind: "unavailable" } });
+  const analysis = analyzeBashWithPolicies({
+    source: command,
+    policies: [],
+    initialEnvironment: { kind: "unavailable" },
+  });
   const candidates: { readonly decision: ReturnType<typeof analyzeKubectlInvocation> }[] = [];
   for (const event of analysis.events) {
-    if (event.kind !== "invocation" || event.executable?.kind !== "known" || event.executable.value.split("/").at(-1) !== "kubectl") continue;
+    if (
+      event.kind !== "invocation" ||
+      event.executable?.kind !== "known" ||
+      event.executable.value.split("/").at(-1) !== "kubectl"
+    )
+      continue;
     candidates.push({ decision: analyzeKubectlInvocation({ argv: event.argv }) });
   }
-  const selected = candidates.find(({ decision }) => decision.kind !== "ignore" && decision.evidence.kubectl?.mentionsSecret) ?? candidates[0];
+  const selected =
+    candidates.find(({ decision }) => decision.kind !== "ignore" && decision.evidence.kubectl?.mentionsSecret) ??
+    candidates[0];
   const kubectl = selected?.decision.kind === "ignore" ? undefined : selected?.decision.evidence.kubectl;
   return {
     kubectl_subcommand: kubectl?.subcommand ?? null,

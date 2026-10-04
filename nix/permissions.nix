@@ -1,4 +1,9 @@
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 with lib;
 let
   cfg = config.programs.safetyCorePermissions;
@@ -9,19 +14,23 @@ let
     policyArtifacts.dslPolicies.githubHttp
     policyArtifacts.dslPolicies.kubectl
     policyArtifacts.dslPolicies.unsupportedShellSource
+    policyArtifacts.dslPolicies.cat
     policyArtifacts.dslPolicies.genericReadOnly
     policyArtifacts.dslPolicies.ghReadOnly
     policyArtifacts.dslPolicies.helmReadOnly
     policyArtifacts.dslPolicies.ghApi
-  ] ++ policyArtifacts.dslPolicies.strictReadOnly;
+  ]
+  ++ policyArtifacts.dslPolicies.strictReadOnly;
   prSource = safetyCore.mkGhPrCreateDslPolicy {
     allowedRepositories = cfg.prCreate.allowedRepositories;
     allowedOrganizations = cfg.prCreate.allowedOrganizations;
   };
-  sources = cfg.policySources
+  sources =
+    cfg.policySources
     ++ (if cfg.completePolicySources then completeSources else [ ])
     ++ optional cfg.prCreate.enable prSource;
-in {
+in
+{
   options.programs.safetyCorePermissions = {
     policySources = mkOption {
       type = types.listOf types.path;
@@ -33,21 +42,54 @@ in {
     installClaudeBashHook = mkEnableOption "install the packaged immutable-session Claude Bash hook";
     prCreate = {
       enable = mkEnableOption "generate and add a repository-scoped gh pr create DSL policy source";
-      allowedRepositories = mkOption { type = types.listOf types.str; default = [ ]; };
-      allowedOrganizations = mkOption { type = types.listOf types.str; default = [ ]; };
+      allowedRepositories = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+      };
+      allowedOrganizations = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+      };
     };
     projectPolicies = {
-      mode = mkOption { type = types.enum [ "disabled" "allowlisted" "all" ]; default = "disabled"; };
-      allowedRoots = mkOption { type = types.listOf types.path; default = [ ]; };
+      mode = mkOption {
+        type = types.enum [
+          "disabled"
+          "allowlisted"
+          "all"
+        ];
+        default = "disabled";
+      };
+      allowedRoots = mkOption {
+        type = types.listOf types.path;
+        default = [ ];
+      };
     };
     bashAnalysis = {
-      maxFunctionDepth = mkOption { type = types.addCheck types.ints.positive (value: value <= 9007199254740991); default = 128; };
-      maxNestedScriptDepth = mkOption { type = types.addCheck types.ints.positive (value: value <= 9007199254740991); default = 64; };
-      maxSteps = mkOption { type = types.addCheck types.ints.positive (value: value <= 9007199254740991); default = 7500; };
-      maxWorkItems = mkOption { type = types.addCheck types.ints.positive (value: value <= 9007199254740991); default = 10000; };
+      maxFunctionDepth = mkOption {
+        type = types.addCheck types.ints.positive (value: value <= 9007199254740991);
+        default = 128;
+      };
+      maxNestedScriptDepth = mkOption {
+        type = types.addCheck types.ints.positive (value: value <= 9007199254740991);
+        default = 64;
+      };
+      maxSteps = mkOption {
+        type = types.addCheck types.ints.positive (value: value <= 9007199254740991);
+        default = 7500;
+      };
+      maxWorkItems = mkOption {
+        type = types.addCheck types.ints.positive (value: value <= 9007199254740991);
+        default = 10000;
+      };
     };
     pi = {
       autoApprove = mkEnableOption "automatically approve policy-deferred Pi Bash calls";
+      showFullCommand = mkOption {
+        type = types.bool;
+        default = true;
+        description = "Show the full Bash command in the Pi one-time permission prompt.";
+      };
       judgeModel = mkOption {
         type = types.nullOr types.str;
         default = null;
@@ -65,12 +107,18 @@ in {
   };
 
   config = {
-    assertions = [{
-      assertion = !cfg.redact.opencode.enable || (cfg.redact.opencode.socketPath != null
-        && hasPrefix "/" cfg.redact.opencode.socketPath
-        && builtins.stringLength cfg.redact.opencode.socketPath <= 100);
-      message = "programs.safetyCorePermissions.redact.opencode.socketPath must be a short absolute path when redaction is enabled";
-    }];
+    assertions = [
+      {
+        assertion =
+          !cfg.redact.opencode.enable
+          || (
+            cfg.redact.opencode.socketPath != null
+            && hasPrefix "/" cfg.redact.opencode.socketPath
+            && builtins.stringLength cfg.redact.opencode.socketPath <= 100
+          );
+        message = "programs.safetyCorePermissions.redact.opencode.socketPath must be a short absolute path when redaction is enabled";
+      }
+    ];
     home.packages = optional cfg.installCli safetyCore.safetyCoreCli;
     xdg.configFile."safety-core/claude/bash_policy.mjs" = mkIf cfg.installClaudeBashHook {
       source = "${safetyCore.claudeCodeHooks}/bash_policy.mjs";
@@ -79,23 +127,47 @@ in {
     xdg.configFile."safety-core/config.json".text = builtins.toJSON {
       version = 1;
       policies = map toString sources;
-      projectPolicies = if cfg.projectPolicies.mode == "allowlisted" then {
-        mode = "allowlisted";
-        allowedRoots = map toString cfg.projectPolicies.allowedRoots;
-      } else { mode = cfg.projectPolicies.mode; };
+      projectPolicies =
+        if cfg.projectPolicies.mode == "allowlisted" then
+          {
+            mode = "allowlisted";
+            allowedRoots = map toString cfg.projectPolicies.allowedRoots;
+          }
+        else
+          { mode = cfg.projectPolicies.mode; };
       bashAnalysis = cfg.bashAnalysis;
-      pi = { autoApprove = cfg.pi.autoApprove; } // optionalAttrs (cfg.pi.judgeModel != null) {
+      pi = {
+        autoApprove = cfg.pi.autoApprove;
+        showFullCommand = cfg.pi.showFullCommand;
+      }
+      // optionalAttrs (cfg.pi.judgeModel != null) {
         judgeModel = cfg.pi.judgeModel;
       };
-      redact.opencode = { enabled = cfg.redact.opencode.enable; }
-        // optionalAttrs cfg.redact.opencode.enable { socketPath = cfg.redact.opencode.socketPath; };
+      redact.opencode = {
+        enabled = cfg.redact.opencode.enable;
+      }
+      // optionalAttrs cfg.redact.opencode.enable { socketPath = cfg.redact.opencode.socketPath; };
     };
-    programs.claude-code.settings.hooks.PreToolUse = mkIf cfg.installClaudeBashHook (mkAfter [{
-      matcher = "Bash";
-      hooks = [{ type = "command"; command = "\${XDG_CONFIG_HOME:-$HOME/.config}/safety-core/claude/bash_policy.mjs"; }];
-    }]);
-    programs.claude-code.settings.hooks.SessionStart = mkIf cfg.installClaudeBashHook (mkAfter [{
-      hooks = [{ type = "command"; command = "\${XDG_CONFIG_HOME:-$HOME/.config}/safety-core/claude/bash_policy.mjs"; }];
-    }]);
+    programs.claude-code.settings.hooks.PreToolUse = mkIf cfg.installClaudeBashHook (mkAfter [
+      {
+        matcher = "Bash";
+        hooks = [
+          {
+            type = "command";
+            command = "\${XDG_CONFIG_HOME:-$HOME/.config}/safety-core/claude/bash_policy.mjs";
+          }
+        ];
+      }
+    ]);
+    programs.claude-code.settings.hooks.SessionStart = mkIf cfg.installClaudeBashHook (mkAfter [
+      {
+        hooks = [
+          {
+            type = "command";
+            command = "\${XDG_CONFIG_HOME:-$HOME/.config}/safety-core/claude/bash_policy.mjs";
+          }
+        ];
+      }
+    ]);
   };
 }

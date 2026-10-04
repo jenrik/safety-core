@@ -2,11 +2,10 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { analyzeBashAuthorization, initBashParser, parseBashProgram } from "../src/index.ts";
-import { fromInitialEnvironment } from "../src/bash/environment.ts";
+import { type Environment, fromInitialEnvironment } from "../src/bash/environment.ts";
 import { safe } from "../src/bash/outcome.ts";
-import { DEFAULT_BASH_ANALYSIS_LIMITS, runSteps, type DispatchTarget } from "../src/bash/runner.ts";
+import { DEFAULT_BASH_ANALYSIS_LIMITS, type DispatchTarget, runSteps } from "../src/bash/runner.ts";
+import { analyzeBashAuthorization, initBashParser, parseBashProgram } from "../src/index.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-bash-performance-"));
 
@@ -26,7 +25,11 @@ beforeAll(async () => {
 afterAll(() => rmSync(wasmDir, { force: true, recursive: true }));
 
 test.each([
-  ["function-depth", "max-function-depth", () => analyze(functionChain(DEFAULT_BASH_ANALYSIS_LIMITS.maxFunctionDepth + 1)).outcome],
+  [
+    "function-depth",
+    "max-function-depth",
+    () => analyze(functionChain(DEFAULT_BASH_ANALYSIS_LIMITS.maxFunctionDepth + 1)).outcome,
+  ],
   ["nested-script-depth", "max-nested-script-depth", () => analyze(nestedSh()).outcome],
   ["steps", "max-steps", () => analyze(assignmentSequence(DEFAULT_BASH_ANALYSIS_LIMITS.maxSteps + 1)).outcome],
   ["work-items", "max-work-items", () => exhaustWorkItems(DEFAULT_BASH_ANALYSIS_LIMITS.maxWorkItems + 1)],
@@ -40,10 +43,15 @@ test.each([
 
 test("reports the linear assignment-workload relationship used to calibrate maxSteps", () => {
   for (const maxSteps of [10_000, 15_000, 20_000, 25_000]) {
-    const measurement = measure(`steps-${maxSteps}`, () => analyze(
-      assignmentSequence(maxSteps + 1),
-      { ...DEFAULT_BASH_ANALYSIS_LIMITS, maxSteps, maxWorkItems: maxSteps + 2 },
-    ).outcome);
+    const measurement = measure(
+      `steps-${maxSteps}`,
+      () =>
+        analyze(assignmentSequence(maxSteps + 1), {
+          ...DEFAULT_BASH_ANALYSIS_LIMITS,
+          maxSteps,
+          maxWorkItems: maxSteps + 2,
+        }).outcome,
+    );
     console.info(`Task 10 assignment calibration ${maxSteps}: ${measurement.milliseconds.toFixed(1)} ms`);
     expect(measurement.outcome).toMatchObject({ kind: "failure", reason: "analysis-failure", budget: "max-steps" });
   }
@@ -63,7 +71,7 @@ test.each([
 
 test("projects a long mixed short-circuit chain within the one-second guideline", () => {
   const source = Array.from({ length: 4_096 }, (_, index) => `command-${index}`)
-    .map((command, index) => index === 0 ? command : `${index % 2 === 0 ? "&&" : "||"} ${command}`)
+    .map((command, index) => (index === 0 ? command : `${index % 2 === 0 ? "&&" : "||"} ${command}`))
     .join(" ");
   const measurement = measure("mixed-short-circuit-projection", () => parseBashProgram(source));
 
@@ -98,10 +106,7 @@ function assignmentSequence(length: number): string {
 }
 
 function conditionalSequence(length: number): string {
-  return Array.from(
-    { length },
-    () => "if condition; then unknown-command; else unknown-command; fi",
-  ).join("; ");
+  return Array.from({ length }, () => "if condition; then unknown-command; else unknown-command; fi").join("; ");
 }
 
 function exhaustWorkItems(length: number) {
@@ -110,14 +115,17 @@ function exhaustWorkItems(length: number) {
     span: { start: 0, end: 0 },
     functionDepth: 0,
     nestedScriptDepth: 0,
-    run: (received) => Object.freeze({ kind: "result" as const, state: received, outcome: safe(), span: { start: 0, end: 0 } }),
+    run: (received: Environment) =>
+      Object.freeze({ kind: "result" as const, state: received, outcome: safe(), span: { start: 0, end: 0 } }),
   });
-  return runSteps(Object.freeze({
-    kind: "fork" as const,
-    state,
-    targets: Object.freeze(Array.from({ length }, () => target)),
-    span: { start: 0, end: 0 },
-  })).outcome;
+  return runSteps(
+    Object.freeze({
+      kind: "fork" as const,
+      state,
+      targets: Object.freeze(Array.from({ length }, () => target)),
+      span: { start: 0, end: 0 },
+    }),
+  ).outcome;
 }
 
 function measure(name: string, action: () => unknown) {

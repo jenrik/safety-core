@@ -5,9 +5,13 @@ import { analyzeGhApiInvocation } from "../policies/gh-api.js";
 import { GH_API_DEFER_ENVIRONMENT_NAMES } from "../policy-environment.js";
 import { isKnownGhTopLevel } from "./gh-command-line.js";
 import { findResolvedSubcommand, findSubcommand, knownArguments } from "./gh-utils.js";
-import { hasDisabledGhPager, hasInheritedExecutableFunction, hasUnsafeGhEnvironmentBinding } from "./read-only-utils.js";
+import {
+  hasDisabledGhPager,
+  hasInheritedExecutableFunction,
+  hasUnsafeGhEnvironmentBinding,
+} from "./read-only-utils.js";
 
-export const ghApiHandler: PolicyObserver = Object.freeze({
+export const ghApiHandler = Object.freeze<PolicyObserver>({
   name: "gh",
   observe(cursor, context) {
     const args = knownArguments(cursor);
@@ -18,17 +22,26 @@ export const ghApiHandler: PolicyObserver = Object.freeze({
         return isOpaqueGhRoute(subcommand.name) ? unresolvedGhApiRoute(context) : ignorePolicy();
       }
       if (subcommand.kind === "unknown") {
-        return observePolicy(policyIndeterminate(context.span, analyzeGhApiInvocation({
-          endpoint: undefined,
-          explicitMethod: undefined,
-          hasParametersOrBody: false,
-          unsafeOrMalformed: true,
-        }).evidence));
+        return observePolicy(
+          policyIndeterminate(
+            context.span,
+            analyzeGhApiInvocation({
+              endpoint: undefined,
+              explicitMethod: undefined,
+              hasParametersOrBody: false,
+              unsafeOrMalformed: true,
+            }).evidence,
+          ),
+        );
       }
-      if (cursor.invocation.argv.some((argument) => argument.kind === "unknown" && argument.reason.githubGraphqlEndpoint)) {
+      if (
+        cursor.invocation.argv.some((argument) => argument.kind === "unknown" && argument.reason.githubGraphqlEndpoint)
+      ) {
         return deniedGraphql(context);
       }
-      const conservative = cursor.invocation.argv.map((argument) => argument.kind === "known" ? argument.value : "safety-core-unresolved-argument");
+      const conservative = cursor.invocation.argv.map((argument) =>
+        argument.kind === "known" ? argument.value : "safety-core-unresolved-argument",
+      );
       const api = parseGhApiArguments(conservative, subcommand.index);
       const decision = analyzeGhApiInvocation({
         endpoint: api.endpoint,
@@ -37,13 +50,16 @@ export const ghApiHandler: PolicyObserver = Object.freeze({
         methodAmbiguous: api.methodAmbiguous || hasUnresolvedMethodValue(cursor.invocation.argv),
         unsafeOrMalformed: true,
       });
-      return observePolicy(decision.kind === "deny"
-        ? policyDeny(context.span, decision.evidence)
-        : policyIndeterminate(context.span, decision.evidence));
+      return observePolicy(
+        decision.kind === "deny"
+          ? policyDeny(context.span, decision.evidence)
+          : policyIndeterminate(context.span, decision.evidence),
+      );
     }
     const subcommand = findSubcommand(args);
     if (!subcommand) return ignorePolicy();
-    if (subcommand.name !== "api") return isOpaqueGhRoute(subcommand.name) ? unresolvedGhApiRoute(context) : ignorePolicy();
+    if (subcommand.name !== "api")
+      return isOpaqueGhRoute(subcommand.name) ? unresolvedGhApiRoute(context) : ignorePolicy();
     const api = parseGhApiArguments(args, subcommand.index);
     const executable = cursor.invocation.executable;
     const assignmentWrites = cursor.invocation.assignmentPatch.writes;
@@ -52,21 +68,29 @@ export const ghApiHandler: PolicyObserver = Object.freeze({
       explicitMethod: api.explicitMethod,
       hasParametersOrBody: api.hasParametersOrBody,
       methodAmbiguous: api.methodAmbiguous,
-      unsafeOrMalformed: api.unsafeOrMalformed
-        || (executable?.kind === "known" && executable.value.includes("/"))
-        || [...assignmentWrites].some((name) => name !== "GH_PAGER")
-        || cursor.invocation.redirects.length > 0
-        || hasInheritedExecutableFunction(cursor, "gh")
-        || !hasDisabledGhPager(cursor)
-        || hasUnsafeGhEnvironmentBinding(cursor, GH_API_DEFER_ENVIRONMENT_NAMES),
+      unsafeOrMalformed:
+        api.unsafeOrMalformed ||
+        (executable?.kind === "known" && executable.value.includes("/")) ||
+        [...assignmentWrites].some((name) => name !== "GH_PAGER") ||
+        cursor.invocation.redirects.length > 0 ||
+        hasInheritedExecutableFunction(cursor, "gh") ||
+        !hasDisabledGhPager(cursor) ||
+        hasUnsafeGhEnvironmentBinding(cursor, GH_API_DEFER_ENVIRONMENT_NAMES),
     });
-    return observePolicy(decision.kind === "allow" ? policyIndeterminate(context.span, Object.freeze({
-      ...decision.evidence,
-      decision: "defer" as const,
-      reason: "gh api remains prompt-gated because GitHub CLI startup state is mutable",
-    }))
-      : decision.kind === "deny" ? policyDeny(context.span, decision.evidence)
-      : policyIndeterminate(context.span, decision.evidence));
+    return observePolicy(
+      decision.kind === "allow"
+        ? policyIndeterminate(
+            context.span,
+            Object.freeze({
+              ...decision.evidence,
+              decision: "defer" as const,
+              reason: "gh api remains prompt-gated because GitHub CLI startup state is mutable",
+            }),
+          )
+        : decision.kind === "deny"
+          ? policyDeny(context.span, decision.evidence)
+          : policyIndeterminate(context.span, decision.evidence),
+    );
   },
 });
 
@@ -75,12 +99,17 @@ function isOpaqueGhRoute(name: string): boolean {
 }
 
 function unresolvedGhApiRoute(context: Parameters<PolicyObserver["observe"]>[1]) {
-  return observePolicy(policyIndeterminate(context.span, analyzeGhApiInvocation({
-    endpoint: undefined,
-    explicitMethod: undefined,
-    hasParametersOrBody: false,
-    unsafeOrMalformed: true,
-  }).evidence));
+  return observePolicy(
+    policyIndeterminate(
+      context.span,
+      analyzeGhApiInvocation({
+        endpoint: undefined,
+        explicitMethod: undefined,
+        hasParametersOrBody: false,
+        unsafeOrMalformed: true,
+      }).evidence,
+    ),
+  );
 }
 
 function deniedGraphql(context: Parameters<PolicyObserver["observe"]>[1]) {
@@ -107,10 +136,26 @@ interface ParsedGhApiArguments {
 }
 
 const UNSAFE_VALUE_OPTIONS = new Set([
-  "--hostname", "--input", "-H", "--header", "--cache", "-p", "--preview", "-q", "--jq", "-t", "--template",
+  "--hostname",
+  "--input",
+  "-H",
+  "--header",
+  "--cache",
+  "-p",
+  "--preview",
+  "-q",
+  "--jq",
+  "-t",
+  "--template",
 ]);
 const UNSAFE_BOOLEAN_OPTIONS = new Set([
-  "-i", "--include", "--paginate", "--slurp", "--silent", "--verbose", "--allow-escape-sequences",
+  "-i",
+  "--include",
+  "--paginate",
+  "--slurp",
+  "--silent",
+  "--verbose",
+  "--allow-escape-sequences",
 ]);
 
 export function parseGhApiArguments(args: readonly string[], apiIndex: number): ParsedGhApiArguments {
@@ -159,13 +204,18 @@ export function parseGhApiArguments(args: readonly string[], apiIndex: number): 
     const typedField = optionValue(args, index, argument, "-F", "--field");
     if (typedField) {
       hasParametersOrBody = true;
-      if (!validField(typedField.value) || typedField.value.slice(typedField.value.indexOf("=") + 1).startsWith("@")) unsafeOrMalformed = true;
+      if (!validField(typedField.value) || typedField.value.slice(typedField.value.indexOf("=") + 1).startsWith("@"))
+        unsafeOrMalformed = true;
       index = typedField.lastIndex;
       continue;
     }
 
-    const unsafeValue = [...UNSAFE_VALUE_OPTIONS].find((option) => argument === option || argument.startsWith(`${option}=`)
-      || (option.length === 2 && argument.startsWith(option) && argument.length > 2));
+    const unsafeValue = [...UNSAFE_VALUE_OPTIONS].find(
+      (option) =>
+        argument === option ||
+        argument.startsWith(`${option}=`) ||
+        (option.length === 2 && argument.startsWith(option) && argument.length > 2),
+    );
     if (unsafeValue) {
       unsafeOrMalformed = true;
       if (unsafeValue === "--input") hasParametersOrBody = true;
@@ -188,12 +238,18 @@ export function parseGhApiArguments(args: readonly string[], apiIndex: number): 
   });
 }
 
-function parseApiShortOptions(args: readonly string[], index: number, argument: string): {
-  readonly method?: string;
-  readonly hasParametersOrBody: boolean;
-  readonly unsafeOrMalformed: boolean;
-  readonly lastIndex: number;
-} | undefined {
+function parseApiShortOptions(
+  args: readonly string[],
+  index: number,
+  argument: string,
+):
+  | {
+      readonly method?: string;
+      readonly hasParametersOrBody: boolean;
+      readonly unsafeOrMalformed: boolean;
+      readonly lastIndex: number;
+    }
+  | undefined {
   if (!argument.startsWith("-") || argument.startsWith("--") || argument === "-") return undefined;
   const options = argument.slice(1);
   let unsafeOrMalformed = false;
@@ -213,11 +269,13 @@ function parseApiShortOptions(args: readonly string[], index: number, argument: 
     const lastIndex = separate ? index + 1 : index;
     if (!value) return { hasParametersOrBody: option === "f" || option === "F", unsafeOrMalformed: true, lastIndex };
     if (option === "X") return { method: value, hasParametersOrBody: false, unsafeOrMalformed, lastIndex };
-    if (option === "f") return { hasParametersOrBody: true, unsafeOrMalformed: unsafeOrMalformed || !validField(value), lastIndex };
+    if (option === "f")
+      return { hasParametersOrBody: true, unsafeOrMalformed: unsafeOrMalformed || !validField(value), lastIndex };
     if (option === "F") {
       return {
         hasParametersOrBody: true,
-        unsafeOrMalformed: unsafeOrMalformed || !validField(value) || value.slice(value.indexOf("=") + 1).startsWith("@"),
+        unsafeOrMalformed:
+          unsafeOrMalformed || !validField(value) || value.slice(value.indexOf("=") + 1).startsWith("@"),
         lastIndex,
       };
     }
@@ -239,7 +297,8 @@ function optionValue(
   }
   if (argument.startsWith(`${long}=`)) return { value: argument.slice(long.length + 1), lastIndex: index };
   if (argument.startsWith(`${short}=`)) return { value: argument.slice(short.length + 1), lastIndex: index };
-  if (argument.startsWith(short) && argument.length > short.length) return { value: argument.slice(short.length), lastIndex: index };
+  if (argument.startsWith(short) && argument.length > short.length)
+    return { value: argument.slice(short.length), lastIndex: index };
   return undefined;
 }
 

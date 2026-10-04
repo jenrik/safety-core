@@ -2,14 +2,14 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { analyzeBashAuthorization, initBashParser } from "../src/index.ts";
-import { observePolicy, type InvocationCursor, type PolicyObserver } from "../src/bash/dispatch.ts";
+import { type InvocationCursor, observePolicy, type PolicyObserver } from "../src/bash/dispatch.ts";
 import { lookupBinding } from "../src/bash/environment.ts";
 import { safe } from "../src/bash/outcome.ts";
+import { analyzeBashAuthorization, initBashParser } from "../src/index.ts";
 import {
   assertEquivalentOracleFinalBindings,
   assertEquivalentOracleTrace,
+  type BashOracleFinalBinding,
   runBashOracle,
   runBashOracleWithFinalBindings,
 } from "./helpers/bash-oracle.ts";
@@ -34,10 +34,12 @@ afterAll(() => rmSync(wasmDir, { force: true, recursive: true }));
 test("records a command-local assignment overlay under an empty Bash environment", async () => {
   const trace = await runBashOracle('F=BAR D=GAR record-command "$D" "$F"', { BASE: "root" });
 
-  assertEquivalentOracleTrace(trace, [{
-    argv: ["", ""],
-    environment: { BASE: "root", D: "GAR", F: "BAR" },
-  }]);
+  assertEquivalentOracleTrace(trace, [
+    {
+      argv: ["", ""],
+      environment: { BASE: "root", D: "GAR", F: "BAR" },
+    },
+  ]);
 });
 
 test("records inherited and command-local exported variables for generated fixtures", async () => {
@@ -51,10 +53,12 @@ test("records inherited and command-local exported variables for generated fixtu
       [inheritedName]: inheritedValue,
     });
 
-    assertEquivalentOracleTrace(trace, [{
-      argv: ["stable"],
-      environment: { [inheritedName]: inheritedValue, LOCAL: localValue },
-    }]);
+    assertEquivalentOracleTrace(trace, [
+      {
+        argv: ["stable"],
+        environment: { [inheritedName]: inheritedValue, LOCAL: localValue },
+      },
+    ]);
   }
 });
 
@@ -66,7 +70,7 @@ test("records exported variables with additional Bash attributes", async () => {
 });
 
 test("reserves oracle PATH and trace controls after caller test environment", async () => {
-  const trace = await runBashOracle('record-command stable', {
+  const trace = await runBashOracle("record-command stable", {
     BASH_ORACLE_TRACE: "caller-controlled",
     PATH: "caller-controlled",
   });
@@ -88,11 +92,12 @@ test("reserves BASH_ENV so noninteractive Bash cannot inject a fixture command",
 });
 
 test("captures a redacted final shell-binding snapshot without values", async () => {
-  const oracle = await runBashOracleWithFinalBindings(
-    "X=one; export Y=two; unset Z",
-    { BASE: "root" },
-    ["BASE", "X", "Y", "Z"],
-  );
+  const oracle = await runBashOracleWithFinalBindings("X=one; export Y=two; unset Z", { BASE: "root" }, [
+    "BASE",
+    "X",
+    "Y",
+    "Z",
+  ]);
 
   assertEquivalentOracleFinalBindings(oracle.finalBindings, {
     BASE: { kind: "set", exported: true },
@@ -108,10 +113,7 @@ test("redacts recorded values from equivalence mismatch diagnostics", () => {
   const marker = "must-not-appear-in-diagnostics";
   let message = "";
   try {
-    assertEquivalentOracleTrace(
-      [{ argv: [marker], environment: { SAMPLE: marker } }],
-      [{ argv: [], environment: {} }],
-    );
+    assertEquivalentOracleTrace([{ argv: [marker], environment: { SAMPLE: marker } }], [{ argv: [], environment: {} }]);
   } catch (error) {
     message = error instanceof Error ? error.message : "";
   }
@@ -128,11 +130,17 @@ test("matches real Bash by expanding same-command words before prefix assignment
 test.each([
   ["persists standalone assignments", 'X=one; record-command "$X"; X=two; record-command "$X"'],
   ["uses dynamically scoped function bindings", 'X=outer; f(){ record-command "$X"; }; X=inner f; record-command "$X"'],
-  ["keeps local bindings inside a function", 'X=outer; f(){ local X=inner; record-command "$X"; }; f; record-command "$X"'],
+  [
+    "keeps local bindings inside a function",
+    'X=outer; f(){ local X=inner; record-command "$X"; }; f; record-command "$X"',
+  ],
   ["models export and unset", 'export X=one; record-command "$X"; unset X; record-command "$X"'],
   ["retains brace group writes", 'X=outer; { X=group; }; record-command "$X"'],
   ["isolates subshell writes", 'X=outer; ( X=child; record-command "$X"; ); record-command "$X"'],
-  ["merges conditionals with identical writes", 'X=before; if :; then X=joined; else X=joined; fi; record-command "$X"'],
+  [
+    "merges conditionals with identical writes",
+    'X=before; if :; then X=joined; else X=joined; fi; record-command "$X"',
+  ],
   ["walks a transparent command wrapper", 'X=wrapped; command record-command "$X"'],
 ])("matches real Bash when it %s", async (_name, source) => {
   await expectEquivalent(source, { BASE: "root" }, ["BASE", "X"]);
@@ -147,7 +155,9 @@ test("matches generated supported programs from a deterministic grammar", async 
     variants.add(generated.variant);
     await expectEquivalent(generated.source, { BASE: "root" }, ["BASE", "X"]);
   }
-  expect(variants).toEqual(new Set(["assignment-group", "dynamic-function", "export-unset", "subshell", "conditional", "wrapper"]));
+  expect(variants).toEqual(
+    new Set(["assignment-group", "dynamic-function", "export-unset", "subshell", "conditional", "wrapper"]),
+  );
 });
 
 test("keeps unsupported mutation neutral and taints subsequent expansion", () => {
@@ -167,7 +177,7 @@ test("keeps unsupported mutation neutral and taints subsequent expansion", () =>
 function recordingHandler(invocations: InvocationCursor[]): PolicyObserver {
   return Object.freeze({
     name: "record-command",
-    observe(cursor) {
+    observe(cursor: InvocationCursor) {
       invocations.push(cursor);
       return observePolicy(safe());
     },
@@ -179,16 +189,22 @@ async function expectEquivalent(
   environment: Readonly<Record<string, string>>,
   finalBindingNames: readonly string[] = [],
 ) {
-  const oracle = finalBindingNames.length > 0
-    ? await runBashOracleWithFinalBindings(source, environment, finalBindingNames)
-    : { trace: await runBashOracle(source, environment), finalBindings: undefined };
+  const oracle =
+    finalBindingNames.length > 0
+      ? await runBashOracleWithFinalBindings(source, environment, finalBindingNames)
+      : { trace: await runBashOracle(source, environment), finalBindings: undefined };
   const invocations: InvocationCursor[] = [];
   let finalBindings: ReturnType<typeof renderFinalBindings> | undefined;
   const result = analyzeBashAuthorization({
     source: finalBindingNames.length > 0 ? `${source}\ncapture-final` : source,
     initialEnvironment: { kind: "verified", values: environment },
     includeBaseHandlers: false,
-    handlers: [recordingHandler(invocations), finalBindingHandler(finalBindingNames, (snapshot) => { finalBindings = snapshot; })],
+    handlers: [
+      recordingHandler(invocations),
+      finalBindingHandler(finalBindingNames, (snapshot) => {
+        finalBindings = snapshot;
+      }),
+    ],
   });
 
   expect(result.verdict.kind).not.toEqual("deny");
@@ -205,7 +221,7 @@ function finalBindingHandler(
 ): PolicyObserver {
   return Object.freeze({
     name: "capture-final",
-    observe(cursor) {
+    observe(cursor: InvocationCursor) {
       capture(renderFinalBindings(cursor, names));
       return observePolicy(safe());
     },
@@ -214,21 +230,31 @@ function finalBindingHandler(
 
 function renderInvocations(invocations: readonly InvocationCursor[], names: readonly string[]) {
   return invocations.map((cursor) => ({
-    argv: cursor.invocation.argv.map((word) => word.kind === "known" ? word.value : "<unknown>"),
-    environment: Object.fromEntries(names.flatMap((name) => {
-      const binding = lookupBinding(cursor.invocation.environment, name);
-      return binding.exported && binding.value.kind === "known" ? [[name, binding.value.value]] : [];
-    })),
+    argv: cursor.invocation.argv.map((word) => (word.kind === "known" ? word.value : "<unknown>")),
+    environment: Object.fromEntries(
+      names.flatMap((name) => {
+        const binding = lookupBinding(cursor.invocation.environment, name);
+        return binding.exported && binding.value.kind === "known" ? [[name, binding.value.value]] : [];
+      }),
+    ),
   }));
 }
 
-function renderFinalBindings(cursor: InvocationCursor, names: readonly string[]) {
-  return Object.fromEntries(names.map((name) => {
-    const binding = lookupBinding(cursor.invocation.environment, name);
-    return [name, binding.value.kind === "unset"
-      ? { kind: "unset", exported: false }
-      : { kind: binding.value.kind === "known" ? "set" : "unknown", exported: binding.exported }];
-  }));
+function renderFinalBindings(
+  cursor: InvocationCursor,
+  names: readonly string[],
+): Readonly<Record<string, BashOracleFinalBinding>> {
+  return Object.fromEntries(
+    names.map((name) => {
+      const binding = lookupBinding(cursor.invocation.environment, name);
+      return [
+        name,
+        binding.value.kind === "unset"
+          ? ({ kind: "unset", exported: false } satisfies BashOracleFinalBinding)
+          : ({ kind: "set", exported: binding.exported } satisfies BashOracleFinalBinding),
+      ];
+    }),
+  );
 }
 
 function generatedProgram(random: () => number, index: number): { readonly variant: string; readonly source: string } {

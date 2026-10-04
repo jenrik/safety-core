@@ -1,9 +1,19 @@
 import { SECRET_EXCEPTIONS, SECRET_PATTERNS } from "../../patterns.js";
 import { basename, matchesAnyGlob } from "../../shell.js";
-export { readOnlyAllow, readOnlyDefer, type ReadOnlyInvocationDecision, type ReadOnlyPolicyName } from "./read-only-decision.js";
-export { STRICT_ALLOWED_FLAGS, STRICT_READ_ONLY_COMMANDS } from "./read-only-data.js";
 
-export interface AllowedFlag { readonly long?: string; readonly short?: string; readonly takesValue: boolean }
+export { STRICT_ALLOWED_FLAGS, STRICT_READ_ONLY_COMMANDS } from "./read-only-data.js";
+export {
+  type ReadOnlyInvocationDecision,
+  type ReadOnlyPolicyName,
+  readOnlyAllow,
+  readOnlyDefer,
+} from "./read-only-decision.js";
+
+export interface AllowedFlag {
+  readonly long?: string;
+  readonly short?: string;
+  readonly takesValue: boolean;
+}
 
 export function isSecretPath(value: string): boolean {
   const name = basename(value);

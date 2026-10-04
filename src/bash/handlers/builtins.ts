@@ -1,7 +1,7 @@
-import type { NormalizedCommand, ResolvedWord } from "../expand.js";
 import {
   assignBinding,
   assignLocalBinding,
+  type Environment,
   hasBinding,
   known,
   lookupBinding,
@@ -11,19 +11,19 @@ import {
   unknown,
   unset,
   unsetBinding,
-  type Environment,
 } from "../environment.js";
+import type { NormalizedCommand } from "../expand.js";
+import { type OptionGrammar, scanOptions } from "../options.js";
 import { dynamicExecutableIndeterminate, indeterminate, type Outcome } from "../outcome.js";
-import { scanOptions, type OptionGrammar } from "../options.js";
 import {
+  type BashShellState,
+  exportShellFunction,
   invalidateShellFunction,
   invalidateShellFunctions,
-  exportShellFunction,
-  unexportShellFunction,
   removeShellFunction,
   taintShellState,
+  unexportShellFunction,
   withShellEnvironment,
-  type BashShellState,
 } from "../state.js";
 
 export interface BuiltinTransition {
@@ -69,7 +69,10 @@ export function transitionBuiltin(
     case ".":
       return freeze({
         handled: true,
-        state: withShellEnvironment(state, taintFrame(state.environment, { kind: `unsupported-${command.executable.value}` })),
+        state: withShellEnvironment(
+          state,
+          taintFrame(state.environment, { kind: `unsupported-${command.executable.value}` }),
+        ),
         writes: freezeArray([]),
         outcome: command.executable.value === "eval" ? indeterminate(span) : dynamicExecutableIndeterminate(span),
         returned: false,
@@ -80,7 +83,11 @@ export function transitionBuiltin(
   }
 }
 
-function exportFunctions(command: NormalizedCommand, initial: BashShellState, span: { readonly start: number; readonly end: number }): BuiltinTransition {
+function exportFunctions(
+  command: NormalizedCommand,
+  initial: BashShellState,
+  span: { readonly start: number; readonly end: number },
+): BuiltinTransition {
   let state = initial;
   let remove = false;
   for (const argument of command.argv) {
@@ -89,10 +96,19 @@ function exportFunctions(command: NormalizedCommand, initial: BashShellState, sp
       continue;
     }
     if (argument.kind === "known" && argument.value === "--") continue;
-    if (argument.kind !== "known" || !isName(argument.value)
-      || !state.functionCandidates.has(argument.value) || state.missingFunctions.has(argument.value)) {
-      return freeze({ handled: true, state: taintShellState(state, { kind: "unsupported-function-export", span }),
-        writes: freezeArray([]), outcome: indeterminate(span), returned: false });
+    if (
+      argument.kind !== "known" ||
+      !isName(argument.value) ||
+      !state.functionCandidates.has(argument.value) ||
+      state.missingFunctions.has(argument.value)
+    ) {
+      return freeze({
+        handled: true,
+        state: taintShellState(state, { kind: "unsupported-function-export", span }),
+        writes: freezeArray([]),
+        outcome: indeterminate(span),
+        returned: false,
+      });
     }
     state = remove ? unexportShellFunction(state, argument.value) : exportShellFunction(state, argument.value);
   }
@@ -153,15 +169,20 @@ function unsetNames(
 ): BuiltinTransition {
   const parsed = scanOptions(command.argv, UNSET_OPTIONS);
   if (parsed.kind === "failure") {
-    const state = parsed.reason === "dynamic-option"
-      ? taintShellState(initial, { kind: "dynamic-unset-option", span })
-      : initial;
+    const state =
+      parsed.reason === "dynamic-option" ? taintShellState(initial, { kind: "dynamic-unset-option", span }) : initial;
     return freeze({ handled: true, state, writes: freezeArray([]), outcome: indeterminate(span), returned: false });
   }
 
   const ids = new Set(parsed.options.map((option) => option.id));
   if (ids.has("function") && ids.has("variable")) {
-    return freeze({ handled: true, state: initial, writes: freezeArray([]), outcome: indeterminate(span), returned: false });
+    return freeze({
+      handled: true,
+      state: initial,
+      writes: freezeArray([]),
+      outcome: indeterminate(span),
+      returned: false,
+    });
   }
   if (ids.has("nameref") && !ids.has("function")) {
     return freeze({
@@ -200,8 +221,9 @@ function unsetNames(
       continue;
     }
 
-    const variableDefinitelyAbsent = binding.value.kind === "unset"
-      && (hasBinding(state.environment, name) || state.environment.missingBindings === "unset");
+    const variableDefinitelyAbsent =
+      binding.value.kind === "unset" &&
+      (hasBinding(state.environment, name) || state.environment.missingBindings === "unset");
     if (variableDefinitelyAbsent) {
       state = removeShellFunction(state, name);
     } else if (!hasBinding(state.environment, name) && state.environment.missingBindings === "unknown") {
@@ -222,13 +244,14 @@ function readName(
   span: { readonly start: number; readonly end: number },
 ): EnvironmentTransition {
   const name = command.argv.length === 1 ? command.argv[0] : undefined;
-  if (!name || name.kind !== "known" || !isName(name.value)) return freeze({
-    handled: true,
-    environment: taintFrame(initial, { kind: "unsupported-read-target" }),
-    writes: freezeArray([]),
-    outcome: indeterminate(span),
-    returned: false,
-  });
+  if (!name || name.kind !== "known" || !isName(name.value))
+    return freeze({
+      handled: true,
+      environment: taintFrame(initial, { kind: "unsupported-read-target" }),
+      writes: freezeArray([]),
+      outcome: indeterminate(span),
+      returned: false,
+    });
   return freeze({
     handled: true,
     environment: assignBinding(initial, name.value, unknown({ kind: "read" })),

@@ -1,24 +1,43 @@
-import { createCommandRegistry, dispatchCommand, ignorePolicy, observeShellFunctionCommand, preflightCommand, type PolicyObserver } from "./bash/dispatch.js";
-import { fromFilteredInitialEnvironment, fromInitialEnvironment, fromVerifiedInitialEnvironment } from "./bash/environment.js";
-import { failure, type AuthorizationVerdict, type PolicyEvidence } from "./bash/outcome.js";
-import { DEFAULT_BASH_ANALYSIS_LIMITS, runSteps, type BashAnalysisLimits } from "./bash/runner.js";
-import { walkProgram } from "./bash/walker.js";
-import { parseBashProgram } from "./shell.js";
-import { evaluatePolicyEvents } from "./policy/evaluate.js";
-import { projectExecutionGapEvent } from "./policy/events.js";
-import type { BashPolicyAnalysis, BashPolicyEvent, PolicyEvaluation, ValidatedBashPolicy } from "./policy/types.js";
-import { unavailableExecutableFilesystem, type ExecutableFilesystem } from "./policy/filesystem.js";
-import { readerHandlers } from "./bash/handlers/readers.js";
-import { httpHandlers } from "./bash/handlers/http.js";
-import { kubectlHandler } from "./bash/handlers/command-kubectl.js";
+import {
+  createCommandRegistry,
+  dispatchCommand,
+  type InvocationCursor,
+  ignorePolicy,
+  observeShellFunctionCommand,
+  type PolicyDispatchContext,
+  type PolicyObserver,
+  preflightCommand,
+} from "./bash/dispatch.js";
+import {
+  fromFilteredInitialEnvironment,
+  fromInitialEnvironment,
+  fromVerifiedInitialEnvironment,
+} from "./bash/environment.js";
 import { ghApiHandler } from "./bash/handlers/command-gh-api.js";
-import { ghReadOnlyHandler } from "./bash/handlers/command-gh-read-only.js";
 import { ghPrCreateHandler, ghPrCreateInterpreterObservers } from "./bash/handlers/command-gh-pr-create.js";
+import { ghReadOnlyHandler } from "./bash/handlers/command-gh-read-only.js";
+import { kubectlHandler } from "./bash/handlers/command-kubectl.js";
 import { straceReadOnlyHandler } from "./bash/handlers/command-strace-read-only.js";
 import { isGhPrCreateCommand } from "./bash/handlers/gh-command-line.js";
+import { httpHandlers } from "./bash/handlers/http.js";
 import { genericReadOnlyHandlers, strictReadOnlyHandlers } from "./bash/handlers/read-only.js";
-import { STRICT_BASH_PROFILE_EXECUTABLES, type BashProfileSnapshot, type StrictBashProfile } from "./legacy-config.js";
+import { readerHandlers } from "./bash/handlers/readers.js";
+import { type AuthorizationVerdict, failure, type PolicyEvidence } from "./bash/outcome.js";
 import type { GhPrCreatePolicy } from "./bash/policies/gh-pr-create.js";
+import { type BashAnalysisLimits, DEFAULT_BASH_ANALYSIS_LIMITS, runSteps } from "./bash/runner.js";
+import { walkProgram } from "./bash/walker.js";
+import { type BashProfileSnapshot, STRICT_BASH_PROFILE_EXECUTABLES, type StrictBashProfile } from "./legacy-config.js";
+import { evaluatePolicyEvents } from "./policy/evaluate.js";
+import { projectExecutionGapEvent } from "./policy/events.js";
+import {
+  type HarnessFileAccessRequest,
+  type HarnessFilePermissionCheck,
+  redirectIsUnmodeled,
+  shellFileAccesses,
+} from "./policy/file-permissions.js";
+import { type ExecutableFilesystem, unavailableExecutableFilesystem } from "./policy/filesystem.js";
+import type { BashPolicyAnalysis, BashPolicyEvent, PolicyEvaluation, ValidatedBashPolicy } from "./policy/types.js";
+import { parseBashProgram } from "./shell.js";
 
 export type BashInitialEnvironment =
   | { readonly kind: "unavailable" }
@@ -38,6 +57,9 @@ export interface BashPolicyAnalysisOptions {
 export interface BashPolicyEvaluation extends PolicyEvaluation {
   readonly events: readonly BashPolicyEvent[];
   readonly analysis: BashPolicyAnalysis;
+  readonly commandDecision?: PolicyEvaluation["decision"];
+  readonly fileAccesses?: readonly HarnessFileAccessRequest[];
+  readonly filePermissionChecks?: readonly HarnessFilePermissionCheck[];
 }
 
 export interface BashAuthorizationAnalysis {
@@ -53,8 +75,17 @@ export interface BashGuardOptions extends Omit<BashPolicyAnalysisOptions, "polic
 }
 
 export type BashGuardEvaluation =
-  | { readonly kind: "block"; readonly reason: string; readonly policy: PolicyEvidence; readonly policies: readonly PolicyEvidence[] }
-  | { readonly kind: "pass"; readonly status: "complete" | "indeterminate" | "failure"; readonly policies: readonly PolicyEvidence[] };
+  | {
+      readonly kind: "block";
+      readonly reason: string;
+      readonly policy: PolicyEvidence;
+      readonly policies: readonly PolicyEvidence[];
+    }
+  | {
+      readonly kind: "pass";
+      readonly status: "complete" | "indeterminate" | "failure";
+      readonly policies: readonly PolicyEvidence[];
+    };
 
 export interface BashConfiguredOptions {
   readonly source: string;
@@ -73,46 +104,100 @@ type BashConfiguredPermissionDecision =
 const baseHandlers: readonly PolicyObserver[] = Object.freeze([...readerHandlers, ...httpHandlers, kubectlHandler]);
 
 /** Compatibility facade for adapters which have not yet migrated to loaded policy runtimes. */
-export function analyzeBashAuthorization(options: Omit<BashPolicyAnalysisOptions, "policies" | "cwd" | "executableFilesystem"> & { readonly handlers?: readonly PolicyObserver[]; readonly includeBaseHandlers?: boolean }): BashAuthorizationAnalysis {
+export function analyzeBashAuthorization(
+  options: Omit<BashPolicyAnalysisOptions, "policies" | "cwd" | "executableFilesystem"> & {
+    readonly handlers?: readonly PolicyObserver[];
+    readonly includeBaseHandlers?: boolean;
+  },
+): BashAuthorizationAnalysis {
   const limits = options.limits ?? DEFAULT_BASH_ANALYSIS_LIMITS;
   const parsed = parseBashProgram(options.source);
   const program = parsed.kind === "parse-failure" ? parsed.program : parsed;
-  const registry = createCommandRegistry([...(options.includeBaseHandlers === false ? [] : baseHandlers), ...(options.handlers ?? [])]);
-  const completed = runSteps(walkProgram(program, {
-    environment: initialEnvironment(options.initialEnvironment, limits),
-    dispatchCommand: (request) => dispatchCommand(request, registry),
-    preflightCommand: (request) => preflightCommand(request, registry),
-    observeShellFunction: (command, span, provenance, inPipeline) => observeShellFunctionCommand(command, span, provenance, inPipeline, registry),
-  }, parsed.kind === "parse-failure" ? failure(parsed.span) : undefined), limits);
+  const registry = createCommandRegistry([
+    ...(options.includeBaseHandlers === false ? [] : baseHandlers),
+    ...(options.handlers ?? []),
+  ]);
+  const completed = runSteps(
+    walkProgram(
+      program,
+      {
+        environment: initialEnvironment(options.initialEnvironment, limits),
+        dispatchCommand: (request) => dispatchCommand(request, registry),
+        preflightCommand: (request) => preflightCommand(request, registry),
+        observeShellFunction: (command, span, provenance, inPipeline) =>
+          observeShellFunctionCommand(command, span, provenance, inPipeline, registry),
+      },
+      parsed.kind === "parse-failure" ? failure(parsed.span) : undefined,
+    ),
+    limits,
+  );
   const policies = Object.freeze([...(completed.outcome.policies ?? [])]);
-  return Object.freeze({ verdict: completed.verdict, outcome: completed.outcome, evidence: Object.freeze([...completed.evidence]), policy: policies[0] ?? null, policies });
+  return Object.freeze({
+    verdict: completed.verdict,
+    outcome: completed.outcome,
+    evidence: Object.freeze([...completed.evidence]),
+    policy: policies[0] ?? null,
+    policies,
+  });
 }
 
 export function evaluateBashGuards(options: BashGuardOptions): BashGuardEvaluation {
   const handlers = options.ghPrCreatePolicy?.enabled
-    ? [ghPrCreateHandler(options.ghPrCreatePolicy), ...ghPrCreateInterpreterObservers] : [];
+    ? [ghPrCreateHandler(options.ghPrCreatePolicy), ...ghPrCreateInterpreterObservers]
+    : [];
   const analysis = analyzeBashAuthorization({ ...options, handlers });
-  const policy = analysis.policies.find((candidate) => candidate.decision === "deny"
-    && ["secret-read", "github-http", "kubectl", "unsupported-shell-source", "gh-pr-create"].includes(candidate.name));
-  if (policy) return Object.freeze({ kind: "block", reason: policy.reason ?? `${policy.name} is blocked`, policy, policies: analysis.policies });
-  return Object.freeze({ kind: "pass", status: analysis.outcome.kind === "safe" ? "complete" : analysis.outcome.kind === "failure" ? "failure" : "indeterminate", policies: analysis.policies });
+  const policy = analysis.policies.find(
+    (candidate) =>
+      candidate.decision === "deny" &&
+      ["secret-read", "github-http", "kubectl", "unsupported-shell-source", "gh-pr-create"].includes(candidate.name),
+  );
+  if (policy)
+    return Object.freeze({
+      kind: "block",
+      reason: policy.reason ?? `${policy.name} is blocked`,
+      policy,
+      policies: analysis.policies,
+    });
+  return Object.freeze({
+    kind: "pass",
+    status:
+      analysis.outcome.kind === "safe" ? "complete" : analysis.outcome.kind === "failure" ? "failure" : "indeterminate",
+    policies: analysis.policies,
+  });
 }
 
 /** Compatibility profile result. Global policy runtimes remain the authoritative adapter path. */
 export function evaluateConfiguredBash(options: BashConfiguredOptions) {
   const snapshot = options.profileSnapshot;
-  const analysis = analyzeBashAuthorization({ ...options, limits: options.limits ?? snapshot.limits, handlers: configuredHandlers(snapshot), includeBaseHandlers: false });
+  const analysis = analyzeBashAuthorization({
+    ...options,
+    limits: options.limits ?? snapshot.limits,
+    handlers: configuredHandlers(snapshot),
+    includeBaseHandlers: false,
+  });
   const guards = guardEvaluation(analysis);
-  const kubectl = analysis.policies.filter((policy) => policy.name === "kubectl" && policy.kubectl?.mentionsSecret).map((policy) => Object.freeze({
-    kind: "kubectl-secret" as const,
-    policy: "kubectl" as const,
-    fields: Object.freeze({ kubectl_subcommand: policy.kubectl!.subcommand, resource: policy.kubectl!.resource, command_length: options.source.length }),
-  }));
+  const kubectl = analysis.policies
+    .filter((policy) => policy.name === "kubectl" && policy.kubectl?.mentionsSecret)
+    .map((policy) =>
+      Object.freeze({
+        kind: "kubectl-secret" as const,
+        policy: "kubectl" as const,
+        fields: Object.freeze({
+          kubectl_subcommand: policy.kubectl!.subcommand,
+          resource: policy.kubectl!.resource,
+          command_length: options.source.length,
+        }),
+      }),
+    );
   return Object.freeze({
     guards,
     permission: selectPermission(snapshot, profileDecisions(snapshot, analysis)),
     profiles: profileDecisions(snapshot, analysis),
-    analysis: Object.freeze({ status: guards.kind === "pass" ? guards.status : "complete", failure: analysis.outcome.kind === "failure" ? Object.freeze({ budget: analysis.outcome.budget ?? null }) : null, evidence: analysis.policies }),
+    analysis: Object.freeze({
+      status: guards.kind === "pass" ? guards.status : "complete",
+      failure: analysis.outcome.kind === "failure" ? Object.freeze({ budget: analysis.outcome.budget ?? null }) : null,
+      evidence: analysis.policies,
+    }),
     audit: Object.freeze({ events: Object.freeze(kubectl) }),
   });
 }
@@ -120,31 +205,63 @@ export function evaluateConfiguredBash(options: BashConfiguredOptions) {
 function configuredHandlers(snapshot: BashProfileSnapshot): readonly PolicyObserver[] {
   const handlers: PolicyObserver[] = [...baseHandlers];
   if (snapshot.readOnlyBash) handlers.push(...genericReadOnlyHandlers);
-  if (snapshot.ghReadOnly) handlers.push(straceReadOnlyHandler, snapshot.ghPrCreate.enabled ? configuredGhReadOnlyHandler : ghReadOnlyHandler);
-  for (const [profile, executable] of STRICT_BASH_PROFILE_EXECUTABLES) if (snapshot.strictProfiles[profile]) handlers.push(...strictReadOnlyHandlers(executable));
+  if (snapshot.ghReadOnly)
+    handlers.push(straceReadOnlyHandler, snapshot.ghPrCreate.enabled ? configuredGhReadOnlyHandler : ghReadOnlyHandler);
+  for (const [profile, executable] of STRICT_BASH_PROFILE_EXECUTABLES)
+    if (snapshot.strictProfiles[profile]) handlers.push(...strictReadOnlyHandlers(executable));
   if (snapshot.ghApiReadOnly) handlers.push(ghApiHandler);
-  if (snapshot.ghPrCreate.enabled) handlers.push(ghPrCreateHandler(snapshot.ghPrCreate), ...ghPrCreateInterpreterObservers);
+  if (snapshot.ghPrCreate.enabled)
+    handlers.push(ghPrCreateHandler(snapshot.ghPrCreate), ...ghPrCreateInterpreterObservers);
   return Object.freeze([...new Set(handlers)]);
 }
 
 const configuredGhReadOnlyHandler: PolicyObserver = Object.freeze({
   name: "gh",
-  observe(cursor, context) { return isGhPrCreateCommand(cursor.invocation.argv.filter((word) => word.kind === "known").map((word) => word.value)) ? ignorePolicy() : ghReadOnlyHandler.observe(cursor, context); },
+  observe(cursor: InvocationCursor, context: PolicyDispatchContext) {
+    return isGhPrCreateCommand(cursor.invocation.argv.filter((word) => word.kind === "known").map((word) => word.value))
+      ? ignorePolicy()
+      : ghReadOnlyHandler.observe(cursor, context);
+  },
 });
 
-function profileDecisions(snapshot: BashProfileSnapshot, analysis: BashAuthorizationAnalysis): Readonly<Record<BashPermissionProfile, BashConfiguredPermissionDecision>> {
-  return Object.freeze(Object.fromEntries(enabledProfiles(snapshot).map((profile) => [profile, profileDecision(profile, analysis)]))) as Readonly<Record<BashPermissionProfile, BashConfiguredPermissionDecision>>;
+function profileDecisions(
+  snapshot: BashProfileSnapshot,
+  analysis: BashAuthorizationAnalysis,
+): Readonly<Record<BashPermissionProfile, BashConfiguredPermissionDecision>> {
+  return Object.freeze(
+    Object.fromEntries(enabledProfiles(snapshot).map((profile) => [profile, profileDecision(profile, analysis)])),
+  ) as Readonly<Record<BashPermissionProfile, BashConfiguredPermissionDecision>>;
 }
-function profileDecision(profile: BashPermissionProfile, analysis: BashAuthorizationAnalysis): BashConfiguredPermissionDecision {
+function profileDecision(
+  profile: BashPermissionProfile,
+  analysis: BashAuthorizationAnalysis,
+): BashConfiguredPermissionDecision {
   const own = analysis.policies.filter((policy) => belongsToProfile(policy, profile));
-  const sharedDefer = analysis.policies.some((policy) => policy.name === "generic-read-only" && policy.decision === "defer" && (policy.readOnly?.tool === "strace" || policy.readOnly?.tool === "dynamic-executable"));
-  if (own.length === 0) return sharedDefer || analysis.outcome.kind === "failure" ? Object.freeze({ kind: "defer" }) : Object.freeze({ kind: "ignore" });
+  const sharedDefer = analysis.policies.some(
+    (policy) =>
+      policy.name === "generic-read-only" &&
+      policy.decision === "defer" &&
+      (policy.readOnly?.tool === "strace" || policy.readOnly?.tool === "dynamic-executable"),
+  );
+  if (own.length === 0)
+    return sharedDefer || analysis.outcome.kind === "failure"
+      ? Object.freeze({ kind: "defer" })
+      : Object.freeze({ kind: "ignore" });
   const denied = own.find((policy) => policy.decision === "deny");
-  if (denied) return Object.freeze({ kind: "deny", profile, reason: denied.reason ?? `${profile} denied the Bash command` });
+  if (denied)
+    return Object.freeze({ kind: "deny", profile, reason: denied.reason ?? `${profile} denied the Bash command` });
   const ownSpans = new Set(own.map(policySpan));
-  const foreign = analysis.policies.some((policy) => !belongsToProfile(policy, profile) && (!isBaselineEvidence(policy) || !ownSpans.has(policySpan(policy))));
-  if (sharedDefer || foreign || own.some((policy) => policy.decision !== "allow") || analysis.verdict.kind !== "allow") return Object.freeze({ kind: "defer" });
-  return Object.freeze({ kind: "allow", profile, reason: own[0]!.reason ?? `${profile} auto-allowed the Bash command` });
+  const foreign = analysis.policies.some(
+    (policy) =>
+      !belongsToProfile(policy, profile) && (!isBaselineEvidence(policy) || !ownSpans.has(policySpan(policy))),
+  );
+  if (sharedDefer || foreign || own.some((policy) => policy.decision !== "allow") || analysis.verdict.kind !== "allow")
+    return Object.freeze({ kind: "defer" });
+  return Object.freeze({
+    kind: "allow",
+    profile,
+    reason: own[0]!.reason ?? `${profile} auto-allowed the Bash command`,
+  });
 }
 function enabledProfiles(snapshot: BashProfileSnapshot): BashPermissionProfile[] {
   const profiles: BashPermissionProfile[] = [];
@@ -155,9 +272,13 @@ function enabledProfiles(snapshot: BashProfileSnapshot): BashPermissionProfile[]
   for (const [profile] of STRICT_BASH_PROFILE_EXECUTABLES) if (snapshot.strictProfiles[profile]) profiles.push(profile);
   return profiles;
 }
-function selectPermission(snapshot: BashProfileSnapshot, profiles: Readonly<Record<BashPermissionProfile, BashConfiguredPermissionDecision>>): BashConfiguredPermissionDecision {
+function selectPermission(
+  snapshot: BashProfileSnapshot,
+  profiles: Readonly<Record<BashPermissionProfile, BashConfiguredPermissionDecision>>,
+): BashConfiguredPermissionDecision {
   for (const profile of enabledProfiles(snapshot)) if (profiles[profile]?.kind === "deny") return profiles[profile]!;
-  for (const profile of enabledProfiles(snapshot)) if (profiles[profile] && profiles[profile]!.kind !== "ignore") return profiles[profile]!;
+  for (const profile of enabledProfiles(snapshot))
+    if (profiles[profile] && profiles[profile]!.kind !== "ignore") return profiles[profile]!;
   return Object.freeze({ kind: "ignore" });
 }
 function belongsToProfile(policy: PolicyEvidence, profile: BashPermissionProfile): boolean {
@@ -165,13 +286,42 @@ function belongsToProfile(policy: PolicyEvidence, profile: BashPermissionProfile
   if (profile === "ghApiReadOnly") return policy.name === "gh-api";
   if (profile === "ghReadOnly") return policy.name === "gh-read-only";
   if (profile === "readOnlyBash") return policy.name === "generic-read-only";
-  return policy.name === "strict-read-only" && STRICT_BASH_PROFILE_EXECUTABLES.some(([name, executable]) => name === profile && executable === policy.readOnly?.tool);
+  return (
+    policy.name === "strict-read-only" &&
+    STRICT_BASH_PROFILE_EXECUTABLES.some(
+      ([name, executable]) => name === profile && executable === policy.readOnly?.tool,
+    )
+  );
 }
-function isBaselineEvidence(policy: PolicyEvidence): boolean { return ["secret-read", "github-http", "kubectl", "unsupported-shell-source"].includes(policy.name); }
-function policySpan(policy: PolicyEvidence): string { return policy.span ? `${policy.span.start}:${policy.span.end}` : "unproven"; }
+function isBaselineEvidence(policy: PolicyEvidence): boolean {
+  return ["secret-read", "github-http", "kubectl", "unsupported-shell-source"].includes(policy.name);
+}
+function policySpan(policy: PolicyEvidence): string {
+  return policy.span ? `${policy.span.start}:${policy.span.end}` : "unproven";
+}
 function guardEvaluation(analysis: BashAuthorizationAnalysis): BashGuardEvaluation {
-  const policy = analysis.policies.find((candidate) => candidate.decision === "deny" && ["secret-read", "github-http", "kubectl", "unsupported-shell-source", "gh-pr-create"].includes(candidate.name));
-  return policy ? Object.freeze({ kind: "block", reason: policy.reason ?? `${policy.name} is blocked`, policy, policies: analysis.policies }) : Object.freeze({ kind: "pass", status: analysis.outcome.kind === "safe" ? "complete" : analysis.outcome.kind === "failure" ? "failure" : "indeterminate", policies: analysis.policies });
+  const policy = analysis.policies.find(
+    (candidate) =>
+      candidate.decision === "deny" &&
+      ["secret-read", "github-http", "kubectl", "unsupported-shell-source", "gh-pr-create"].includes(candidate.name),
+  );
+  return policy
+    ? Object.freeze({
+        kind: "block",
+        reason: policy.reason ?? `${policy.name} is blocked`,
+        policy,
+        policies: analysis.policies,
+      })
+    : Object.freeze({
+        kind: "pass",
+        status:
+          analysis.outcome.kind === "safe"
+            ? "complete"
+            : analysis.outcome.kind === "failure"
+              ? "failure"
+              : "indeterminate",
+        policies: analysis.policies,
+      });
 }
 
 /** Analyze Bash exclusively through the supplied loaded generic policy set. */
@@ -182,29 +332,52 @@ export function analyzeBashWithPolicies(options: BashPolicyAnalysisOptions): Bas
   const program = parsed.kind === "parse-failure" ? parsed.program : parsed;
   const events: BashPolicyEvent[] = [];
   if (parsed.kind === "parse-failure") {
-    events.push(projectExecutionGapEvent("source-parse-failure", {
-      environment,
-      span: parsed.span,
-      provenance: { route: ["direct"] },
-      inPipeline: false,
-      processEffect: "none",
-    }));
+    events.push(
+      projectExecutionGapEvent("source-parse-failure", {
+        environment,
+        span: parsed.span,
+        provenance: { route: ["direct"] },
+        inPipeline: false,
+        processEffect: "none",
+      }),
+    );
   }
   const registry = createCommandRegistry();
-  const initial = walkProgram(program, {
-    environment,
-    dispatchCommand: (request) => dispatchCommand(request, registry),
-    preflightCommand: (request) => preflightCommand(request, registry),
-    recordPolicyEvent: (event) => events.push(event),
-    cwd: options.cwd ?? "/",
-    executableFilesystem: options.executableFilesystem ?? unavailableExecutableFilesystem,
-  }, parsed.kind === "parse-failure" ? failure(parsed.span) : undefined);
+  const initial = walkProgram(
+    program,
+    {
+      environment,
+      dispatchCommand: (request) => dispatchCommand(request, registry),
+      preflightCommand: (request) => preflightCommand(request, registry),
+      recordPolicyEvent: (event) => {
+        events.push(event);
+        if (event.kind === "invocation" && (event.ownRedirects ?? event.redirects).some(redirectIsUnmodeled)) {
+          events.push(
+            projectExecutionGapEvent("unsupported-shell-redirect", {
+              environment,
+              span: event.span,
+              provenance: event.provenance,
+              inPipeline: event.inPipeline,
+              processEffect: event.processEffect,
+            }),
+          );
+        }
+      },
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+      executableFilesystem: options.executableFilesystem ?? unavailableExecutableFilesystem,
+    },
+    parsed.kind === "parse-failure" ? failure(parsed.span) : undefined,
+  );
   const completed = runSteps(initial, limits);
   const analysis = Object.freeze({ complete: completed.outcome.kind !== "failure" });
   const evaluated = evaluatePolicyEvents(Object.freeze([...events]), options.policies, analysis);
+  const commandDecision = completed.outcome.kind === "deny" ? "deny" : evaluated.decision;
+  const fileAccesses = shellFileAccesses(events);
   return Object.freeze({
     // Structural walker denials always win, independent of policy coverage.
-    decision: completed.outcome.kind === "deny" ? "deny" : evaluated.decision,
+    decision: commandDecision === "allow" && fileAccesses.length > 0 ? "defer" : commandDecision,
+    commandDecision,
+    fileAccesses,
     traces: evaluated.traces,
     events: Object.freeze([...events]),
     analysis,

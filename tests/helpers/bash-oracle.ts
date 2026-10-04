@@ -82,7 +82,10 @@ async function runOracle(
   source: string,
   knownEnvironment: Readonly<Record<string, string>>,
   finalBindingNames: readonly string[] = [],
-): Promise<{ readonly trace: readonly BashOracleTrace[]; readonly finalBindings?: Readonly<Record<string, BashOracleFinalBinding>> }> {
+): Promise<{
+  readonly trace: readonly BashOracleTrace[];
+  readonly finalBindings?: Readonly<Record<string, BashOracleFinalBinding>>;
+}> {
   const directory = mkdtempSync(join(tmpdir(), "safety-core-bash-oracle-"));
   const tracePath = join(directory, "trace");
   const shimPath = join(directory, "record-command");
@@ -90,7 +93,9 @@ async function runOracle(
   if (!bashPath) throw new Error("Bash is required for the oracle test fixture");
 
   try {
-    writeFileSync(shimPath, `#!${bashPath}
+    writeFileSync(
+      shimPath,
+      `#!${bashPath}
 set -eu
 names=()
 # compgen is optional in Bash builds, while export -p is always available.
@@ -111,7 +116,8 @@ done < <(export -p)
     printf '%s\\0%s\\0' "$name" "\${!name}"
   done
 } >> "$BASH_ORACLE_TRACE"
-`);
+`,
+    );
     chmodSync(shimPath, 0o755);
 
     const process = Bun.spawn([bashPath, "--noprofile", "--norc", "-c", source], {
@@ -138,7 +144,10 @@ done < <(export -p)
 function parseTrace(
   contents: Buffer,
   finalBindingNames: readonly string[],
-): { readonly trace: readonly BashOracleTrace[]; readonly finalBindings?: Readonly<Record<string, BashOracleFinalBinding>> } {
+): {
+  readonly trace: readonly BashOracleTrace[];
+  readonly finalBindings?: Readonly<Record<string, BashOracleFinalBinding>>;
+} {
   const fields = contents.toString("utf8").split("\0");
   if (fields.at(-1) === "") fields.pop();
   const trace: BashOracleTrace[] = [];
@@ -155,12 +164,18 @@ function parseTrace(
         const name = fields[offset++];
         const kind = fields[offset++];
         const exported = fields[offset++];
-        if (!name || !isSafeBindingName(name) || (kind !== "set" && kind !== "unset") || (exported !== "0" && exported !== "1")) {
+        if (
+          !name ||
+          !isSafeBindingName(name) ||
+          (kind !== "set" && kind !== "unset") ||
+          (exported !== "0" && exported !== "1")
+        ) {
           throw new Error("Invalid Bash oracle trace");
         }
         bindings[name] = Object.freeze({ kind, exported: exported === "1" });
       }
-      if (!sameStrings(Object.keys(bindings).sort(), [...finalBindingNames].sort())) throw new Error("Invalid Bash oracle trace");
+      if (!sameStrings(Object.keys(bindings).sort(), [...finalBindingNames].sort()))
+        throw new Error("Invalid Bash oracle trace");
       finalBindings = Object.freeze(bindings);
       continue;
     }
@@ -173,7 +188,13 @@ function parseTrace(
     for (let index = 0; index < environmentLength; index++) {
       const name = fields[offset++];
       const value = fields[offset++];
-      if (name === undefined || value === undefined || !isSafeBindingName(name) || name.startsWith("BASH_ORACLE_") || name === "PATH") {
+      if (
+        name === undefined ||
+        value === undefined ||
+        !isSafeBindingName(name) ||
+        name.startsWith("BASH_ORACLE_") ||
+        name === "PATH"
+      ) {
         throw new Error("Invalid Bash oracle trace");
       }
       environment[name] = value;

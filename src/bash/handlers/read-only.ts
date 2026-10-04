@@ -1,7 +1,7 @@
 import type { PolicyObserver } from "../dispatch.js";
 import { STRICT_READ_ONLY_COMMANDS } from "../policies/read-only.js";
-import { gitReadOnlyHandler } from "./command-git-read-only.js";
 import { ghReadOnlyHandler } from "./command-gh-read-only.js";
+import { gitReadOnlyHandler } from "./command-git-read-only.js";
 import { sha256sumReadOnlyHandler } from "./command-sha256sum-read-only.js";
 import { straceReadOnlyHandler } from "./command-strace-read-only.js";
 import { strictReadOnlyHandler } from "./command-strict-read-only.js";

@@ -1,11 +1,31 @@
 import type { StructuralDispatchContext } from "../dispatch.js";
+import {
+  assignBinding,
+  fromInitialEnvironment,
+  known as knownBinding,
+  setExported,
+  unsetBinding,
+} from "../environment.js";
 import type { ResolvedWord } from "../expand.js";
-import { assignBinding, fromInitialEnvironment, known as knownBinding, setExported, unsetBinding } from "../environment.js";
 import { indeterminate } from "../outcome.js";
-import { childInvocationFrom, isKnown, known, resolveLongOption, taintWrapperResult, wrapperHandler } from "./wrapper-utils.js";
+import {
+  childInvocationFrom,
+  isKnown,
+  known,
+  resolveLongOption,
+  taintWrapperResult,
+  wrapperHandler,
+} from "./wrapper-utils.js";
 
 const ENV_VALUE_OPTIONS = new Set(["--unset", "--chdir", "--argv0", "--split-string"]);
-const ENV_FLAGS = new Set(["--ignore-environment", "--null", "--debug", "--list-signal-handling", "--help", "--version"]);
+const ENV_FLAGS = new Set([
+  "--ignore-environment",
+  "--null",
+  "--debug",
+  "--list-signal-handling",
+  "--help",
+  "--version",
+]);
 const ENV_OPTIONAL_VALUE_OPTIONS = new Set(["--block-signal", "--default-signal", "--ignore-signal"]);
 const ENV_LONG_OPTIONS = [...ENV_VALUE_OPTIONS, ...ENV_FLAGS, ...ENV_OPTIONAL_VALUE_OPTIONS];
 
@@ -17,14 +37,16 @@ function parseEnv(initialArguments: readonly ResolvedWord[], context: Structural
   let environment = context.environment;
   let unsafe = false;
   let splitCount = 0;
+  let optionsEnded = false;
   argumentLoop: while (index < arguments_.length) {
     const argument = known(arguments_[index]!, context);
     if (typeof argument !== "string") return argument;
-    if (argument === "--") {
-      const result = childInvocationFrom(arguments_, index + 1, context, environment, "exec-replace");
-      return unsafe ? taintWrapperResult(result, context) : result;
+    if (!optionsEnded && argument === "--") {
+      optionsEnded = true;
+      index++;
+      continue;
     }
-    const long = resolveLongOption(argument, ENV_LONG_OPTIONS);
+    const long = optionsEnded ? undefined : resolveLongOption(argument, ENV_LONG_OPTIONS);
     if (long) {
       if (long.kind === "ambiguous") return indeterminate(context.span);
       const option = long.option;
@@ -36,8 +58,13 @@ function parseEnv(initialArguments: readonly ResolvedWord[], context: Structural
         continue;
       }
       if (ENV_VALUE_OPTIONS.has(option)) {
-        if (long.value === undefined && !isKnown(arguments_[index + 1])) return indeterminate(context.span);
-        const value = long.value ?? arguments_[index + 1]!.value;
+        const next = arguments_[index + 1];
+        let value: string;
+        if (long.value !== undefined) value = long.value;
+        else {
+          if (!isKnown(next)) return indeterminate(context.span);
+          value = next.value;
+        }
         unsafe = true;
         if (option === "--unset") environment = unsetBinding(environment, value);
         if (option === "--split-string") {
@@ -59,32 +86,33 @@ function parseEnv(initialArguments: readonly ResolvedWord[], context: Structural
       index++;
       continue;
     }
-    if (argument === "-" || argument === "-i" || argument === "--ignore-environment") {
+    if (!optionsEnded && (argument === "-" || argument === "-i" || argument === "--ignore-environment")) {
       environment = fromInitialEnvironment({}, environment.budgets, "unset");
       unsafe = true;
       index++;
       continue;
     }
-    if (argument === "-u" || argument === "--unset") {
-      if (!isKnown(arguments_[index + 1])) return indeterminate(context.span);
-      environment = unsetBinding(environment, arguments_[index + 1]!.value);
+    if (!optionsEnded && (argument === "-u" || argument === "--unset")) {
+      const next = arguments_[index + 1];
+      if (!isKnown(next)) return indeterminate(context.span);
+      environment = unsetBinding(environment, next.value);
       unsafe = true;
       index += 2;
       continue;
     }
-    if (argument === "-C" || argument === "--chdir") {
-      if (!isKnown(arguments_[index + 1])) return indeterminate(context.span);
-      unsafe = true;
-      index += 2;
-      continue;
-    }
-    if (argument === "-a" || argument === "--argv0") {
+    if (!optionsEnded && (argument === "-C" || argument === "--chdir")) {
       if (!isKnown(arguments_[index + 1])) return indeterminate(context.span);
       unsafe = true;
       index += 2;
       continue;
     }
-    if (argument === "-S" || argument === "--split-string") {
+    if (!optionsEnded && (argument === "-a" || argument === "--argv0")) {
+      if (!isKnown(arguments_[index + 1])) return indeterminate(context.span);
+      unsafe = true;
+      index += 2;
+      continue;
+    }
+    if (!optionsEnded && (argument === "-S" || argument === "--split-string")) {
       const value = arguments_[index + 1];
       if (!isKnown(value) || ++splitCount > 8) return indeterminate(context.span);
       const split = splitEnvString(value.value);
@@ -93,36 +121,38 @@ function parseEnv(initialArguments: readonly ResolvedWord[], context: Structural
       unsafe = true;
       continue;
     }
-    if (argument.startsWith("--unset=")) {
+    if (!optionsEnded && argument.startsWith("--unset=")) {
       environment = unsetBinding(environment, argument.slice("--unset=".length));
       unsafe = true;
       index++;
       continue;
     }
-    if (argument.startsWith("--chdir=")) {
+    if (!optionsEnded && argument.startsWith("--chdir=")) {
       unsafe = true;
       index++;
       continue;
     }
-    if (argument.startsWith("--argv0=")) {
+    if (!optionsEnded && argument.startsWith("--argv0=")) {
       unsafe = true;
       index++;
       continue;
     }
-    if (argument.startsWith("--split-string=")) {
+    if (!optionsEnded && argument.startsWith("--split-string=")) {
       if (++splitCount > 8) return indeterminate(context.span);
-      const value = argument.startsWith("--split-string=") ? argument.slice("--split-string=".length) : argument.slice(2);
+      const value = argument.startsWith("--split-string=")
+        ? argument.slice("--split-string=".length)
+        : argument.slice(2);
       const split = splitEnvString(value);
       if (!split || arguments_.length + split.length > 256) return indeterminate(context.span);
       arguments_ = [...arguments_.slice(0, index), ...split.map(resolved), ...arguments_.slice(index + 1)];
       unsafe = true;
       continue;
     }
-    if (["-0", "--null", "-v", "--debug", "--list-signal-handling"].includes(argument)) {
+    if (!optionsEnded && ["-0", "--null", "-v", "--debug", "--list-signal-handling"].includes(argument)) {
       index++;
       continue;
     }
-    if (/^-[^-].+/.test(argument)) {
+    if (!optionsEnded && /^-[^-].+/.test(argument)) {
       for (let offset = 1; offset < argument.length; offset++) {
         const option = argument[offset]!;
         if (option === "i") {
@@ -135,8 +165,11 @@ function parseEnv(initialArguments: readonly ResolvedWord[], context: Structural
         const attached = argument.slice(offset + 1);
         const separate = attached.length === 0;
         const next = separate ? arguments_[index + 1] : undefined;
-        if (separate && !isKnown(next)) return indeterminate(context.span);
-        const value = separate ? next!.value : attached;
+        let value = attached;
+        if (separate) {
+          if (!isKnown(next)) return indeterminate(context.span);
+          value = next.value;
+        }
         unsafe = true;
         if (option === "u") environment = unsetBinding(environment, value);
         if (option === "S") {
@@ -156,20 +189,30 @@ function parseEnv(initialArguments: readonly ResolvedWord[], context: Structural
       index++;
       continue;
     }
-    if (["--block-signal", "--default-signal", "--ignore-signal"].includes(argument)
-      || /^(?:--block-signal|--default-signal|--ignore-signal)=/.test(argument)) {
+    if (
+      !optionsEnded &&
+      (["--block-signal", "--default-signal", "--ignore-signal"].includes(argument) ||
+        /^(?:--block-signal|--default-signal|--ignore-signal)=/.test(argument))
+    ) {
       unsafe = true;
       index++;
       continue;
     }
     const assigned = assignment(argument);
     if (assigned) {
-      environment = setExported(assignBinding(environment, assigned.name, knownBinding(assigned.value)), assigned.name, true);
+      environment = setExported(
+        assignBinding(environment, assigned.name, knownBinding(assigned.value)),
+        assigned.name,
+        true,
+      );
       unsafe = true;
+      // GNU env stops recognizing options at its first assignment operand. A
+      // subsequent dash-leading word is therefore the command to execute.
+      optionsEnded = true;
       index++;
       continue;
     }
-    if (argument.startsWith("-")) return indeterminate(context.span);
+    if (!optionsEnded && argument.startsWith("-")) return indeterminate(context.span);
     const result = childInvocationFrom(arguments_, index, context, environment, "exec-replace");
     return unsafe ? taintWrapperResult(result, context) : result;
   }
@@ -195,8 +238,15 @@ function splitEnvString(value: string): string[] | undefined {
       continue;
     }
     if (character === "'" || character === '"') {
-      if (!quote) { quote = character; started = true; continue; }
-      if (quote === character) { quote = undefined; continue; }
+      if (!quote) {
+        quote = character;
+        started = true;
+        continue;
+      }
+      if (quote === character) {
+        quote = undefined;
+        continue;
+      }
     }
     if (character === "\\" && quote !== "'") {
       const escaped = value[++index];
@@ -215,6 +265,6 @@ function splitEnvString(value: string): string[] | undefined {
 }
 
 function assignment(value: string): { readonly name: string; readonly value: string } | undefined {
-  const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s.exec(value);
+  const match = /^([^=]*)=(.*)$/s.exec(value);
   return match ? { name: match[1]!, value: match[2]! } : undefined;
 }

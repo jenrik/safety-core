@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "types": ["bun"],
+    "baseUrl": ".",
+    "paths": {
+      "@safety-core/core": ["src/index.ts"],
+      "@safety-core/core/cli": ["src/cli.ts"],
+      "@safety-core/opencode-v1/server": ["packages/opencode-v1/server.ts"],
+      "@safety-core/opencode-v1/tui": ["packages/opencode-v1/tui.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "adapters/**/*.ts", "packages/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"]
+}

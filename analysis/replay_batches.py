@@ -30,7 +30,9 @@ def isolate_timed_out_items(
                 timed_out.append(item)
                 continue
             if len(result) != 1:
-                raise ValueError("Singleton replay result count does not match its input")
+                raise ValueError(
+                    "Singleton replay result count does not match its input"
+                )
             resolved.append((item, result[0]))
         return resolved, timed_out
 

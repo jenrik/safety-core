@@ -2,17 +2,16 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { initBashParser, parseBashProgram } from "../src/index.ts";
-import { expandWord, normalizeCommand, normalizedInvocation, symbolicWordShape, type ResolvedWord } from "../src/bash/expand.ts";
-import {
-  fromInitialEnvironment,
-  known,
-  lookupBinding,
-  unknown,
-  unset,
-} from "../src/bash/environment.ts";
 import type { BashCommand, BashConcatenationWord, BashWord } from "../src/bash/cst.ts";
+import { fromInitialEnvironment, known, lookupBinding, unknown, unset } from "../src/bash/environment.ts";
+import {
+  expandWord,
+  normalizeCommand,
+  normalizedInvocation,
+  type ResolvedWord,
+  symbolicWordShape,
+} from "../src/bash/expand.ts";
+import { initBashParser, parseBashProgram } from "../src/index.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-bash-expand-"));
 
@@ -25,10 +24,7 @@ beforeAll(async () => {
       : join(process.cwd(), "node_modules", "tree-sitter-bash", "tree-sitter-bash.wasm"),
     join(wasmDir, "tree-sitter-bash.wasm"),
   );
-  symlinkSync(
-    join(process.cwd(), "node_modules", "web-tree-sitter"),
-    join(wasmDir, "node_modules", "web-tree-sitter"),
-  );
+  symlinkSync(join(process.cwd(), "node_modules", "web-tree-sitter"), join(wasmDir, "node_modules", "web-tree-sitter"));
   await initBashParser(wasmDir);
 });
 
@@ -41,7 +37,7 @@ describe("static Bash word expansion", () => {
 
     const invocation = normalizedInvocation(words, environment);
 
-    expect(invocation.executable).toEqual(words[0]);
+    expect(invocation.executable).toEqual(words[0]!);
     expect(invocation.argv).toEqual(words.slice(1));
     expect(invocation.environment).toBe(environment);
     expect(invocation.redirects).toEqual([]);
@@ -54,7 +50,9 @@ describe("static Bash word expansion", () => {
       const words = values.map((value) => ({ kind: "known" as const, value }));
       const invocation = normalizedInvocation(words, fromInitialEnvironment());
 
-      expect([invocation.executable, ...invocation.argv].map((word) => word?.kind === "known" ? word.value : null)).toEqual(values);
+      expect(
+        [invocation.executable, ...invocation.argv].map((word) => (word?.kind === "known" ? word.value : null)),
+      ).toEqual(values);
     }
   });
 
@@ -120,14 +118,16 @@ describe("static Bash word expansion", () => {
     const referenced = commandNode.words[1]!;
     const normalized = normalizeCommand(commandNode, fromInitialEnvironment({ COMMAND: unknown({ kind: "ambient" }) }));
 
-    expect(normalized.argv).toEqual([{
-      kind: "unknown",
-      reason: {
-        kind: "unknown-variable",
-        variable: "F",
-        span: referenced.span,
+    expect(normalized.argv).toEqual([
+      {
+        kind: "unknown",
+        reason: {
+          kind: "unknown-variable",
+          variable: "F",
+          span: referenced.span,
+        },
       },
-    }]);
+    ]);
     expect(normalized.argv[0]).not.toHaveProperty("value");
   });
 
@@ -156,11 +156,7 @@ describe("static Bash word expansion", () => {
     const pure = expandWord(word("$(opaque-command)"), fromInitialEnvironment());
 
     expect(symbolicWordShape(quoted)).toEqual({
-      fragments: [
-        { kind: "literal", value: "prefix-" },
-        { kind: "unknown" },
-        { kind: "literal", value: "-suffix" },
-      ],
+      fragments: [{ kind: "literal", value: "prefix-" }, { kind: "unknown" }, { kind: "literal", value: "-suffix" }],
       fields: "one",
     });
     expect(symbolicWordShape(unquoted)).toMatchObject({ fields: "one-or-more" });
@@ -192,11 +188,14 @@ describe("static Bash word expansion", () => {
     expect(normalizeCommand(command("echo $VALUE"), empty).argv[0]).toMatchObject({ kind: "unknown" });
     expect(normalizeCommand(command("echo $VALUE"), glob).argv[0]).toMatchObject({ kind: "unknown" });
     expect(normalizeCommand(command("echo ok >$VALUE"), split).redirects[0]?.target).toMatchObject({ kind: "unknown" });
-    expect(normalizeCommand(command("echo \"$VALUE\""), split).argv).toEqual([{ kind: "known", value: "two words" }]);
+    expect(normalizeCommand(command('echo "$VALUE"'), split).argv).toEqual([{ kind: "known", value: "two words" }]);
   });
 
   test("keeps assignment RHS expansion known despite unquoted field and pathname characters", () => {
-    const normalized = normalizeCommand(command("TARGET=$VALUE echo ok"), fromInitialEnvironment({ VALUE: "two words" }));
+    const normalized = normalizeCommand(
+      command("TARGET=$VALUE echo ok"),
+      fromInitialEnvironment({ VALUE: "two words" }),
+    );
 
     expect(lookupBinding(normalized.environment, "TARGET").value).toEqual(known("two words"));
   });
@@ -209,7 +208,9 @@ describe("static Bash word expansion", () => {
 
     expect(normalizeCommand(command("echo $VALUE"), defaultIfs).argv).toEqual([{ kind: "known", value: "stable" }]);
     expect(normalizeCommand(command("echo $VALUE"), customIfs).argv[0]).toMatchObject({ kind: "unknown" });
-    expect(normalizeCommand(command("echo $VALUE"), disabledIfs).argv).toEqual([{ kind: "known", value: "left:right" }]);
+    expect(normalizeCommand(command("echo $VALUE"), disabledIfs).argv).toEqual([
+      { kind: "known", value: "left:right" },
+    ]);
     expect(normalizeCommand(command("echo $VALUE"), unknownIfs).argv[0]).toMatchObject({ kind: "unknown" });
   });
 
@@ -226,18 +227,22 @@ describe("static Bash word expansion", () => {
     const input: BashConcatenationWord = {
       kind: "concatenation",
       text: "safe-opaque",
-      parts: [{
-        kind: "concatenation",
-        text: "opaque",
-        parts: [{
-          kind: "unsupported-word",
+      parts: [
+        {
+          kind: "concatenation",
           text: "opaque",
-          reason: "adapter-specific",
-          statements: [],
+          parts: [
+            {
+              kind: "unsupported-word",
+              text: "opaque",
+              reason: "adapter-specific",
+              statements: [],
+              span: { start: 5, end: 11 },
+            },
+          ],
           span: { start: 5, end: 11 },
-        }],
-        span: { start: 5, end: 11 },
-      }],
+        },
+      ],
       span: { start: 0, end: 11 },
     };
 
@@ -248,23 +253,34 @@ describe("static Bash word expansion", () => {
   });
 
   test("removes unquoted and double-quoted backslash-newline continuations", () => {
-    expect(expandWord(rawWord("before\\\nafter"), fromInitialEnvironment())).toEqual({ kind: "known", value: "beforeafter" });
-    expect(expandWord(rawWord('"before\\\nafter"'), fromInitialEnvironment())).toEqual({ kind: "known", value: "beforeafter" });
+    expect(expandWord(rawWord("before\\\nafter"), fromInitialEnvironment())).toEqual({
+      kind: "known",
+      value: "beforeafter",
+    });
+    expect(expandWord(rawWord('"before\\\nafter"'), fromInitialEnvironment())).toEqual({
+      kind: "known",
+      value: "beforeafter",
+    });
   });
 
   test("does not claim an exact result for backslash-CRLF", () => {
     for (const input of [rawWord("before\\\r\nafter"), rawWord('"before\\\r\nafter"')]) {
-      expect(expandWord(input, fromInitialEnvironment())).toMatchObject({ kind: "unknown", reason: { span: input.span } });
+      expect(expandWord(input, fromInitialEnvironment())).toMatchObject({
+        kind: "unknown",
+        reason: { span: input.span },
+      });
     }
   });
 
   test("expands redirect targets against the caller environment", () => {
     const normalized = normalizeCommand(command("OUT=result echo ok >$OUT"), fromInitialEnvironment());
 
-    expect(normalized.redirects).toMatchObject([{
-      kind: "output",
-      target: { kind: "unknown", reason: { variable: "OUT" } },
-    }]);
+    expect(normalized.redirects).toMatchObject([
+      {
+        kind: "output",
+        target: { kind: "unknown", reason: { variable: "OUT" } },
+      },
+    ]);
   });
 
   test("keeps prefix assignments in the normalized command overlay only", () => {
@@ -305,11 +321,21 @@ describe("static Bash word expansion", () => {
     expect(Object.isFrozen((unknownArgument as { reason: object }).reason)).toBeTrue();
     expect(Object.isFrozen((unknownArgument as { reason: { span: object } }).reason.span)).toBeTrue();
     expect(Object.isFrozen(redirect)).toBeTrue();
-    expect(() => { (normalized as { executable: unknown }).executable = null; }).toThrow();
-    expect(() => { (normalized.argv as ResolvedWord[]).push({ kind: "known", value: "changed" }); }).toThrow();
-    expect(() => { (normalized.redirects as typeof normalized.redirects extends readonly (infer T)[] ? T[] : never).push(redirect); }).toThrow();
-    expect(() => { ((unknownArgument as { reason: { span: { start: number } } }).reason.span).start = 99; }).toThrow();
-    expect(() => { (normalized.assignmentPatch.writes as Set<string>).add("CHANGED"); }).toThrow();
+    expect(() => {
+      (normalized as { executable: unknown }).executable = null;
+    }).toThrow();
+    expect(() => {
+      (normalized.argv as ResolvedWord[]).push({ kind: "known", value: "changed" });
+    }).toThrow();
+    expect(() => {
+      (normalized.redirects as typeof normalized.redirects extends readonly (infer T)[] ? T[] : never).push(redirect);
+    }).toThrow();
+    expect(() => {
+      (unknownArgument as { reason: { span: { start: number } } }).reason.span.start = 99;
+    }).toThrow();
+    expect(() => {
+      (normalized.assignmentPatch.writes as Set<string>).add("CHANGED");
+    }).toThrow();
     expect(normalized.argv[0]).toMatchObject({ kind: "unknown", reason: { variable: "MISSING" } });
     expect(redirect.target).toMatchObject({ kind: "unknown", reason: { variable: "F" } });
     expect(normalized.redirects).toEqual([redirect]);
@@ -339,11 +365,15 @@ describe("static Bash word expansion", () => {
         observed.push(name);
       }
 
-      const normalized = normalizeCommand(command(`${assignments.join(" ")} echo ${observed.map((name) => `$${name}`).join(" ")}`), fromInitialEnvironment());
+      const normalized = normalizeCommand(
+        command(`${assignments.join(" ")} echo ${observed.map((name) => `$${name}`).join(" ")}`),
+        fromInitialEnvironment(),
+      );
       expect(normalized.argv).toHaveLength(observed.length);
       expect(normalized.argv.every((word) => word.kind === "unknown")).toBeTrue();
-      expect(observed.map((name) => lookupBinding(normalized.environment, name).value))
-        .toEqual(observed.map((name) => known(expected.get(name)!)));
+      expect(observed.map((name) => lookupBinding(normalized.environment, name).value)).toEqual(
+        observed.map((name) => known(expected.get(name)!)),
+      );
     }
   });
 

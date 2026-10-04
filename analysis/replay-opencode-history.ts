@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { replayHistoricalBashEvents, type HistoricalBashEvent } from "./opencode-history-adapter.ts";
+import { type HistoricalBashEvent, replayHistoricalBashEvents } from "./opencode-history-adapter.ts";
 
 const input = await Bun.stdin.text();
 const events = JSON.parse(input) as unknown;

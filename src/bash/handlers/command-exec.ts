@@ -1,7 +1,7 @@
 import type { StructuralDispatchContext } from "../dispatch.js";
 import type { ResolvedWord } from "../expand.js";
+import { type OptionGrammar, scanOptions } from "../options.js";
 import { indeterminate } from "../outcome.js";
-import { scanOptions, type OptionGrammar } from "../options.js";
 import { childInvocationFrom, taintWrapperResult, wrapperHandler } from "./wrapper-utils.js";
 
 export const execHandler = wrapperHandler("exec", parseExec);

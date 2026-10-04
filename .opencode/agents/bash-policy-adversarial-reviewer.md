@@ -16,9 +16,23 @@ Reject the review as inconclusive when `<policy_name>.scope.md` is missing. Veri
 
 ## CLI Evidence
 
-Use the packaged `safety-core` CLI as independent runtime evidence. Review only a supplied existing or temporary non-secret configuration that selects the exact policy under review. Run `safety-core validate` and verify its canonical paths and digests include that policy. If the policy is absent, startup fails, or the evidence does not identify the loaded source, report the review as inconclusive.
+Use the latest checked-out `safety-core` CLI as independent runtime evidence:
+run `bun src/cli.ts` from the repository root, rather than a globally installed
+or stale Nix-packaged CLI. Review only a supplied existing or temporary
+non-secret configuration that selects the exact policy under review. Run `bun
+src/cli.ts --config /absolute/config.json validate` and verify its canonical
+paths and digests include that policy. If the policy is absent, startup fails,
+or the evidence does not identify the loaded source, report the review as
+inconclusive. If a packaged CLI is also supplied, report any behavioral
+disagreement as packaging evidence, but treat the checked-out CLI as
+authoritative for the review.
 
-Run `safety-core explain --json -- '<bash-source>'` for the supplied expected `permit`, `defer`, and `deny` examples and for any natural gaps you identify within scope. Compare modeled events, argv, and the final decision with the stated scope and tests. The CLI does not replace direct or property tests, but disagreement between a trace and the claimed behavior is a finding.
+Run `bun src/cli.ts --config /absolute/config.json explain --json -- '<bash-source>'`
+for the supplied expected `permit`, `defer`, and `deny` examples and for any
+natural gaps you identify within scope. Compare modeled events, argv, and the
+final decision with the stated scope and tests. The CLI does not replace direct
+or property tests, but disagreement between a trace and the claimed behavior is
+a finding.
 
 Always sanitize the CLI environment and use synthetic non-secret values. `explain --json` emits inherited environment values in its trace; use an explicit configuration file and a minimal environment such as `env -i PATH="$PATH" safety-core --config /absolute/config.json ...`, adding only reviewed non-secret variables needed for a case.
 

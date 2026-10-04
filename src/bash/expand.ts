@@ -1,17 +1,18 @@
-import { stripQuotes } from "../shell.js";
 import { detectBlockedDomain, isGithubGraphqlEndpoint } from "../github.js";
-import type { BashCommand, BashRedirectKind, BashWord, SourceSpan } from "./cst.js";
+import { stripQuotes } from "../shell.js";
+import type { BashCommand, BashRedirect, BashRedirectKind, BashWord, SourceSpan } from "./cst.js";
 import {
   assignBinding,
   beginCommandOverlay,
+  type Environment,
+  type EnvironmentPatch,
   hasBinding,
   known,
   lookupBinding,
   setExported,
   unknown,
-  type Environment,
-  type EnvironmentPatch,
 } from "./environment.js";
+import type { BashIoContext } from "./io.js";
 import { isBindingResolvedWord, markBindingResolvedWord } from "./word-provenance.js";
 
 export { isBindingResolvedWord } from "./word-provenance.js";
@@ -50,9 +51,7 @@ export interface ResolvedUnknownWord {
 
 export type ResolvedWord = ResolvedKnownWord | ResolvedUnknownWord;
 
-export type SymbolicWordFragment =
-  | { readonly kind: "literal"; readonly value: string }
-  | { readonly kind: "unknown" };
+export type SymbolicWordFragment = { readonly kind: "literal"; readonly value: string } | { readonly kind: "unknown" };
 
 export interface SymbolicWordShape {
   readonly fragments: readonly SymbolicWordFragment[];
@@ -69,6 +68,10 @@ export function symbolicWordShape(word: ResolvedWord): SymbolicWordShape | undef
 export interface NormalizedRedirect {
   readonly kind: BashRedirectKind;
   readonly target: ResolvedWord | null;
+  readonly operator?: string;
+  readonly descriptor?: number | null;
+  readonly content?: ResolvedWord | null;
+  readonly span?: SourceSpan;
 }
 
 /** A simple command with a fully static-or-redacted view of each word. */
@@ -83,13 +86,14 @@ export interface NormalizedCommand {
    * command-local overlay; for assignment-only commands it is persistent.
    */
   readonly assignmentPatch: EnvironmentPatch;
+  /** Effective inherited descriptor bindings, supplied by the walker. */
+  readonly io?: BashIoContext;
+  readonly inheritedRedirects?: readonly NormalizedRedirect[];
+  readonly cwd?: string | null;
 }
 
 /** Build an argv-preserving child invocation without passing through shell syntax. */
-export function normalizedInvocation(
-  words: readonly ResolvedWord[],
-  environment: Environment,
-): NormalizedCommand {
+export function normalizedInvocation(words: readonly ResolvedWord[], environment: Environment): NormalizedCommand {
   const [executable = null, ...argv] = words;
   return freeze({
     executable,
@@ -111,7 +115,7 @@ export function expandWord(word: BashWord, environment: Environment): ResolvedWo
   return expandWordInContext(word, environment, "argument");
 }
 
-type WordContext = "assignment" | "executable" | "argument" | "redirect";
+type WordContext = "assignment" | "executable" | "argument" | "redirect" | "here-string";
 
 function expandWordInContext(word: BashWord, environment: Environment, context: WordContext): ResolvedWord {
   switch (word.kind) {
@@ -139,9 +143,8 @@ export function normalizeCommand(
   sourceDerivedFromBinding = false,
 ): NormalizedCommand {
   const hasInvocation = command.words.length > 0;
-  let assignmentEnvironment = hasInvocation && command.assignments.length > 0
-    ? beginCommandOverlay(environment)
-    : environment;
+  let assignmentEnvironment =
+    hasInvocation && command.assignments.length > 0 ? beginCommandOverlay(environment) : environment;
   const writes: string[] = [];
 
   for (const assignment of command.assignments) {
@@ -155,21 +158,15 @@ export function normalizeCommand(
 
   const effectiveEnvironment = hasInvocation ? assignmentEnvironment : environment;
   const [executableWord, ...argumentWords] = command.words;
-  const executable = executableWord ? retainBindingProvenance(
-    expandWordInContext(executableWord, environment, "executable"),
-    sourceDerivedFromBinding,
-  ) : null;
-  const argv = argumentWords.map((word) => retainBindingProvenance(
-    expandWordInContext(word, environment, "argument"),
-    sourceDerivedFromBinding,
-  ));
-  const redirects = command.redirects.map((redirect) => freeze({
-    kind: redirect.kind,
-    target: redirect.target ? retainBindingProvenance(
-      expandWordInContext(redirect.target, environment, "redirect"),
-      sourceDerivedFromBinding,
-    ) : null,
-  }));
+  const executable = executableWord
+    ? retainBindingProvenance(expandWordInContext(executableWord, environment, "executable"), sourceDerivedFromBinding)
+    : null;
+  const argv = argumentWords.map((word) =>
+    retainBindingProvenance(expandWordInContext(word, environment, "argument"), sourceDerivedFromBinding),
+  );
+  const redirects = command.redirects.map((redirect) =>
+    normalizeRedirect(redirect, environment, sourceDerivedFromBinding),
+  );
   const patchEnvironment = assignmentEnvironment;
 
   return freeze({
@@ -184,7 +181,52 @@ export function normalizeCommand(
   });
 }
 
-function expandStaticText(text: string, span: SourceSpan, environment: Environment, context: WordContext): ResolvedWord {
+export function normalizeRedirect(
+  redirect: BashRedirect,
+  environment: Environment,
+  sourceDerivedFromBinding = false,
+): NormalizedRedirect {
+  const content = redirect.content
+    ? retainBindingProvenance(
+        expandWordInContext(redirect.content, environment, "here-string"),
+        sourceDerivedFromBinding,
+      )
+    : null;
+  const target = redirect.target
+    ? retainBindingProvenance(expandWordInContext(redirect.target, environment, "redirect"), sourceDerivedFromBinding)
+    : null;
+  const implicitFile =
+    redirect.kind === "duplicate" &&
+    redirect.operator === ">&" &&
+    redirect.descriptorExplicit === false &&
+    target?.kind === "known" &&
+    target.value !== "-" &&
+    !/^\d+-?$/.test(target.value);
+  return freeze({
+    kind: implicitFile
+      ? "output"
+      : redirect.kind === "duplicate" && target?.kind === "known" && target.value === "-"
+        ? "close"
+        : redirect.kind,
+    target,
+    ...(redirect.operator === undefined ? {} : { operator: implicitFile ? "&>" : redirect.operator }),
+    ...(redirect.descriptor === undefined ? {} : { descriptor: redirect.descriptor }),
+    ...(redirect.kind === "here-string"
+      ? {
+          content:
+            content?.kind === "known" ? resolvedKnown(`${content.value}\n`, isBindingResolvedWord(content)) : content,
+        }
+      : {}),
+    span: redirect.span,
+  });
+}
+
+function expandStaticText(
+  text: string,
+  span: SourceSpan,
+  environment: Environment,
+  context: WordContext,
+): ResolvedWord {
   let value = "";
   let containsBindingValue = false;
   let quote: "single" | "double" | null = null;
@@ -198,10 +240,10 @@ function expandStaticText(text: string, span: SourceSpan, environment: Environme
     }
     if (fragments.at(-1)?.kind !== "unknown") fragments.push(UNKNOWN_FRAGMENT);
     firstUnknown ??= word;
-    unknownMaySplit ||= quote === null && context !== "assignment";
+    unknownMaySplit ||= quote === null && context !== "assignment" && context !== "here-string";
   };
 
-  for (let index = 0; index < text.length;) {
+  for (let index = 0; index < text.length; ) {
     const character = text[index]!;
 
     if (character === "\\" && quote === "single") {
@@ -249,15 +291,21 @@ function expandStaticText(text: string, span: SourceSpan, environment: Environme
       index = backtickEnd(text, index + 1);
       continue;
     }
-    if (quote === null && (character === "*" || character === "?" || character === "[")) {
-      appendUnknown(unresolved("globbing", span, undefined, detectBlockedDomain(text) ?? undefined, isGithubGraphqlEndpoint(text)));
+    if (quote === null && context !== "here-string" && (character === "*" || character === "?" || character === "[")) {
+      appendUnknown(
+        unresolved("globbing", span, undefined, detectBlockedDomain(text) ?? undefined, isGithubGraphqlEndpoint(text)),
+      );
       index++;
       continue;
     }
     if (quote === null && character === "$" && text[index + 1] === "'") {
       const end = ansiCQuoteEnd(text, index + 2);
       if (end < 0) return unresolved("unsupported-dollar-expansion", span);
-      value += stripQuotes(text.slice(index, end + 1));
+      if (context === "here-string") {
+        const decoded = decodeInlineAnsiQuote(text.slice(index + 2, end));
+        if (decoded === undefined) return unresolved("unsupported-dollar-expansion", span);
+        value += decoded;
+      } else value += stripQuotes(text.slice(index, end + 1));
       index = end + 1;
       continue;
     }
@@ -276,7 +324,7 @@ function expandStaticText(text: string, span: SourceSpan, environment: Environme
       index++;
       continue;
     }
-    if (quote === null && character === "{" && text[index + 1] !== "}") {
+    if (quote === null && context !== "here-string" && character === "{" && text[index + 1] !== "}") {
       appendUnknown(unresolved("brace-expansion", span));
       index++;
       continue;
@@ -289,10 +337,58 @@ function expandStaticText(text: string, span: SourceSpan, environment: Environme
   if (!firstUnknown) return resolvedKnown(value, containsBindingValue);
   if (value.length > 0) fragments.push(freeze({ kind: "literal", value }));
   const hasLiteral = fragments.some((fragment) => fragment.kind === "literal" && fragment.value.length > 0);
-  return withSymbolicShape(firstUnknown, freeze({
-    fragments: freeze(fragments),
-    fields: unknownMaySplit ? hasLiteral ? "one-or-more" : "zero-or-more" : "one",
-  }));
+  return withSymbolicShape(
+    firstUnknown,
+    freeze({
+      fragments: freeze(fragments),
+      fields: unknownMaySplit ? (hasLiteral ? "one-or-more" : "zero-or-more") : "one",
+    }),
+  );
+}
+
+/** A deliberately finite ANSI-C subset; unsupported escapes remain unknown. */
+function decodeInlineAnsiQuote(content: string): string | undefined {
+  let result = "";
+  const escapes: Record<string, string> = {
+    a: "\u0007",
+    b: "\b",
+    e: "\u001b",
+    E: "\u001b",
+    f: "\f",
+    n: "\n",
+    r: "\r",
+    t: "\t",
+    v: "\v",
+    "\\": "\\",
+    "'": "'",
+    '"': '"',
+    "?": "?",
+  };
+  for (let index = 0; index < content.length; index++) {
+    if (content[index] !== "\\") {
+      result += content[index];
+      continue;
+    }
+    const next = content[++index];
+    if (next === undefined) return undefined;
+    if (Object.hasOwn(escapes, next)) {
+      result += escapes[next];
+      continue;
+    }
+    const numeric = /^[0-7]{1,3}/.exec(content.slice(index));
+    const hex = next === "x" ? /^[0-9a-fA-F]{1,2}/.exec(content.slice(index + 1)) : null;
+    if (numeric || hex) {
+      const code = Number.parseInt((numeric ?? hex)![0], numeric ? 8 : 16) & 0xff;
+      if (code === 0) return result;
+      // Non-UTF-8 shell bytes cannot be represented by a JS string proof.
+      if (code > 127) return undefined;
+      result += String.fromCharCode(code);
+      index += numeric ? numeric[0].length - 1 : hex![0].length;
+      continue;
+    }
+    return undefined;
+  }
+  return result;
 }
 
 type VariableExpansion =
@@ -317,18 +413,34 @@ function expandVariableAt(
   }
   if (next === "{") {
     const close = text.indexOf("}", start + 2);
-    if (close < 0) return { kind: "unknown", value: unresolved("unsupported-parameter-expansion", span), next: text.length };
+    if (close < 0)
+      return { kind: "unknown", value: unresolved("unsupported-parameter-expansion", span), next: text.length };
     const content = text.slice(start + 2, close);
-    if (content.startsWith("!")) return { kind: "unknown", value: unresolved("indirect-expansion", span, variablePrefix(content.slice(1))), next: close + 1 };
-    if (content.includes("[")) return { kind: "unknown", value: unresolved("array-expansion", span, variablePrefix(content)), next: close + 1 };
-    if (!isVariableReference(content)) return { kind: "unknown", value: unresolved("unsupported-parameter-expansion", span, variablePrefix(content)), next: close + 1 };
+    if (content.startsWith("!"))
+      return {
+        kind: "unknown",
+        value: unresolved("indirect-expansion", span, variablePrefix(content.slice(1))),
+        next: close + 1,
+      };
+    if (content.includes("["))
+      return { kind: "unknown", value: unresolved("array-expansion", span, variablePrefix(content)), next: close + 1 };
+    if (!isVariableReference(content))
+      return {
+        kind: "unknown",
+        value: unresolved("unsupported-parameter-expansion", span, variablePrefix(content)),
+        next: close + 1,
+      };
     return resolveVariable(content, span, environment, close + 1, context, quoted);
   }
   if (next && /[0-9]/.test(next)) {
     return resolveVariable(next, span, environment, start + 2, context, quoted);
   }
   if (!next || !isVariableStart(next)) {
-    return { kind: "unknown", value: unresolved("unsupported-dollar-expansion", span), next: Math.min(start + 2, text.length) };
+    return {
+      kind: "unknown",
+      value: unresolved("unsupported-dollar-expansion", span),
+      next: Math.min(start + 2, text.length),
+    };
   }
 
   let end = start + 2;
@@ -352,10 +464,21 @@ function resolveVariable(
     return { kind: "unknown", value: unresolved("unknown-variable", span, variable), next };
   }
   if (binding.kind !== "known") return { kind: "unknown", value: unresolved("unknown-variable", span, variable), next };
-  if (!quoted && context !== "assignment" && changesUnquotedWordShape(binding.value, environment)) {
+  if (
+    !quoted &&
+    context !== "assignment" &&
+    context !== "here-string" &&
+    changesUnquotedWordShape(binding.value, environment)
+  ) {
     return {
       kind: "unknown",
-      value: unresolved("unquoted-expansion", span, variable, detectBlockedDomain(binding.value) ?? undefined, isGithubGraphqlEndpoint(binding.value)),
+      value: unresolved(
+        "unquoted-expansion",
+        span,
+        variable,
+        detectBlockedDomain(binding.value) ?? undefined,
+        isGithubGraphqlEndpoint(binding.value),
+      ),
       next,
     };
   }
@@ -366,8 +489,14 @@ function ansiCQuoteEnd(text: string, start: number): number {
   let escaped = false;
   for (let index = start; index < text.length; index++) {
     const character = text[index]!;
-    if (escaped) { escaped = false; continue; }
-    if (character === "\\") { escaped = true; continue; }
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
     if (character === "'") return index;
   }
   return -1;
@@ -397,10 +526,22 @@ function expansionEnd(text: string, opening: number): number {
   let escaped = false;
   for (let index = opening; index < text.length; index++) {
     const character = text[index]!;
-    if (escaped) { escaped = false; continue; }
-    if (character === "\\" && quote !== "single") { escaped = true; continue; }
-    if (character === "'" && quote !== "double") { quote = quote === "single" ? null : "single"; continue; }
-    if (character === '"' && quote !== "single") { quote = quote === "double" ? null : "double"; continue; }
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\" && quote !== "single") {
+      escaped = true;
+      continue;
+    }
+    if (character === "'" && quote !== "double") {
+      quote = quote === "single" ? null : "single";
+      continue;
+    }
+    if (character === '"' && quote !== "single") {
+      quote = quote === "double" ? null : "double";
+      continue;
+    }
     if (quote) continue;
     if (character === "(") depth++;
     if (character === ")" && --depth === 0) return index + 1;
@@ -412,8 +553,14 @@ function backtickEnd(text: string, start: number): number {
   let escaped = false;
   for (let index = start; index < text.length; index++) {
     const character = text[index]!;
-    if (escaped) { escaped = false; continue; }
-    if (character === "\\") { escaped = true; continue; }
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
     if (character === "`") return index + 1;
   }
   return text.length;
@@ -427,9 +574,7 @@ function changesUnquotedWordShape(value: string, environment: Environment): bool
 }
 
 function bindingValue(word: ResolvedWord) {
-  return word.kind === "known"
-    ? known(word.value)
-    : unknown({ kind: word.reason.kind, span: word.reason.span });
+  return word.kind === "known" ? known(word.value) : unknown({ kind: word.reason.kind, span: word.reason.span });
 }
 
 function unresolved(
@@ -507,14 +652,28 @@ function freeze<T>(value: T): T {
 function readonlySet(values: readonly string[]): ReadonlySet<string> {
   const set = new Set(values);
   return Object.freeze({
-    get size(): number { return set.size; },
-    has(value: string): boolean { return set.has(value); },
-    entries(): SetIterator<[string, string]> { return set.entries(); },
-    keys(): SetIterator<string> { return set.keys(); },
-    values(): SetIterator<string> { return set.values(); },
-    forEach(callbackfn: (value: string, value2: string, set: ReadonlySet<string>) => void, thisArg?: unknown): void {
-      set.forEach((value) => callbackfn.call(thisArg, value, value, this));
+    get size(): number {
+      return set.size;
     },
-    [Symbol.iterator](): SetIterator<string> { return set[Symbol.iterator](); },
+    has(value: string): boolean {
+      return set.has(value);
+    },
+    entries(): SetIterator<[string, string]> {
+      return set.entries();
+    },
+    keys(): SetIterator<string> {
+      return set.keys();
+    },
+    values(): SetIterator<string> {
+      return set.values();
+    },
+    forEach(callbackfn: (value: string, value2: string, set: ReadonlySet<string>) => void, thisArg?: unknown): void {
+      set.forEach((value) => {
+        callbackfn.call(thisArg, value, value, this);
+      });
+    },
+    [Symbol.iterator](): SetIterator<string> {
+      return set[Symbol.iterator]();
+    },
   });
 }

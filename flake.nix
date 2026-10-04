@@ -3,20 +3,40 @@
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
 
-  outputs = { self, nixpkgs }:
+  outputs =
+    { self, nixpkgs }:
     let
-      forAllSystems = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ];
+      lib = nixpkgs.lib;
+      forAllSystems = lib.genAttrs [
+        "x86_64-linux"
+        "aarch64-linux"
+      ];
       pkgsFor = system: nixpkgs.legacyPackages.${system};
       scFor = system: (pkgsFor system).callPackage ./package.nix { };
-    in {
-      packages = forAllSystems (system:
-        let sc = scFor system;
-        in {
-          inherit (sc) piExtensionDir opencodePlugin opencodeV2Plugin opencodeTuiPlugin claudeCodeHooks safetyCoreCli core policySources;
+    in
+    {
+      packages = forAllSystems (
+        system:
+        let
+          sc = scFor system;
+        in
+        {
+          inherit (sc)
+            piExtensionDir
+            opencodePlugin
+            opencodeV2Plugin
+            opencodeTuiPlugin
+            claudeCodeHooks
+            safetyCoreCli
+            core
+            policySources
+            ;
           default = sc.core;
-        });
+        }
+      );
 
-      checks = forAllSystems (system:
+      checks = forAllSystems (
+        system:
         let
           pkgs = pkgsFor system;
           sc = scFor system;
@@ -24,17 +44,103 @@
             allowedRepositories = [ "acme/widgets" ];
             allowedOrganizations = [ ];
           };
-          productionDslPolicies = [
+          completePolicySources = [
             sc.dslPolicies.secretRead
             sc.dslPolicies.githubHttp
             sc.dslPolicies.kubectl
             sc.dslPolicies.unsupportedShellSource
+            sc.dslPolicies.cat
             sc.dslPolicies.genericReadOnly
             sc.dslPolicies.ghReadOnly
             sc.dslPolicies.helmReadOnly
             sc.dslPolicies.ghApi
-          ] ++ sc.dslPolicies.strictReadOnly ++ [ "${prPolicy}/gh-pr-create.policy.json" ];
-        in {
+          ]
+          ++ sc.dslPolicies.strictReadOnly;
+          productionDslPolicies = completePolicySources ++ [ "${prPolicy}/gh-pr-create.policy.json" ];
+          evalPermissions =
+            module:
+            let
+              stub = { lib, ... }: {
+                options = {
+                  home.packages = lib.mkOption {
+                    type = lib.types.listOf lib.types.package;
+                    default = [ ];
+                  };
+                  assertions = lib.mkOption {
+                    type = lib.types.listOf lib.types.anything;
+                    default = [ ];
+                  };
+                  xdg.configFile = lib.mkOption {
+                    type = lib.types.attrsOf lib.types.anything;
+                    default = { };
+                  };
+                  programs.claude-code.settings = lib.mkOption {
+                    type = lib.types.anything;
+                    default = { };
+                  };
+                };
+              };
+              evaluated = lib.evalModules {
+                specialArgs = { inherit pkgs; };
+                modules = [
+                  stub
+                  ./nix/permissions.nix
+                  module
+                ];
+              };
+              files = evaluated.config.xdg.configFile;
+            in
+            {
+              config = builtins.fromJSON (
+                builtins.unsafeDiscardStringContext files."safety-core/config.json".text
+              );
+              cli = map toString evaluated.config.home.packages;
+              claudeHookFile =
+                if files ? "safety-core/claude/bash_policy.mjs" then
+                  toString files."safety-core/claude/bash_policy.mjs".source
+                else
+                  null;
+              hooks = evaluated.config.programs.claude-code.settings.hooks or { };
+            };
+          completeEval = evalPermissions {
+            config.programs.safetyCorePermissions.completePolicySources = true;
+            config.programs.safetyCorePermissions.bashAnalysis.maxSteps = 5;
+          };
+          piEval = evalPermissions {
+            config.programs.safetyCorePermissions.pi.autoApprove = true;
+            config.programs.safetyCorePermissions.pi.judgeModel = "anthropic/claude-haiku";
+            config.programs.safetyCorePermissions.pi.showFullCommand = false;
+          };
+          disabledEval = evalPermissions { };
+          enabledEval = evalPermissions {
+            config.programs.safetyCorePermissions.installCli = true;
+            config.programs.safetyCorePermissions.installClaudeBashHook = true;
+          };
+          expectedHooks = {
+            PreToolUse = [
+              {
+                matcher = "Bash";
+                hooks = [
+                  {
+                    type = "command";
+                    command = "\${XDG_CONFIG_HOME:-$HOME/.config}/safety-core/claude/bash_policy.mjs";
+                  }
+                ];
+              }
+            ];
+            SessionStart = [
+              {
+                hooks = [
+                  {
+                    type = "command";
+                    command = "\${XDG_CONFIG_HOME:-$HOME/.config}/safety-core/claude/bash_policy.mjs";
+                  }
+                ];
+              }
+            ];
+          };
+        in
+        {
           code-policies-runtime = pkgs.runCommand "safety-core-code-policies-runtime-check" { } ''
             set -e
             ${pkgs.nodejs_22}/bin/node --input-type=module -e '
@@ -54,13 +160,22 @@
             grep -q 'completePolicyInitialEnvironment' ${sc.opencodePlugin}/index.ts
             grep -q 'completePolicyInitialEnvironment' ${sc.opencodeV2Plugin}/index.ts
             mkdir -p config/safety-core
-            printf '%s\n' '${builtins.toJSON {
-              version = 1;
-              policies = productionDslPolicies;
-              projectPolicies = { mode = "all"; };
-              bashAnalysis = { maxFunctionDepth = 8; maxNestedScriptDepth = 8; maxSteps = 100; maxWorkItems = 100; };
-            }}' > config/safety-core/config.json
-            test "$(SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core validate | grep -Ec '^[0-9a-f]{64}  /nix/store/')" -eq 28
+            printf '%s\n' '${
+              builtins.toJSON {
+                version = 1;
+                policies = productionDslPolicies;
+                projectPolicies = {
+                  mode = "all";
+                };
+                bashAnalysis = {
+                  maxFunctionDepth = 8;
+                  maxNestedScriptDepth = 8;
+                  maxSteps = 100;
+                  maxWorkItems = 100;
+                };
+              }
+            }' > config/safety-core/config.json
+            test "$(SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core validate | grep -Ec '^[0-9a-f]{64}  /nix/store/')" -eq 30
             SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core explain --json -- 'git --version' | grep -q '"decision": "allow"'
             SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core explain --json -- 'cat credentials.json' | grep -q '"decision": "deny"'
             SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core explain --json -- 'echo uncovered' | grep -q '"decision": "defer"'
@@ -86,7 +201,75 @@
               | SAFETY_CORE_CONFIG_HOME="$PWD/config" SAFETY_CORE_STATE_HOME="$PWD/state" ${sc.claudeCodeHooks}/bash_policy.mjs)"
             touch $out
           '';
-        });
+          home-manager-config =
+            let
+              actualJson = pkgs.writeText "safety-core-home-manager-actual.json" (
+                builtins.toJSON {
+                  complete = completeEval.config;
+                  pi = piEval.config;
+                  disabledCli = disabledEval.cli;
+                  disabledHookFile = disabledEval.claudeHookFile;
+                  disabledHooks = disabledEval.hooks;
+                  enabledCli = enabledEval.cli;
+                  enabledHookFile = enabledEval.claudeHookFile;
+                  enabledHooks = enabledEval.hooks;
+                }
+              );
+              expectedJson = pkgs.writeText "safety-core-home-manager-expected.json" (
+                builtins.toJSON {
+                  completeSubset = {
+                    version = 1;
+                    projectPolicies = {
+                      mode = "disabled";
+                    };
+                    bashAnalysis = {
+                      maxFunctionDepth = 128;
+                      maxNestedScriptDepth = 64;
+                      maxSteps = 5;
+                      maxWorkItems = 10000;
+                    };
+                    pi = {
+                      autoApprove = false;
+                      showFullCommand = true;
+                    };
+                  };
+                  completePolicyCount = builtins.length completePolicySources;
+                  pi = {
+                    autoApprove = true;
+                    judgeModel = "anthropic/claude-haiku";
+                    showFullCommand = false;
+                  };
+                  disabledCli = [ ];
+                  disabledHooks = { };
+                  enabledHooks = expectedHooks;
+                }
+              );
+            in
+            pkgs.runCommand "safety-core-home-manager-config-check" { buildInputs = [ pkgs.nodejs_22 ]; } ''
+              set -e
+              ${pkgs.nodejs_22}/bin/node -e '
+                const fs = require("node:fs");
+                const assert = require("node:assert/strict");
+                const actual = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+                const expected = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+                for (const [key, value] of Object.entries(expected.completeSubset)) {
+                  assert.deepStrictEqual(actual.complete[key], value, "complete " + key);
+                }
+                assert.strictEqual(actual.complete.policies.length, expected.completePolicyCount);
+                assert.deepStrictEqual(actual.pi.pi, expected.pi);
+                assert.deepStrictEqual(actual.disabledCli, expected.disabledCli);
+                assert.strictEqual(actual.disabledHookFile, null);
+                assert.deepStrictEqual(actual.disabledHooks, expected.disabledHooks);
+                const enabledCli = actual.enabledCli;
+                assert.strictEqual(enabledCli.length, 1);
+                assert.ok(enabledCli[0].includes("safety-core"), enabledCli[0]);
+                assert.ok(actual.enabledHookFile.includes("claude-code-safety-hooks"));
+                assert.deepStrictEqual(actual.enabledHooks, expected.enabledHooks);
+              ' ${actualJson} ${expectedJson}
+              touch $out
+            '';
+        }
+      );
 
       # Build against this flake's locked Nixpkgs rather than the consuming
       # configuration's package set, which pins the tree-sitter CLI used to
@@ -95,21 +278,51 @@
         safety-core = scFor final.stdenv.hostPlatform.system;
       };
       homeManagerModules.default = import ./nix/permissions.nix;
-      devShells = forAllSystems (system:
+      devShells = forAllSystems (
+        system:
         let
           pkgs = pkgsFor system;
           sc = scFor system;
-        in {
-          default = pkgs.mkShell { packages = [
-            pkgs.bun pkgs.nodejs_22 pkgs.typescript pkgs.python3 sc.core
-          ]; };
-          redact = pkgs.mkShell {
-            packages = [ pkgs.python312 pkgs.uv pkgs.protobuf pkgs.nodejs_22 pkgs.bun ];
-            # uv-installed spaCy/NumPy wheels need these shared libraries on NixOS.
+        in
+        {
+          default = pkgs.mkShell {
+            packages = [
+              pkgs.bun
+              pkgs.nodejs_22
+              pkgs.typescript
+              pkgs.python3
+              pkgs.pre-commit
+              pkgs.biome
+              pkgs.nixfmt
+              pkgs.markdownlint-cli
+              pkgs.ruff
+              sc.core
+            ];
             shellHook = ''
-              export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [ pkgs.stdenv.cc.cc.lib pkgs.zlib ]}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+              if [ -d .git ] && command -v pre-commit >/dev/null 2>&1; then
+                pre-commit install >/dev/null
+              fi
             '';
           };
-        });
+          redact = pkgs.mkShell {
+            packages = [
+              pkgs.python312
+              pkgs.uv
+              pkgs.protobuf
+              pkgs.nodejs_22
+              pkgs.bun
+            ];
+            # uv-installed spaCy/NumPy wheels need these shared libraries on NixOS.
+            shellHook = ''
+              export LD_LIBRARY_PATH="${
+                pkgs.lib.makeLibraryPath [
+                  pkgs.stdenv.cc.cc.lib
+                  pkgs.zlib
+                ]
+              }''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+            '';
+          };
+        }
+      );
     };
 }

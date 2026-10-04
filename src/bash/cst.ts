@@ -86,11 +86,27 @@ export interface BashUnsupportedWord {
   readonly span: SourceSpan;
 }
 
-export type BashRedirectKind = "input" | "output" | "append" | "unsupported";
+export type BashRedirectKind =
+  | "input"
+  | "output"
+  | "append"
+  | "read-write"
+  | "here-string"
+  | "here-document"
+  | "duplicate"
+  | "close"
+  | "unsupported";
 
 export interface BashRedirect {
   readonly kind: BashRedirectKind;
+  /** Exact shell operator, separate from the destination's text. */
+  readonly operator?: string;
+  /** Null denotes an unsupported dynamically allocated descriptor. */
+  readonly descriptor?: number | null;
+  readonly descriptorExplicit?: boolean;
   readonly target: BashWord | null;
+  /** Inline input is never a filesystem destination. */
+  readonly content?: BashWord | null;
   /** All projected destination words, in original source order. */
   readonly words: readonly BashWord[];
   readonly span: SourceSpan;

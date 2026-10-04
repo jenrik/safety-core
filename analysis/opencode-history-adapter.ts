@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import type { Hooks } from "@opencode-ai/plugin";
 
 import { initBashParser, setJudgeProvider, unavailableExecutableFilesystem } from "../src/index.ts";
 
@@ -23,7 +24,10 @@ export interface HistoricalBashPolicyResult {
   readonly reason: string | null;
 }
 
-type OpenCodePlugin = Record<string, (input: Record<string, unknown>, output: Record<string, unknown>) => Promise<void>>;
+type OpenCodePlugin = Pick<Hooks, "tool.execute.before" | "permission.ask" | "tool.execute.after">;
+type OpenCodeToolBefore = NonNullable<OpenCodePlugin["tool.execute.before"]>;
+type OpenCodePermissionAsk = NonNullable<OpenCodePlugin["permission.ask"]>;
+type OpenCodeToolAfter = NonNullable<OpenCodePlugin["tool.execute.after"]>;
 
 export async function replayHistoricalBashEvent(event: HistoricalBashEvent): Promise<HistoricalBashPolicyResult> {
   const [result] = await replayHistoricalBashEvents([event]);
@@ -51,26 +55,47 @@ export async function replayHistoricalBashEvents(
   if (!before || !permission) throw new Error("OpenCode plugin did not register required Bash hooks");
 
   const results: HistoricalBashPolicyResult[] = [];
-  for (const event of events) results.push(await replayWithPlugin(event, before, permission));
+  for (const [index, event] of events.entries())
+    results.push(await replayWithPlugin(event, before, permission, plugin["tool.execute.after"], String(index)));
   return Object.freeze(results);
 }
 
 async function replayWithPlugin(
   event: HistoricalBashEvent,
-  before: OpenCodePlugin["tool.execute.before"],
-  permission: OpenCodePlugin["permission.ask"],
+  before: OpenCodeToolBefore,
+  permission: OpenCodePermissionAsk,
+  after: OpenCodeToolAfter | undefined,
+  callID: string,
 ): Promise<HistoricalBashPolicyResult> {
   // The production plugin shares this provider at module scope. Clear it for
   // every event so a concurrently loaded plugin cannot enable live judging.
   setJudgeProvider(null);
+  const identity = { sessionID: "safety-core-offline-replay", callID };
+  const args = { command: event.command };
   try {
-    await before({ tool: "bash" }, { args: { command: event.command } });
+    await before({ tool: "bash", ...identity }, { args });
   } catch (error) {
     return result(event.command, "deny", errorMessage(error));
   }
 
-  const output: Record<string, unknown> = { status: event.nativePermission ?? "ask" };
-  await permission({ type: "bash", pattern: event.command }, output);
+  const output: Parameters<OpenCodePermissionAsk>[1] = { status: event.nativePermission ?? "ask" };
+  try {
+    await permission(
+      {
+        id: `safety-core-offline-replay-${callID}`,
+        type: "bash",
+        pattern: event.command,
+        messageID: `safety-core-offline-replay-${callID}`,
+        title: "Safety-core offline Bash replay",
+        metadata: {},
+        time: { created: 0 },
+        ...identity,
+      },
+      output,
+    );
+  } finally {
+    await after?.({ tool: "bash", ...identity, args }, { title: "", output: "", metadata: {} });
+  }
   const policyDecision = output.status;
   if (policyDecision !== "allow" && policyDecision !== "ask" && policyDecision !== "deny") {
     throw new Error(`OpenCode plugin returned an invalid Bash permission status: ${String(policyDecision)}`);
@@ -90,7 +115,9 @@ async function loadPlugin(): Promise<OpenCodePlugin> {
   const original = new Map(keys.map((key) => [key, process.env[key]]));
   try {
     for (const key of keys) delete process.env[key];
-    const plugin = await (await import("../adapters/opencode.ts")).createOpenCodePlugin({ executableFilesystem: unavailableExecutableFilesystem }) as OpenCodePlugin;
+    const plugin: OpenCodePlugin = await (await import("../adapters/opencode.ts")).createOpenCodePlugin({
+      executableFilesystem: unavailableExecutableFilesystem,
+    });
     setJudgeProvider(null);
     return plugin;
   } finally {

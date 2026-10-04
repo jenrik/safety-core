@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  STRICT_BASH_PROFILE_EXECUTABLES,
+  type BashProfileSnapshot,
   evaluateBashGuards,
   evaluateConfiguredBash,
   initBashParser,
-  type BashProfileSnapshot,
+  STRICT_BASH_PROFILE_EXECUTABLES,
 } from "../src/index.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-bash-guards-"));
@@ -16,8 +16,14 @@ const profileSnapshot: BashProfileSnapshot = Object.freeze({
   readOnlyBash: false,
   ghApiReadOnly: false,
   ghReadOnly: false,
-  strictProfiles: Object.freeze(Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false]))) as BashProfileSnapshot["strictProfiles"],
-  ghPrCreate: Object.freeze({ enabled: false, allowedRepositories: Object.freeze([]), allowedOrganizations: Object.freeze([]) }),
+  strictProfiles: Object.freeze(
+    Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false])),
+  ) as BashProfileSnapshot["strictProfiles"],
+  ghPrCreate: Object.freeze({
+    enabled: false,
+    allowedRepositories: Object.freeze([]),
+    allowedOrganizations: Object.freeze([]),
+  }),
   limits: Object.freeze({ maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 7_500, maxWorkItems: 10_000 }),
 });
 
@@ -54,10 +60,12 @@ describe("single-pass Bash guards", () => {
     expect(evaluateBashGuards({ source: "cat README.md" })).toMatchObject({ kind: "pass", status: "complete" });
     expect(evaluateBashGuards({ source: "unknown-command" })).toMatchObject({ kind: "pass", status: "indeterminate" });
     expect(evaluateBashGuards({ source: "if then" })).toMatchObject({ kind: "pass", status: "failure" });
-    expect(evaluateBashGuards({
-      source: "cat README.md",
-      limits: { maxFunctionDepth: 0, maxNestedScriptDepth: 0, maxSteps: 0, maxWorkItems: 0 },
-    })).toMatchObject({ kind: "pass", status: "failure" });
+    expect(
+      evaluateBashGuards({
+        source: "cat README.md",
+        limits: { maxFunctionDepth: 0, maxNestedScriptDepth: 0, maxSteps: 0, maxWorkItems: 0 },
+      }),
+    ).toMatchObject({ kind: "pass", status: "failure" });
   });
 
   test("walks complete prefixes before reporting malformed syntax and keeps denial dominant", () => {
@@ -76,33 +84,41 @@ describe("single-pass Bash guards", () => {
     const result = evaluateBashGuards({ source: "kubectl get Secret application" });
 
     expect(result).toMatchObject({ kind: "pass", status: "indeterminate" });
-    expect(result.policies).toContainEqual(expect.objectContaining({
-      name: "kubectl",
-      decision: "defer",
-      kubectl: expect.objectContaining({ secretReview: true }),
-    }));
+    expect(result.policies).toContainEqual(
+      expect.objectContaining({
+        name: "kubectl",
+        decision: "defer",
+        kubectl: expect.objectContaining({ secretReview: true }),
+      }),
+    );
   });
 
   test("reports the first reachable denial when different guards match", () => {
-    expect(evaluateBashGuards({
-      source: "cat credentials.json; curl https://api.github.com/user; kubectl view-secret application",
-    })).toMatchObject({ kind: "block", policy: { name: "secret-read" } });
-    expect(evaluateBashGuards({
-      source: "curl https://api.github.com/user; cat credentials.json; kubectl view-secret application",
-    })).toMatchObject({ kind: "block", policy: { name: "github-http" } });
-    expect(evaluateBashGuards({
-      source: "kubectl view-secret application; cat credentials.json; curl https://api.github.com/user",
-    })).toMatchObject({ kind: "block", policy: { name: "kubectl" } });
+    expect(
+      evaluateBashGuards({
+        source: "cat credentials.json; curl https://api.github.com/user; kubectl view-secret application",
+      }),
+    ).toMatchObject({ kind: "block", policy: { name: "secret-read" } });
+    expect(
+      evaluateBashGuards({
+        source: "curl https://api.github.com/user; cat credentials.json; kubectl view-secret application",
+      }),
+    ).toMatchObject({ kind: "block", policy: { name: "github-http" } });
+    expect(
+      evaluateBashGuards({
+        source: "kubectl view-secret application; cat credentials.json; curl https://api.github.com/user",
+      }),
+    ).toMatchObject({ kind: "block", policy: { name: "kubectl" } });
   });
 
   test("does not expose binding-derived values in any guard evidence", () => {
     const marker = "opaque-guard-canary";
     for (const [source, values] of [
-      ["curl \"$URL\"", { URL: `https://api.github.com/user?value=${marker}` }],
-      ["cat \"$FILE\"", { FILE: `${marker}.credentials.json` }],
-      ["wc < \"$FILE\"", { FILE: `${marker}.credentials.json` }],
-      ["kubectl \"$ACTION\"", { ACTION: marker }],
-      ["kubectl get \"$RESOURCE\"", { RESOURCE: marker }],
+      ['curl "$URL"', { URL: `https://api.github.com/user?value=${marker}` }],
+      ['cat "$FILE"', { FILE: `${marker}.credentials.json` }],
+      ['wc < "$FILE"', { FILE: `${marker}.credentials.json` }],
+      ['kubectl "$ACTION"', { ACTION: marker }],
+      ['kubectl get "$RESOURCE"', { RESOURCE: marker }],
       ["sh -c 'cat \"$FILE\"'", { FILE: `${marker}.credentials.json` }],
     ] as const) {
       const result = evaluateBashGuards({
@@ -119,7 +135,7 @@ describe("single-pass Bash guards", () => {
   test("redacts binding-derived ghPrCreate repositories", () => {
     const marker = "opaque-gh-pr-repository";
     const result = evaluateBashGuards({
-      source: "gh pr create --repo \"$REPOSITORY\" --fill",
+      source: 'gh pr create --repo "$REPOSITORY" --fill',
       initialEnvironment: { kind: "verified", values: { REPOSITORY: `github.com/${marker}/repository` } },
       ghPrCreatePolicy: { enabled: true, allowedRepositories: ["acme/widgets"], allowedOrganizations: [] },
     });
@@ -130,8 +146,8 @@ describe("single-pass Bash guards", () => {
 
   test("redacts known kubectl actions resolved from bindings", () => {
     for (const [source, values, resolvedPhrase] of [
-      ["kubectl \"$ACTION\"", { ACTION: "version" }, "version"],
-      ["strace kubectl rollout \"$ACTION\" deployment/app", { ACTION: "status" }, "rollout status"],
+      ['kubectl "$ACTION"', { ACTION: "version" }, "version"],
+      ['strace kubectl rollout "$ACTION" deployment/app', { ACTION: "status" }, "rollout status"],
       ["sh -c 'kubectl auth \"$ACTION\"'", { ACTION: "whoami" }, "auth whoami"],
     ] as const) {
       const result = evaluateBashGuards({ source, initialEnvironment: { kind: "verified", values } });
@@ -141,17 +157,28 @@ describe("single-pass Bash guards", () => {
   });
 
   test("preserves literal kubectl audit fields when only a flag value comes from a binding", () => {
-    const source = "NS=default; kubectl --namespace \"$NS\" get secret application";
+    const source = 'NS=default; kubectl --namespace "$NS" get secret application';
 
-    expect(evaluateConfiguredBash({ source, initialEnvironment: { kind: "unavailable" }, profileSnapshot }).audit.events)
-      .toEqual([{ kind: "kubectl-secret", policy: "kubectl", fields: {
-        kubectl_subcommand: "get", resource: "secret", command_length: source.length,
-      } }]);
-    expect(evaluateConfiguredBash({
-      source: "RESOURCE=secret; kubectl get \"$RESOURCE\"",
-      initialEnvironment: { kind: "unavailable" },
-      profileSnapshot,
-    }).audit.events[0]?.fields).toMatchObject({ kubectl_subcommand: "get", resource: null });
+    expect(
+      evaluateConfiguredBash({ source, initialEnvironment: { kind: "unavailable" }, profileSnapshot }).audit.events,
+    ).toEqual([
+      {
+        kind: "kubectl-secret",
+        policy: "kubectl",
+        fields: {
+          kubectl_subcommand: "get",
+          resource: "secret",
+          command_length: source.length,
+        },
+      },
+    ]);
+    expect(
+      evaluateConfiguredBash({
+        source: 'RESOURCE=secret; kubectl get "$RESOURCE"',
+        initialEnvironment: { kind: "unavailable" },
+        profileSnapshot,
+      }).audit.events[0]?.fields,
+    ).toMatchObject({ kubectl_subcommand: "get", resource: null });
   });
 
   test("property: supported wrappers preserve every baseline denial", () => {
@@ -170,8 +197,10 @@ describe("single-pass Bash guards", () => {
 
     for (const [command, name] of violations) {
       for (const wrap of wrappers) {
-        expect(evaluateBashGuards({ source: `unknown-command; ${wrap(command)}` }), wrap(command))
-          .toMatchObject({ kind: "block", policy: { name } });
+        expect(evaluateBashGuards({ source: `unknown-command; ${wrap(command)}` }), wrap(command)).toMatchObject({
+          kind: "block",
+          policy: { name },
+        });
       }
     }
   });
@@ -188,8 +217,10 @@ describe("single-pass Bash guards", () => {
         if (first === second) continue;
         const [firstCommand, firstPolicy] = violations[first]!;
         const [secondCommand] = violations[second]!;
-        expect(evaluateBashGuards({ source: `${firstCommand}; ${secondCommand}` }))
-          .toMatchObject({ kind: "block", policy: { name: firstPolicy } });
+        expect(evaluateBashGuards({ source: `${firstCommand}; ${secondCommand}` })).toMatchObject({
+          kind: "block",
+          policy: { name: firstPolicy },
+        });
       }
     }
   });

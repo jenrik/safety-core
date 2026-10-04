@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  assignBinding,
   assignLocalBinding,
   assignNonLocalBinding,
-  assignBinding,
   beginCommandOverlay,
+  type EnvironmentPatch,
   endCommandOverlay,
   forkCheckpoint,
   fromInitialEnvironment,
@@ -22,7 +23,6 @@ import {
   unknown,
   unset,
   unsetBinding,
-  type EnvironmentPatch,
 } from "../src/bash/environment.ts";
 
 describe("persistent Bash environment", () => {
@@ -81,8 +81,9 @@ describe("persistent Bash environment", () => {
     expect(lookupBinding(parent, "F").value).toEqual(known("caller"));
 
     const nested = assignBinding(pushFunctionFrame(pushFunctionFrame(parent)), "F", known("nested-updated"));
-    expect(lookupBinding(returnFromFunctionFrame(returnFromFunctionFrame(nested)), "F").value)
-      .toEqual(known("nested-updated"));
+    expect(lookupBinding(returnFromFunctionFrame(returnFromFunctionFrame(nested)), "F").value).toEqual(
+      known("nested-updated"),
+    );
   });
 
   test("updates the nearest dynamic binding for function-scoped export, readonly, and unset", () => {
@@ -169,8 +170,10 @@ describe("persistent Bash environment", () => {
     let compacted = checkpointBase;
     for (let index = 0; index < 40; index++) compacted = assignBinding(compacted, `WRITE_${index}`, known(`${index}`));
 
-    expect(lookupBinding(mergeCheckpoint(checkpoint, [patch(checkpointBase, checkpoint), patch(compacted, checkpoint)]), "F").value)
-      .toEqual(known("restored"));
+    expect(
+      lookupBinding(mergeCheckpoint(checkpoint, [patch(checkpointBase, checkpoint), patch(compacted, checkpoint)]), "F")
+        .value,
+    ).toEqual(known("restored"));
   });
 
   test("property: operations are immutable and assignments change only their target frame", () => {
@@ -201,15 +204,21 @@ describe("persistent Bash environment", () => {
     for (let index = 0; index < 128; index++) {
       const name = `${bindingName(random())}_TAINTED`;
       const restored = `restored-${random()}`;
-      const base = assignBinding(taintFrame(fromInitialEnvironment({ [name]: `old-${random()}` })), name, known(restored));
+      const base = assignBinding(
+        taintFrame(fromInitialEnvironment({ [name]: `old-${random()}` })),
+        name,
+        known(restored),
+      );
       const checkpoint = forkCheckpoint(base);
       let reTainted = taintFrame(base);
       for (let write = 0; write < 40; write++) {
         reTainted = assignBinding(reTainted, `${name}_${write}`, known(`${random()}`));
       }
 
-      expect(lookupBinding(mergeCheckpoint(checkpoint, [patch(base, checkpoint), patch(reTainted, checkpoint)]), name).value.kind)
-        .toBe("unknown");
+      expect(
+        lookupBinding(mergeCheckpoint(checkpoint, [patch(base, checkpoint), patch(reTainted, checkpoint)]), name).value
+          .kind,
+      ).toBe("unknown");
     }
   });
 
@@ -217,9 +226,15 @@ describe("persistent Bash environment", () => {
     const environment = fromInitialEnvironment({ F: "stable" });
     const binding = lookupBinding(environment, "F");
 
-    expect(() => { (environment.budgets as { steps: number }).steps = 0; }).toThrow();
-    expect(() => { (environment.frame as { parent?: object }).parent = {}; }).toThrow();
-    expect(() => { (binding.value as { value: string }).value = "changed"; }).toThrow();
+    expect(() => {
+      (environment.budgets as { steps: number }).steps = 0;
+    }).toThrow();
+    expect(() => {
+      (environment.frame as { parent?: object }).parent = {};
+    }).toThrow();
+    expect(() => {
+      (binding.value as { value: string }).value = "changed";
+    }).toThrow();
     expect(lookupBinding(environment, "F").value).toEqual(known("stable"));
     expect(environment.budgets.steps).toBe(7_500);
   });
@@ -232,8 +247,14 @@ describe("persistent Bash environment", () => {
       const writtenName = `${bindingName(random())}W`;
       const base = taintFrame(fromInitialEnvironment({ [unknownName]: `initial-${random()}` }));
       const checkpoint = forkCheckpoint(base);
-      const left = patch(assignBinding(base, writtenName, known(`left-${random()}`)), recordWrite(checkpoint, writtenName));
-      const right = patch(assignBinding(base, writtenName, known(`right-${random()}`)), recordWrite(checkpoint, writtenName));
+      const left = patch(
+        assignBinding(base, writtenName, known(`left-${random()}`)),
+        recordWrite(checkpoint, writtenName),
+      );
+      const right = patch(
+        assignBinding(base, writtenName, known(`right-${random()}`)),
+        recordWrite(checkpoint, writtenName),
+      );
       const merged = mergeCheckpoint(checkpoint, [left, right]);
 
       expect(lookupBinding(merged, unknownName).value.kind).toBe("unknown");
@@ -246,7 +267,11 @@ describe("persistent Bash environment", () => {
     for (let index = 0; index < 256; index++) {
       const name = bindingName(random());
       const value = `replacement-${random()}`;
-      const overwritten = assignBinding(taintFrame(fromInitialEnvironment({ [name]: `old-${random()}` })), name, known(value));
+      const overwritten = assignBinding(
+        taintFrame(fromInitialEnvironment({ [name]: `old-${random()}` })),
+        name,
+        known(value),
+      );
 
       expect(lookupBinding(overwritten, name).value).toEqual(known(value));
     }
@@ -275,9 +300,15 @@ describe("persistent Bash environment", () => {
       const exported = `${bindingName(random())}_EXPORTED`;
       const locked = `${bindingName(random())}_LOCKED`;
       const removed = `${bindingName(random())}_REMOVED`;
-      const parent = fromInitialEnvironment({ [exported]: `value-${random()}`, [locked]: `value-${random()}`, [removed]: `value-${random()}` });
+      const parent = fromInitialEnvironment({
+        [exported]: `value-${random()}`,
+        [locked]: `value-${random()}`,
+        [removed]: `value-${random()}`,
+      });
       const functionScope = pushFunctionFrame(parent);
-      const result = returnFromFunctionFrame(unsetBinding(setReadonly(setExported(functionScope, exported, true), locked, true), removed));
+      const result = returnFromFunctionFrame(
+        unsetBinding(setReadonly(setExported(functionScope, exported, true), locked, true), removed),
+      );
 
       expect(lookupBinding(result, exported).exported).toBeTrue();
       expect(lookupBinding(result, locked).readonly).toBeTrue();
@@ -286,7 +317,10 @@ describe("persistent Bash environment", () => {
   });
 });
 
-function patch(environment: ReturnType<typeof fromInitialEnvironment>, checkpoint: ReturnType<typeof recordWrite>): EnvironmentPatch {
+function patch(
+  environment: ReturnType<typeof fromInitialEnvironment>,
+  checkpoint: ReturnType<typeof recordWrite>,
+): EnvironmentPatch {
   return { environment, writes: checkpoint.writes };
 }
 

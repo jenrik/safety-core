@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
+import { accessSync, constants, existsSync, lstatSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 
 export class PolicyStartupError extends Error {
   readonly sourcePath: string;
@@ -31,6 +31,8 @@ export interface ProjectPoliciesConfig {
 export interface PiAdapterConfig {
   /** Automatically accept policy-deferred Bash calls in the Pi adapter. */
   readonly autoApprove: boolean;
+  /** Show the full command in the Pi one-time permission prompt. */
+  readonly showFullCommand: boolean;
   /** Optional Pi provider/model key used for the secret-command judge. */
   readonly judgeModel?: string;
 }
@@ -82,13 +84,23 @@ export function loadGlobalPolicyConfig(env: Environment = process.env, configPat
 }
 
 /** Resolve global sources and the one applicable nearest project configuration. */
-export function resolveSessionPolicyConfig(config: GlobalPolicyConfig, cwd: string): ResolvedSessionPolicyConfig {
+export function resolveSessionPolicyConfig(
+  config: GlobalPolicyConfig,
+  cwd: string,
+  projectConfigPath?: string,
+): ResolvedSessionPolicyConfig {
   const canonicalCwd = canonicalPath(cwd, "working directory");
-  const globalSources = config.policies.map((reference) => resolveSource(reference, dirname(config.path), "global", config.path));
-  const allowedRoots = config.projectPolicies.mode === "allowlisted"
-    ? config.projectPolicies.allowedRoots.map((path) => canonicalPath(path, "project allowlist root"))
-    : [];
-  const project = resolveApplicableProjectConfig(config, canonicalCwd, allowedRoots);
+  const globalSources = config.policies.map((reference) =>
+    resolveSource(reference, dirname(config.path), "global", config.path),
+  );
+  const allowedRoots =
+    config.projectPolicies.mode === "allowlisted"
+      ? config.projectPolicies.allowedRoots.map((path) => canonicalPath(path, "project allowlist root"))
+      : [];
+  const project =
+    projectConfigPath === undefined
+      ? resolveApplicableProjectConfig(config, canonicalCwd, allowedRoots)
+      : resolveExplicitProjectConfig(projectConfigPath);
   const sources = project === undefined ? globalSources : [...globalSources, ...project.sources];
   const configurations = project === undefined ? [config.configuration] : [config.configuration, project.configuration];
 
@@ -102,7 +114,11 @@ export function resolveSessionPolicyConfig(config: GlobalPolicyConfig, cwd: stri
 
 function globalConfigPath(env: Environment): string {
   if (env.SAFETY_CORE_CONFIG_HOME !== undefined) {
-    return join(requireAbsolutePath("SAFETY_CORE_CONFIG_HOME", env.SAFETY_CORE_CONFIG_HOME), "safety-core", "config.json");
+    return join(
+      requireAbsolutePath("SAFETY_CORE_CONFIG_HOME", env.SAFETY_CORE_CONFIG_HOME),
+      "safety-core",
+      "config.json",
+    );
   }
   if (env.XDG_CONFIG_HOME !== undefined) {
     return join(requireAbsolutePath("XDG_CONFIG_HOME", env.XDG_CONFIG_HOME), "safety-core", "config.json");
@@ -160,26 +176,59 @@ function parseRedact(value: unknown, path: string): RedactConfig {
   requireOnlyKeys(record, new Set(["opencode"]), path);
   const opencode = requireRecord(record.opencode, path, "redact.opencode must be an object");
   requireOnlyKeys(opencode, new Set(["enabled", "socketPath"]), path);
-  if (typeof opencode.enabled !== "boolean") throw new PolicyStartupError(path, "redact.opencode.enabled must be a boolean");
-  const socketPath = opencode.socketPath;
-  if (opencode.enabled && (typeof socketPath !== "string" || !isAbsolute(socketPath) || Buffer.byteLength(socketPath) > 100)) {
-    throw new PolicyStartupError(path, "redact.opencode.socketPath must be an absolute Unix socket path of at most 100 bytes");
+  if (typeof opencode.enabled !== "boolean")
+    throw new PolicyStartupError(path, "redact.opencode.enabled must be a boolean");
+  const rawSocketPath = opencode.socketPath;
+  const socketPath = typeof rawSocketPath === "string" ? rawSocketPath : undefined;
+  if (
+    opencode.enabled &&
+    (typeof socketPath !== "string" || !isAbsolute(socketPath) || Buffer.byteLength(socketPath) > 100)
+  ) {
+    throw new PolicyStartupError(
+      path,
+      "redact.opencode.socketPath must be an absolute Unix socket path of at most 100 bytes",
+    );
   }
-  if (!opencode.enabled && socketPath !== undefined) throw new PolicyStartupError(path, "redact.opencode.socketPath requires enabled=true");
-  return Object.freeze({ opencode: Object.freeze({ enabled: opencode.enabled, ...(socketPath === undefined ? {} : { socketPath }) }) });
+  if (!opencode.enabled && rawSocketPath !== undefined)
+    throw new PolicyStartupError(path, "redact.opencode.socketPath requires enabled=true");
+  return Object.freeze({
+    opencode: Object.freeze({ enabled: opencode.enabled, ...(socketPath === undefined ? {} : { socketPath }) }),
+  });
 }
 
 function parsePiAdapter(value: unknown, path: string): PiAdapterConfig {
-  if (value === undefined) return Object.freeze({ autoApprove: false });
+  if (value === undefined) return Object.freeze({ autoApprove: false, showFullCommand: true });
   const record = requireRecord(value, path, "pi must be an object");
-  requireOnlyKeys(record, new Set(["autoApprove", "judgeModel"]), path);
+  requireOnlyKeys(record, new Set(["autoApprove", "judgeModel", "showFullCommand"]), path);
   const autoApprove = record.autoApprove ?? false;
   if (typeof autoApprove !== "boolean") throw new PolicyStartupError(path, "pi.autoApprove must be a boolean");
   const judgeModel = record.judgeModel;
   if (judgeModel !== undefined && (typeof judgeModel !== "string" || judgeModel.length === 0)) {
     throw new PolicyStartupError(path, "pi.judgeModel must be a non-empty string");
   }
-  return Object.freeze({ autoApprove, ...(judgeModel === undefined ? {} : { judgeModel }) });
+  const showFullCommand = record.showFullCommand ?? true;
+  if (typeof showFullCommand !== "boolean") throw new PolicyStartupError(path, "pi.showFullCommand must be a boolean");
+  return Object.freeze({ autoApprove, showFullCommand, ...(judgeModel === undefined ? {} : { judgeModel }) });
+}
+
+/**
+ * Best-effort persistence of Pi adapter settings into the global configuration
+ * file. Only a regular, writable config file is updated: a nix-managed symlink
+ * or otherwise unwritable file is left untouched and `false` is returned. All
+ * errors are swallowed so a caller can keep the override runtime-only without
+ * telling the user which path was taken.
+ */
+export function persistPiAdapterConfig(path: string, patch: Partial<PiAdapterConfig>): boolean {
+  try {
+    if (!lstatSync(path).isFile()) return false;
+    accessSync(path, constants.W_OK);
+    const record = requireRecord(readJson(path).value, path, "configuration must be an object");
+    const current = record.pi === undefined ? {} : requireRecord(record.pi, path, "pi must be an object");
+    writeFileSync(path, `${JSON.stringify({ ...record, pi: { ...current, ...patch } }, null, 2)}\n`);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function parseProjectPolicies(value: unknown, path: string): ProjectPoliciesConfig {
@@ -193,7 +242,8 @@ function parseProjectPolicies(value: unknown, path: string): ProjectPoliciesConf
   if (mode === "allowlisted" && !Array.isArray(record.allowedRoots)) {
     throw new PolicyStartupError(path, "projectPolicies.allowedRoots must be an array for allowlisted mode");
   }
-  const allowedRoots = mode === "allowlisted" ? parseAbsolutePaths(record.allowedRoots, path, "projectPolicies.allowedRoots") : [];
+  const allowedRoots =
+    mode === "allowlisted" ? parseAbsolutePaths(record.allowedRoots, path, "projectPolicies.allowedRoots") : [];
   return Object.freeze({ mode, allowedRoots: Object.freeze(allowedRoots) });
 }
 
@@ -201,21 +251,32 @@ function parseBashAnalysis(value: unknown, path: string): BashAnalysisConfig {
   const record = requireRecord(value, path, "bashAnalysis must be an object");
   const keys = new Set(["maxFunctionDepth", "maxNestedScriptDepth", "maxSteps", "maxWorkItems"]);
   requireOnlyKeys(record, keys, path);
-  const parsed = Object.fromEntries([...keys].map((key) => {
-    const limit = record[key];
-    if (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit <= 0) {
-      throw new PolicyStartupError(path, `bashAnalysis.${key} must be a positive safe integer`);
-    }
-    return [key, limit];
-  })) as BashAnalysisConfig;
-  return Object.freeze(parsed);
+  return Object.freeze({
+    maxFunctionDepth: positiveLimit(record.maxFunctionDepth, path, "maxFunctionDepth"),
+    maxNestedScriptDepth: positiveLimit(record.maxNestedScriptDepth, path, "maxNestedScriptDepth"),
+    maxSteps: positiveLimit(record.maxSteps, path, "maxSteps"),
+    maxWorkItems: positiveLimit(record.maxWorkItems, path, "maxWorkItems"),
+  });
+}
+
+function positiveLimit(value: unknown, path: string, name: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new PolicyStartupError(path, `bashAnalysis.${name} must be a positive safe integer`);
+  }
+  return value;
 }
 
 function resolveApplicableProjectConfig(
   config: GlobalPolicyConfig,
   canonicalCwd: string,
   allowedRoots: readonly string[],
-): { readonly root: string; readonly configuration: PolicyConfigurationSource; readonly sources: readonly ResolvedPolicySource[] } | undefined {
+):
+  | {
+      readonly root: string;
+      readonly configuration: PolicyConfigurationSource;
+      readonly sources: readonly ResolvedPolicySource[];
+    }
+  | undefined {
   if (config.projectPolicies.mode === "disabled") return undefined;
   const root = findNearestProjectRoot(canonicalCwd);
   if (root === undefined) return undefined;
@@ -224,14 +285,40 @@ function resolveApplicableProjectConfig(
   }
 
   const configPath = canonicalPath(join(root, ".safety-core", "config.json"), "project configuration");
+  return parseProjectConfig(root, configPath);
+}
+
+/** Explicit CLI selection composes the supplied project manifest with global sources. */
+function resolveExplicitProjectConfig(projectConfigPath: string): {
+  readonly root: string;
+  readonly configuration: PolicyConfigurationSource;
+  readonly sources: readonly ResolvedPolicySource[];
+} {
+  const suppliedPath = resolvePath(projectConfigPath);
+  const projectConfigDirectory = dirname(suppliedPath);
+  if (basename(suppliedPath) !== "config.json" || basename(projectConfigDirectory) !== ".safety-core") {
+    throw new PolicyStartupError(suppliedPath, "explicit project configuration must be named .safety-core/config.json");
+  }
+  const root = canonicalPath(dirname(projectConfigDirectory), "project root");
+  const configPath = canonicalPath(suppliedPath, "project configuration");
+  return parseProjectConfig(root, configPath);
+}
+
+function parseProjectConfig(
+  root: string,
+  configPath: string,
+): {
+  readonly root: string;
+  readonly configuration: PolicyConfigurationSource;
+  readonly sources: readonly ResolvedPolicySource[];
+} {
   const document = readJson(configPath);
   const record = requireRecord(document.value, configPath, "project configuration must be an object");
   requireOnlyKeys(record, new Set(["version", "policies"]), configPath);
   if (record.version !== 1) throw new PolicyStartupError(configPath, "version must be 1");
   const policies = parsePolicies(record.policies, configPath);
   requireSourceExtensions(policies, ".policy.json", "project", configPath);
-  const sources = policies
-    .map((reference) => resolveSource(reference, root, "project", configPath));
+  const sources = policies.map((reference) => resolveSource(reference, root, "project", configPath));
   return Object.freeze({
     root,
     configuration: configurationSource(configPath, "project", document.bytes),
@@ -249,19 +336,31 @@ function findNearestProjectRoot(canonicalCwd: string): string | undefined {
   }
 }
 
-function resolveSource(reference: string, base: string, scope: ResolvedPolicySource["scope"], configPath: string): ResolvedPolicySource {
+function resolveSource(
+  reference: string,
+  base: string,
+  scope: ResolvedPolicySource["scope"],
+  configPath: string,
+): ResolvedPolicySource {
   const path = isAbsolute(reference) ? reference : resolvePath(base, reference);
-  const valid = scope === "global" ? path.endsWith(".policy.mjs") || path.endsWith(".policy.json") : path.endsWith(".policy.json");
+  const valid =
+    scope === "global" ? path.endsWith(".policy.mjs") || path.endsWith(".policy.json") : path.endsWith(".policy.json");
   if (!valid) {
     const extensions = scope === "global" ? ".policy.mjs or .policy.json" : ".policy.json";
-    throw new PolicyStartupError(configPath, `${scope} policy source must use the exact ${extensions} extension: ${reference}`);
+    throw new PolicyStartupError(
+      configPath,
+      `${scope} policy source must use the exact ${extensions} extension: ${reference}`,
+    );
   }
   return Object.freeze({ path, scope });
 }
 
 function requireGlobalSourceExtensions(references: readonly string[], path: string): void {
-  const invalid = references.find((reference) => !reference.endsWith(".policy.mjs") && !reference.endsWith(".policy.json"));
-  if (invalid !== undefined) throw new PolicyStartupError(path, `global policy source must use .policy.mjs or .policy.json: ${invalid}`);
+  const invalid = references.find(
+    (reference) => !reference.endsWith(".policy.mjs") && !reference.endsWith(".policy.json"),
+  );
+  if (invalid !== undefined)
+    throw new PolicyStartupError(path, `global policy source must use .policy.mjs or .policy.json: ${invalid}`);
 }
 
 function parsePolicies(value: unknown, path: string): string[] {
@@ -279,7 +378,10 @@ function requireSourceExtensions(references: readonly string[], extension: strin
 }
 
 function parseAbsolutePaths(value: unknown, path: string, field: string): string[] {
-  if (!Array.isArray(value) || !value.every((item) => typeof item === "string" && item.length > 0 && isAbsolute(item))) {
+  if (
+    !Array.isArray(value) ||
+    !value.every((item) => typeof item === "string" && item.length > 0 && isAbsolute(item))
+  ) {
     throw new PolicyStartupError(path, `${field} must be an array of non-empty absolute paths`);
   }
   return [...value];
@@ -303,7 +405,11 @@ function canonicalPath(path: string, subject: string): string {
   }
 }
 
-function configurationSource(canonicalPath: string, scope: PolicyConfigurationSource["scope"], bytes: Buffer): PolicyConfigurationSource {
+function configurationSource(
+  canonicalPath: string,
+  scope: PolicyConfigurationSource["scope"],
+  bytes: Buffer,
+): PolicyConfigurationSource {
   return Object.freeze({
     canonicalPath,
     scope,

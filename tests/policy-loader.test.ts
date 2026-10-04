@@ -4,11 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  PolicyStartupError,
   loadGlobalPolicyConfig,
+  PolicyStartupError,
+  type ResolvedSessionPolicyConfig,
   resolveSessionPolicyConfig,
 } from "../src/policy/config.ts";
 import { loadPolicySet } from "../src/policy/load.ts";
+import type { BashPolicySelector } from "../src/policy/types.ts";
 
 function fixtureDirectory(): string {
   return mkdtempSync(join(tmpdir(), "safety-core-policy-loader-"));
@@ -17,12 +19,15 @@ function fixtureDirectory(): string {
 function writeConfig(home: string, policies: readonly string[]): void {
   const directory = join(home, "safety-core");
   mkdirSync(directory, { recursive: true });
-  writeFileSync(join(directory, "config.json"), JSON.stringify({
-    version: 1,
-    policies,
-    projectPolicies: { mode: "disabled" },
-    bashAnalysis: { maxFunctionDepth: 7, maxNestedScriptDepth: 6, maxSteps: 5, maxWorkItems: 4 },
-  }));
+  writeFileSync(
+    join(directory, "config.json"),
+    JSON.stringify({
+      version: 1,
+      policies,
+      projectPolicies: { mode: "disabled" },
+      bashAnalysis: { maxFunctionDepth: 7, maxNestedScriptDepth: 6, maxSteps: 5, maxWorkItems: 4 },
+    }),
+  );
 }
 
 function frozenDefinition(layer: "guard" | "permission" = "permission"): object {
@@ -43,19 +48,39 @@ describe("trusted code policy source loading", () => {
   test("loads global JSON DCRM policies with canonical provenance and source-positioned fatal diagnostics", async () => {
     const home = fixtureDirectory();
     const policy = join(home, "strict.policy.json");
-    writeFileSync(policy, JSON.stringify({
-      language: "safety-core/bash-policy-v1", layer: "permission", select: [{ kind: "invocation" }], registers: {}, start: "start",
-      states: { start: { cases: [], default: { decision: "ignore" }, end: { decision: "allow", reason: ["approved"] } } },
-    }));
+    writeFileSync(
+      policy,
+      JSON.stringify({
+        language: "safety-core/bash-policy-v1",
+        layer: "permission",
+        select: [{ kind: "invocation" }],
+        registers: {},
+        start: "start",
+        states: {
+          start: { cases: [], default: { decision: "ignore" }, end: { decision: "allow", reason: ["approved"] } },
+        },
+      }),
+    );
     const loaded = await loadPolicySet(resolvedConfig(home, [policy]));
-    expect(loaded.sources).toEqual([{ canonicalPath: realpathSync(policy), scope: "global", sha256: expect.stringMatching(/^[a-f0-9]{64}$/) }]);
+    expect(loaded.sources).toEqual([
+      { canonicalPath: realpathSync(policy), scope: "global", sha256: expect.stringMatching(/^[a-f0-9]{64}$/) },
+    ]);
     expect(loaded.policies[0]).toMatchObject({ source: { canonicalPath: realpathSync(policy) }, layer: "permission" });
 
-    writeFileSync(policy, JSON.stringify({
-      language: "wrong", layer: "permission", select: [{ kind: "invocation" }], registers: {}, start: "start",
-      states: { start: { cases: [], default: { decision: "ignore" }, end: { decision: "ignore" } } },
-    }));
-    await expect(loadPolicySet(resolvedConfig(home, [policy]))).rejects.toThrow(`${realpathSync(policy)}: invalid DSL policy: $.language`);
+    writeFileSync(
+      policy,
+      JSON.stringify({
+        language: "wrong",
+        layer: "permission",
+        select: [{ kind: "invocation" }],
+        registers: {},
+        start: "start",
+        states: { start: { cases: [], default: { decision: "ignore" }, end: { decision: "ignore" } } },
+      }),
+    );
+    await expect(loadPolicySet(resolvedConfig(home, [policy]))).rejects.toThrow(
+      `${realpathSync(policy)}: invalid DSL policy: $.language`,
+    );
   });
 
   test("uses canonical paths as identity, collapsing aliases but not identical source bytes", async () => {
@@ -108,12 +133,14 @@ describe("trusted code policy source loading", () => {
     writeFileSync(policy, "import './other.mjs'; export default {};\n");
     let imported = false;
 
-    await expect(loadPolicySet(resolvedConfig(home, [policy]), {
-      importCodePolicy: () => {
-        imported = true;
-        return { default: frozenDefinition() };
-      },
-    })).rejects.toBeInstanceOf(PolicyStartupError);
+    await expect(
+      loadPolicySet(resolvedConfig(home, [policy]), {
+        importCodePolicy: () => {
+          imported = true;
+          return { default: frozenDefinition() };
+        },
+      }),
+    ).rejects.toBeInstanceOf(PolicyStartupError);
     expect(imported).toBeFalse();
   });
 
@@ -123,19 +150,23 @@ describe("trusted code policy source loading", () => {
     const resolved = resolvedConfig(home, [policy]);
 
     for (let seed = 0; seed < 1_024; seed++) {
-      const source = seed % 3 === 0
-        ? `import /* note ${seed} */ "./helper.mjs"; export default {};\n`
-        : seed % 3 === 1
-          ? `await import(/* note ${seed} */ \`./helper.mjs\`); export default {};\n`
-          : `await import(// note ${seed}\n "./helper.mjs"); export default {};\n`;
+      const source =
+        seed % 3 === 0
+          ? `import /* note ${seed} */ "./helper.mjs"; export default {};\n`
+          : seed % 3 === 1
+            ? `await import(/* note ${seed} */ \`./helper.mjs\`); export default {};\n`
+            : `await import(// note ${seed}\n "./helper.mjs"); export default {};\n`;
       writeFileSync(policy, source);
       let imported = false;
-      await expect(loadPolicySet(resolved, {
-        importCodePolicy: () => {
-          imported = true;
-          return { default: frozenDefinition() };
-        },
-      }), `seed ${seed}`).rejects.toBeInstanceOf(PolicyStartupError);
+      await expect(
+        loadPolicySet(resolved, {
+          importCodePolicy: () => {
+            imported = true;
+            return { default: frozenDefinition() };
+          },
+        }),
+        `seed ${seed}`,
+      ).rejects.toBeInstanceOf(PolicyStartupError);
       expect(imported, `seed ${seed}`).toBeFalse();
     }
   });
@@ -168,9 +199,21 @@ describe("trusted code policy source loading", () => {
     writeFileSync(policy, "export default {};\n");
     const resolved = resolvedConfig(home, [policy]);
 
-    await expect(loadPolicySet(resolved, { importCodePolicy: () => ({ default: { apiVersion: 1 } }) })).rejects.toThrow(realpathSync(policy));
-    await expect(loadPolicySet(resolved, { importCodePolicy: () => { throw new Error("initialization failed"); } })).rejects.toThrow("initialization failed");
-    await expect(loadPolicySet(resolved, { importCodePolicy: () => ({ default: Object.freeze({ ...frozenDefinition(), apiVersion: 2 }) }) })).rejects.toThrow("apiVersion");
+    await expect(loadPolicySet(resolved, { importCodePolicy: () => ({ default: { apiVersion: 1 } }) })).rejects.toThrow(
+      realpathSync(policy),
+    );
+    await expect(
+      loadPolicySet(resolved, {
+        importCodePolicy: () => {
+          throw new Error("initialization failed");
+        },
+      }),
+    ).rejects.toThrow("initialization failed");
+    await expect(
+      loadPolicySet(resolved, {
+        importCodePolicy: () => ({ default: Object.freeze({ ...frozenDefinition(), apiVersion: 2 }) }),
+      }),
+    ).rejects.toThrow("apiVersion");
   });
 
   test("property: 1,024 malformed import escapes fail as source-positioned startup errors", async () => {
@@ -212,11 +255,14 @@ describe("trusted code policy source loading", () => {
         evaluate: () => ({ kind: "ignore" as const }),
       });
       const loaded = await loadPolicySet(resolved, { importCodePolicy: () => ({ default: definition }) });
-      const selector = loaded.policies[0]!.select[0] as { readonly nested: { readonly seed: number } };
+      const selector = loaded.policies[0]!.select[0];
+      if (!selector || !hasSeededNestedSelector(selector)) throw new Error("Expected a seeded nested selector");
 
       expect(Object.isFrozen(selector), `seed ${seed}`).toBeTrue();
       expect(Object.isFrozen(selector.nested), `seed ${seed}`).toBeTrue();
-      expect(() => { (selector.nested as { seed: number }).seed = -1; }, `seed ${seed}`).toThrow();
+      expect(() => {
+        (selector.nested as { seed: number }).seed = -1;
+      }, `seed ${seed}`).toThrow();
     }
   });
 
@@ -234,8 +280,10 @@ describe("trusted code policy source loading", () => {
         select: [{ kind: "invocation", nested: collection }],
         evaluate: () => ({ kind: "ignore" as const }),
       });
-      await expect(loadPolicySet(resolved, { importCodePolicy: () => ({ default: definition }) }), `seed ${seed}`)
-        .rejects.toBeInstanceOf(PolicyStartupError);
+      await expect(
+        loadPolicySet(resolved, { importCodePolicy: () => ({ default: definition }) }),
+        `seed ${seed}`,
+      ).rejects.toBeInstanceOf(PolicyStartupError);
     }
   });
 
@@ -245,17 +293,21 @@ describe("trusted code policy source loading", () => {
     const resolved = resolvedConfig(home, [policy]);
 
     for (let seed = 0; seed < 1_024; seed++) {
-      const source = seed % 2 === 0
-        ? `const value = \`\${await import("./helper.mjs")}\`; export default {};\n`
-        : `const value = \`\${await import(/* ${seed} */ "./helper.mjs")}\`; export default {};\n`;
+      const source =
+        seed % 2 === 0
+          ? `const value = \`\${await import("./helper.mjs")}\`; export default {};\n`
+          : `const value = \`\${await import(/* ${seed} */ "./helper.mjs")}\`; export default {};\n`;
       writeFileSync(policy, source);
       let imported = false;
-      await expect(loadPolicySet(resolved, {
-        importCodePolicy: () => {
-          imported = true;
-          return { default: frozenDefinition() };
-        },
-      }), `seed ${seed}`).rejects.toBeInstanceOf(PolicyStartupError);
+      await expect(
+        loadPolicySet(resolved, {
+          importCodePolicy: () => {
+            imported = true;
+            return { default: frozenDefinition() };
+          },
+        }),
+        `seed ${seed}`,
+      ).rejects.toBeInstanceOf(PolicyStartupError);
       expect(imported, `seed ${seed}`).toBeFalse();
     }
   });
@@ -266,17 +318,21 @@ describe("trusted code policy source loading", () => {
     const resolved = resolvedConfig(home, [policy]);
 
     for (let seed = 0; seed < 1_024; seed++) {
-      const expression = seed % 3 === 0 ? "/}/.test(\"x\")"
-        : seed % 3 === 1 ? "/[}]/.test(\"x\")"
-          : "/\\}/.test(\"x\")";
-      writeFileSync(policy, `const value = \`\${${expression} ? await import("./helper.mjs") : ""}\`; export default {};\n`);
+      const expression = seed % 3 === 0 ? '/}/.test("x")' : seed % 3 === 1 ? '/[}]/.test("x")' : '/\\}/.test("x")';
+      writeFileSync(
+        policy,
+        `const value = \`\${${expression} ? await import("./helper.mjs") : ""}\`; export default {};\n`,
+      );
       let imported = false;
-      await expect(loadPolicySet(resolved, {
-        importCodePolicy: () => {
-          imported = true;
-          return { default: frozenDefinition() };
-        },
-      }), `seed ${seed}`).rejects.toBeInstanceOf(PolicyStartupError);
+      await expect(
+        loadPolicySet(resolved, {
+          importCodePolicy: () => {
+            imported = true;
+            return { default: frozenDefinition() };
+          },
+        }),
+        `seed ${seed}`,
+      ).rejects.toBeInstanceOf(PolicyStartupError);
       expect(imported, `seed ${seed}`).toBeFalse();
     }
   });
@@ -289,7 +345,10 @@ describe("trusted code policy source loading", () => {
 
     for (let seed = 0; seed < 1_024; seed++) {
       const update = seed % 2 === 0 ? "++" : "--";
-      writeFileSync(policy, `let counter = 4; const value = \`\${counter${update}${spacing[seed % spacing.length]!}/ 2}\`; export default {};\n`);
+      writeFileSync(
+        policy,
+        `let counter = 4; const value = \`\${counter${update}${spacing[seed % spacing.length]!}/ 2}\`; export default {};\n`,
+      );
       let imported = false;
       const loaded = await loadPolicySet(resolved, {
         importCodePolicy: () => {
@@ -310,21 +369,25 @@ describe("trusted code policy source loading", () => {
 
     for (let seed = 0; seed < 1_024; seed++) {
       const definition = malformedDefinition(seed);
-      await expect(loadPolicySet(resolved, { importCodePolicy: () => ({ default: definition }) }), `seed ${seed}`)
-        .rejects.toBeInstanceOf(PolicyStartupError);
+      await expect(
+        loadPolicySet(resolved, { importCodePolicy: () => ({ default: definition }) }),
+        `seed ${seed}`,
+      ).rejects.toBeInstanceOf(PolicyStartupError);
     }
   });
 
   test("fails unavailable sources and non-global code references without fallback", async () => {
     const home = fixtureDirectory();
     const missing = join(home, "missing.policy.mjs");
-    await expect(loadPolicySet(resolvedConfig(home, [missing]), { importCodePolicy: () => ({ default: frozenDefinition() }) }))
-      .rejects.toThrow(missing);
+    await expect(
+      loadPolicySet(resolvedConfig(home, [missing]), { importCodePolicy: () => ({ default: frozenDefinition() }) }),
+    ).rejects.toThrow(missing);
 
-    await expect(loadPolicySet({
-      global: loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }),
-      sources: [{ path: missing, scope: "project" }],
-    }, { importCodePolicy: () => ({ default: frozenDefinition() }) })).rejects.toThrow("only in global configuration");
+    await expect(
+      loadPolicySet(projectSourceConfig(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }), home, missing), {
+        importCodePolicy: () => ({ default: frozenDefinition() }),
+      }),
+    ).rejects.toThrow("only in global configuration");
   });
 
   test("property: 1,024 duplicate reference permutations retain first canonical-source order", async () => {
@@ -344,7 +407,10 @@ describe("trusted code policy source loading", () => {
       const loaded = await loadPolicySet(resolvedConfig(home, references), {
         importCodePolicy: () => ({ default: frozenDefinition() }),
       });
-      expect(loaded.sources.map((source) => source.canonicalPath), `seed ${seed}`).toEqual(expected);
+      expect(
+        loaded.sources.map((source) => source.canonicalPath),
+        `seed ${seed}`,
+      ).toEqual(expected);
     }
   });
 });
@@ -367,4 +433,19 @@ function malformedDefinition(seed: number): object {
   const definition = Object.create({ apiVersion: 1 }) as Record<string, unknown>;
   Object.assign(definition, { layer: "permission", select: [], evaluate: () => ({ kind: "ignore" }) });
   return Object.freeze(definition);
+}
+
+function hasSeededNestedSelector(
+  selector: BashPolicySelector,
+): selector is BashPolicySelector & { readonly nested: { readonly seed: number } } {
+  const nested = selector.nested;
+  return typeof nested === "object" && nested !== null && "seed" in nested && typeof nested.seed === "number";
+}
+
+function projectSourceConfig(
+  global: ResolvedSessionPolicyConfig["global"],
+  home: string,
+  path: string,
+): ResolvedSessionPolicyConfig {
+  return { ...resolveSessionPolicyConfig(global, home), sources: [{ path, scope: "project" }] };
 }

@@ -3,11 +3,17 @@ import { readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 import { PolicyStartupError, type ResolvedSessionPolicyConfig } from "./config.js";
-import { validateLoadedBashPolicy } from "./evaluate.js";
-import type { BashPolicyEvent, BashPolicySelector, LoadedBashPolicy, PolicyDecision, ValidatedBashPolicy } from "./types.js";
 import { compilePolicyDocument } from "./dsl/compile.js";
 import { createDslPolicy } from "./dsl/evaluate.js";
 import { parsePolicyDocument } from "./dsl/validate.js";
+import { validateLoadedBashPolicy } from "./evaluate.js";
+import type {
+  BashPolicyEvent,
+  BashPolicySelector,
+  LoadedBashPolicy,
+  PolicyDecision,
+  ValidatedBashPolicy,
+} from "./types.js";
 
 export interface LoadedPolicySource {
   readonly canonicalPath: string;
@@ -24,7 +30,7 @@ export interface PolicyLoaderOptions {
   readonly importCodePolicy?: (url: string) => unknown | Promise<unknown>;
 }
 
-interface CodePolicyDefinition {
+interface CodePolicyDefinition extends Readonly<Record<string, unknown>> {
   readonly apiVersion: 1;
   readonly layer: "guard" | "permission";
   readonly select: readonly unknown[];
@@ -51,11 +57,17 @@ export async function loadPolicySources(
 
   for (const reference of references) {
     if (reference.scope === "project" && !reference.path.endsWith(".policy.json")) {
-      throw new PolicyStartupError(reference.path, "trusted code policy sources are permitted only in global configuration");
+      throw new PolicyStartupError(
+        reference.path,
+        "trusted code policy sources are permitted only in global configuration",
+      );
     }
     const canonicalPath = canonicalizeSource(reference.path);
     if (reference.scope === "project" && !canonicalPath.endsWith(".policy.json")) {
-      throw new PolicyStartupError(canonicalPath, "trusted code policy sources are permitted only in global configuration");
+      throw new PolicyStartupError(
+        canonicalPath,
+        "trusted code policy sources are permitted only in global configuration",
+      );
     }
     if (seen.has(canonicalPath)) continue;
     seen.add(canonicalPath);
@@ -63,29 +75,47 @@ export async function loadPolicySources(
     const policy = canonicalPath.endsWith(".policy.mjs")
       ? reference.scope === "global"
         ? await loadCodePolicy(canonicalPath, bytes, importCodePolicy)
-        : (() => { throw new PolicyStartupError(canonicalPath, "trusted code policy sources are permitted only in global configuration"); })()
+        : (() => {
+            throw new PolicyStartupError(
+              canonicalPath,
+              "trusted code policy sources are permitted only in global configuration",
+            );
+          })()
       : canonicalPath.endsWith(".policy.json")
         ? loadDslPolicy(canonicalPath, bytes)
-        : (() => { throw new PolicyStartupError(canonicalPath, `${reference.scope} policy source must use the exact ${reference.scope === "global" ? ".policy.mjs or .policy.json" : ".policy.json"} extension`); })();
-    sources.push(Object.freeze({
-      canonicalPath,
-      scope: reference.scope,
-      sha256: createHash("sha256").update(bytes).digest("hex"),
-    }));
+        : (() => {
+            throw new PolicyStartupError(
+              canonicalPath,
+              `${reference.scope} policy source must use the exact ${reference.scope === "global" ? ".policy.mjs or .policy.json" : ".policy.json"} extension`,
+            );
+          })();
+    sources.push(
+      Object.freeze({
+        canonicalPath,
+        scope: reference.scope,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+      }),
+    );
     policies.push(policy);
   }
 
   return Object.freeze({ policies: Object.freeze(policies), sources: Object.freeze(sources) });
 }
 
-async function loadCodePolicy(path: string, bytes: Buffer, importCodePolicy: NonNullable<PolicyLoaderOptions["importCodePolicy"]>): Promise<ValidatedBashPolicy> {
+async function loadCodePolicy(
+  path: string,
+  bytes: Buffer,
+  importCodePolicy: NonNullable<PolicyLoaderOptions["importCodePolicy"]>,
+): Promise<ValidatedBashPolicy> {
   rejectRelativeRuntimeImports(path, bytes.toString("utf8"));
   return loadDefinition(path, await importDefinition(path, importCodePolicy));
 }
 
 function loadDslPolicy(path: string, bytes: Buffer): ValidatedBashPolicy {
   try {
-    return validateLoadedBashPolicy(createDslPolicy(compilePolicyDocument(parsePolicyDocument(bytes.toString("utf8"))), path));
+    return validateLoadedBashPolicy(
+      createDslPolicy(compilePolicyDocument(parsePolicyDocument(bytes.toString("utf8"))), path),
+    );
   } catch (error) {
     const detail = error instanceof Error ? `invalid DSL policy: ${error.message}` : "invalid DSL policy";
     throw new PolicyStartupError(path, detail, error);
@@ -117,14 +147,17 @@ function rejectRelativeRuntimeImports(path: string, source: string): void {
     }
   } catch (error) {
     if (error instanceof PolicyStartupError) throw error;
-    const detail = error instanceof Error ? `cannot scan policy source imports: ${error.message}` : "cannot scan policy source imports";
+    const detail =
+      error instanceof Error
+        ? `cannot scan policy source imports: ${error.message}`
+        : "cannot scan policy source imports";
     throw new PolicyStartupError(path, detail, error);
   }
 }
 
 function moduleSpecifiers(source: string): readonly string[] {
   const specifiers: string[] = [];
-  for (let index = 0; index < source.length;) {
+  for (let index = 0; index < source.length; ) {
     const character = source[index]!;
     if (character === "'" || character === '"') {
       index = skipQuoted(source, index);
@@ -162,7 +195,11 @@ function moduleSpecifiers(source: string): readonly string[] {
   return specifiers;
 }
 
-function readModuleSpecifier(source: string, index: number, isImport: boolean): { readonly value: string; readonly end: number } | undefined {
+function readModuleSpecifier(
+  source: string,
+  index: number,
+  isImport: boolean,
+): { readonly value: string; readonly end: number } | undefined {
   index = skipTrivia(source, index);
   if (isImport && source[index] === ".") return undefined; // import.meta
   if (isImport && source[index] === "(") {
@@ -191,7 +228,10 @@ function readModuleSpecifier(source: string, index: number, isImport: boolean): 
   return undefined;
 }
 
-function readQuotedSpecifier(source: string, index: number): { readonly value: string; readonly end: number } | undefined {
+function readQuotedSpecifier(
+  source: string,
+  index: number,
+): { readonly value: string; readonly end: number } | undefined {
   if (!isQuote(source[index])) return undefined;
   const quote = source[index]!;
   let value = "";
@@ -199,10 +239,17 @@ function readQuotedSpecifier(source: string, index: number): { readonly value: s
     const character = source[index]!;
     if (character === quote) return { value, end: index + 1 };
     if (character === "\\") {
-      const escape = source[index + 1];
-      if (escape === undefined) return undefined;
+      const escaped = source[index + 1];
+      if (escaped === undefined) return undefined;
       value += decodeEscape(source, index + 1);
-      index += escape === "u" && source[index + 2] === "{" ? source.indexOf("}", index + 3) - index : escape === "u" ? 5 : escape === "x" ? 3 : 1;
+      index +=
+        escaped === "u" && source[index + 2] === "{"
+          ? source.indexOf("}", index + 3) - index
+          : escaped === "u"
+            ? 5
+            : escaped === "x"
+              ? 3
+              : 1;
       continue;
     }
     value += character;
@@ -364,7 +411,20 @@ function findTemplateSubstitutionEnd(source: string, index: number): number {
 }
 
 const expressionPrefixKeywords = new Set([
-  "await", "case", "delete", "do", "else", "in", "instanceof", "new", "of", "return", "throw", "typeof", "void", "yield",
+  "await",
+  "case",
+  "delete",
+  "do",
+  "else",
+  "in",
+  "instanceof",
+  "new",
+  "of",
+  "return",
+  "throw",
+  "typeof",
+  "void",
+  "yield",
 ]);
 
 function skipRegularExpression(source: string, index: number): number {
@@ -417,7 +477,10 @@ function isQuote(character: string | undefined): boolean {
   return character === "'" || character === '"' || character === "`";
 }
 
-async function importDefinition(importPath: string, importCodePolicy: NonNullable<PolicyLoaderOptions["importCodePolicy"]>): Promise<unknown> {
+async function importDefinition(
+  importPath: string,
+  importCodePolicy: NonNullable<PolicyLoaderOptions["importCodePolicy"]>,
+): Promise<unknown> {
   try {
     return await importCodePolicy(pathToFileURL(importPath).href);
   } catch (error) {
@@ -439,23 +502,39 @@ function loadDefinition(path: string, module: unknown): ValidatedBashPolicy {
   if (definition.layer !== "guard" && definition.layer !== "permission") {
     throw new PolicyStartupError(path, "code policy layer must be guard or permission");
   }
-  if (!Array.isArray(definition.select) || !definition.select.every(isSelector) || typeof definition.evaluate !== "function") {
+  if (
+    !Array.isArray(definition.select) ||
+    !definition.select.every(isSelector) ||
+    typeof definition.evaluate !== "function"
+  ) {
     throw new PolicyStartupError(path, "code policy must provide selectors and evaluate");
   }
 
-  const select = freezeSelectors(path, definition.select as readonly BashPolicySelector[]);
+  if (!isCodePolicyDefinition(definition)) {
+    throw new PolicyStartupError(path, "code policy must provide selectors and evaluate");
+  }
+  const select = freezeSelectors(path, definition.select);
   const candidate: LoadedBashPolicy = Object.freeze({
     source: Object.freeze({ canonicalPath: path }),
     layer: definition.layer,
     select,
-    evaluate: (event: BashPolicyEvent) => evaluateDefinition(path, definition as CodePolicyDefinition, event),
+    evaluate: (event: BashPolicyEvent) => evaluateDefinition(path, definition, event),
   });
   try {
-    return validateLoadedBashPolicy(candidate as ValidatedBashPolicy);
+    return validateLoadedBashPolicy(candidate);
   } catch (error) {
     const detail = error instanceof Error ? error.message : "invalid code policy definition";
     throw new PolicyStartupError(path, detail, error);
   }
+}
+
+function isCodePolicyDefinition(value: Record<string, unknown>): value is CodePolicyDefinition {
+  return (
+    value.apiVersion === 1 &&
+    (value.layer === "guard" || value.layer === "permission") &&
+    Array.isArray(value.select) &&
+    typeof value.evaluate === "function"
+  );
 }
 
 function evaluateDefinition(path: string, definition: CodePolicyDefinition, event: BashPolicyEvent): PolicyDecision {
@@ -477,17 +556,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isSelector(value: unknown): value is BashPolicySelector {
-  return isRecord(value)
-    && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
-    && Object.hasOwn(value, "kind")
-    && typeof value.kind === "string";
+  return (
+    isRecord(value) &&
+    (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null) &&
+    Object.hasOwn(value, "kind") &&
+    typeof value.kind === "string"
+  );
 }
 
 function requireExactDefinitionSchema(path: string, definition: Record<string, unknown>): void {
   const expected = new Set(["apiVersion", "layer", "select", "evaluate"]);
-  if ((Object.getPrototypeOf(definition) !== Object.prototype && Object.getPrototypeOf(definition) !== null)
-    || Reflect.ownKeys(definition).length !== expected.size
-    || Reflect.ownKeys(definition).some((key) => typeof key !== "string" || !expected.has(key))) {
+  if (
+    (Object.getPrototypeOf(definition) !== Object.prototype && Object.getPrototypeOf(definition) !== null) ||
+    Reflect.ownKeys(definition).length !== expected.size ||
+    Reflect.ownKeys(definition).some((key) => typeof key !== "string" || !expected.has(key))
+  ) {
     throw new PolicyStartupError(path, "code policy definition contains unsupported fields");
   }
   for (const key of expected) {
@@ -503,7 +586,8 @@ function freezeSelectors(path: string, selectors: readonly BashPolicySelector[])
     for (const selector of selectors) deepFreeze(selector);
     return Object.freeze([...selectors]);
   } catch (error) {
-    const detail = error instanceof Error ? `cannot freeze policy selectors: ${error.message}` : "cannot freeze policy selectors";
+    const detail =
+      error instanceof Error ? `cannot freeze policy selectors: ${error.message}` : "cannot freeze policy selectors";
     throw new PolicyStartupError(path, detail, error);
   }
 }
@@ -513,7 +597,11 @@ function deepFreeze(value: unknown, seen: WeakSet<object> = new WeakSet()): void
     if (typeof value === "function") throw new TypeError("selector data must not contain functions");
     return;
   }
-  if (!Array.isArray(value) && Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) {
+  if (
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) !== Object.prototype &&
+    Object.getPrototypeOf(value) !== null
+  ) {
     throw new TypeError("selector data must contain only primitives, arrays, and plain objects");
   }
   if (seen.has(value)) return;

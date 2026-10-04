@@ -25,7 +25,10 @@ function parseNice(arguments_: readonly ResolvedWord[], context: StructuralDispa
       }
       continue;
     }
-    if (/^-\d+$/.test(argument) || /^-n.+/.test(argument) || argument.startsWith("--adjustment=")) { index++; continue; }
+    if (/^-\d+$/.test(argument) || /^-n.+/.test(argument) || argument.startsWith("--adjustment=")) {
+      index++;
+      continue;
+    }
     if (argument === "-n" || argument === "--adjustment") {
       if (!isKnown(arguments_[index + 1])) return indeterminate(context.span);
       index += 2;

@@ -23,7 +23,11 @@ afterEach(async () => {
 });
 
 function runtime(socketPath: string): LoadedPolicyRuntime {
-  return { config: { bashAnalysis: limits, redact: { opencode: { enabled: true, socketPath } } }, policySet: { policies: [], sources: [] }, limits } as unknown as LoadedPolicyRuntime;
+  return {
+    config: { bashAnalysis: limits, redact: { opencode: { enabled: true, socketPath } } },
+    policySet: { policies: [], sources: [] },
+    limits,
+  } as unknown as LoadedPolicyRuntime;
 }
 
 function frame(payload: Uint8Array): Buffer {
@@ -42,7 +46,7 @@ async function startServer(mode: "ok" | "unsupported" | "processing_failed" = "o
     let incoming = Buffer.alloc(0);
     let negotiated = false;
     socket.on("data", (chunk) => {
-      incoming = Buffer.concat([incoming, chunk]);
+      incoming = Buffer.concat([incoming, Buffer.from(chunk)]);
       while (incoming.length >= 4 && incoming.length >= incoming.readUInt32BE(0) + 4) {
         const length = incoming.readUInt32BE(0);
         const payload = incoming.subarray(4, length + 4);
@@ -53,17 +57,26 @@ async function startServer(mode: "ok" | "unsupported" | "processing_failed" = "o
           expect(hello.supportedVersions).toEqual([1]);
           handshakes++;
           negotiated = true;
-          socket.write(frame(toBinary(ServerHelloSchema, create(ServerHelloSchema, mode === "unsupported"
-            ? { failure: ServerHello_Failure.NO_COMMON_VERSION }
-            : { selectedVersion: 1 }))));
+          socket.write(
+            frame(
+              toBinary(
+                ServerHelloSchema,
+                create(
+                  ServerHelloSchema,
+                  mode === "unsupported" ? { failure: ServerHello_Failure.NO_COMMON_VERSION } : { selectedVersion: 1 },
+                ),
+              ),
+            ),
+          );
           if (mode === "unsupported") socket.end();
           continue;
         }
         const request = fromBinary(RedactRequestSchema, payload);
         requests++;
-        const response = mode === "processing_failed"
-          ? { result: { case: "error" as const, value: RedactResponse_ErrorCode.PROCESSING_FAILED } }
-          : { result: { case: "text" as const, value: request.text!.replaceAll(TOKEN, "<REDACTED>") } };
+        const response =
+          mode === "processing_failed"
+            ? { result: { case: "error" as const, value: RedactResponse_ErrorCode.PROCESSING_FAILED } }
+            : { result: { case: "text" as const, value: request.text!.replaceAll(TOKEN, "<REDACTED>") } };
         socket.write(frame(toBinary(RedactResponseSchema, create(RedactResponseSchema, response))));
       }
     });
@@ -78,7 +91,7 @@ test("both OpenCode adapters redact every text channel after one handshake per r
   for (const createPlugin of [createOpenCodePlugin, createOpenCodeV2Plugin]) {
     const plugin = await createPlugin({ runtime: runtime(socket.path) });
     for (const tool of ["bash", "read", "webfetch"]) {
-      const output = {
+      const output: { title: string; output: string; metadata: unknown; attachments: unknown } = {
         title: `title ${TOKEN}`,
         output: `output ${TOKEN}`,
         metadata: { nested: [TOKEN], safe: "keep", optional: undefined },
@@ -86,8 +99,10 @@ test("both OpenCode adapters redact every text channel after one handshake per r
       };
       await plugin["tool.execute.after"]({ tool, args: tool === "bash" ? { command: "id" } : {} } as never, output);
       expect(output).toEqual({
-        title: "title <REDACTED>", output: "output <REDACTED>",
-        metadata: { nested: ["<REDACTED>"], safe: "keep" }, attachments: [],
+        title: "title <REDACTED>",
+        output: "output <REDACTED>",
+        metadata: { nested: ["<REDACTED>"], safe: "keep" },
+        attachments: [],
       });
       expect(JSON.stringify(output)).not.toContain(TOKEN);
     }
@@ -99,10 +114,18 @@ test("unsupported handshake and processing failure withhold the whole result", a
   for (const mode of ["unsupported", "processing_failed"] as const) {
     const socket = await startServer(mode);
     const plugin = await createOpenCodePlugin({ runtime: runtime(socket.path) });
-    const output = { title: TOKEN, output: TOKEN, metadata: { nested: TOKEN }, attachments: [TOKEN] };
+    const output: { title: string; output: string; metadata: unknown; attachments: unknown } = {
+      title: TOKEN,
+      output: TOKEN,
+      metadata: { nested: TOKEN },
+      attachments: [TOKEN],
+    };
     await plugin["tool.execute.after"]({ tool: "read", args: {} } as never, output);
     expect(output).toEqual({
-      title: "Tool result withheld", output: "[Tool result withheld: redaction unavailable]", metadata: {}, attachments: [],
+      title: "Tool result withheld",
+      output: "[Tool result withheld: redaction unavailable]",
+      metadata: {},
+      attachments: [],
     });
   }
 });
@@ -117,13 +140,20 @@ test("missing socket withholds instead of throwing or returning raw output", asy
 
 test("binary or cyclic metadata cannot bypass text redaction", async () => {
   const config = { opencode: { enabled: true, socketPath: "/not-used" } };
-  for (const metadata of [Buffer.from(TOKEN), new Uint8Array(Buffer.from(TOKEN)), (() => {
-    const cyclic: { self?: unknown } = {};
-    cyclic.self = cyclic;
-    return cyclic;
-  })()]) {
+  for (const metadata of [
+    Buffer.from(TOKEN),
+    new Uint8Array(Buffer.from(TOKEN)),
+    (() => {
+      const cyclic: { self?: unknown } = {};
+      cyclic.self = cyclic;
+      return cyclic;
+    })(),
+  ]) {
     const output = { title: "title", output: TOKEN, metadata };
-    await redactOpenCodeToolResult(output, config, async () => ({ redact: async (text: string) => text, close: () => {} }));
+    await redactOpenCodeToolResult(output, config, async () => ({
+      redact: async (text: string) => text,
+      close: () => {},
+    }));
     expect(output.title).toBe("Tool result withheld");
     expect(output.output).toContain("withheld");
     expect(output.metadata).toEqual({});
@@ -144,6 +174,8 @@ test("property: arbitrary result fields are either sanitized or all withheld", a
       close: () => {},
     }));
     expect(JSON.stringify(result), `seed ${seed}`).not.toContain(TOKEN);
-    expect(result.output, `seed ${seed}`).toBe(seed % 7 === 0 ? "[Tool result withheld: redaction unavailable]" : `message-${seed}-<REDACTED>`);
+    expect(result.output, `seed ${seed}`).toBe(
+      seed % 7 === 0 ? "[Tool result withheld: redaction unavailable]" : `message-${seed}-<REDACTED>`,
+    );
   }
 });

@@ -18,13 +18,18 @@ The authoritative global configuration is JSON at
 `$SAFETY_CORE_CONFIG_HOME/safety-core/config.json`, or
 `$XDG_CONFIG_HOME/safety-core/config.json`, or
 `$HOME/.config/safety-core/config.json`. The selected environment variable must
-be an absolute path. `safety-core --config /path/to/config.json validate` selects
+be an absolute path. `safety-core validate --config /path/to/config.json` selects
 that configuration file directly, overriding the environment lookup. The flag
 also accepts `--config=/path/to/config.json` and may appear before or after the
-subcommand. `safety-core validate` prints the canonical source path and
-SHA-256 digest selected for the current directory; use it before enabling a
-policy. `safety-core explain --json -- '<command>'` reports the exact modeled
-events and decisions for local diagnosis.
+subcommand. `--project-config /path/to/project/.safety-core/config.json`
+explicitly selects a project manifest and composes its declarative policies
+with the global configuration. `safety-core validate` prints the canonical
+source path and SHA-256 digest selected for the current directory; use it
+before enabling a policy. `safety-core explain --json '<command>'` reports the
+exact modeled events and decisions for local diagnosis. Use `--` before a
+ source string that begins with `-`. `safety-core policy validate
+ /path/to/source.policy.json` validates a standalone declarative policy's
+ schema and requires every declared state to be reachable from its start state.
 
 ```json
 {
@@ -50,10 +55,41 @@ trusted; `"allowlisted"` requires canonical absolute roots in `allowedRoots`.
 Project permissions can expand global permission coverage, but a global guard
 denial remains dominant.
 
+## Policy tests
+
+Put a Bun test beside its policy using the `<policy>.test.ts` name, then run
+`safety-core test <policy>.test.ts`. The runner enables the matching
+`<policy>.json` or `<policy>.mjs` source automatically. Tests may select an
+authoritative config and add supporting global sources without repeating the
+policy under test. The suite provides deterministic property cases and a small
+seeded random generator:
+
+```ts
+import { expect } from "bun:test";
+import { policyTestForFile } from "@safety-core/core/testing";
+
+const policyTest = policyTestForFile(import.meta.url);
+
+policyTest.test("allows the intended command", { enabledPolicies: ["base.policy.json"] }, ({ evaluate }) => {
+  expect(evaluate("tool inspect").decision).toBe("allow");
+});
+
+policyTest.property("accepts argument orderings", { cases: 1_024, seed: 1 }, ({ random, evaluate }) => {
+  const args = random.shuffle(["--output=json", "--namespace=review", "get", "pods"]);
+  expect(evaluate(`kubectl ${args.join(" ")}`).decision).toBe("allow");
+});
+```
+
+`policyTestForFile()` also supports normal Bun test discovery. With the
+standalone Nix CLI, the suite is additionally exposed as the `policyTest`
+global by the runner. `config` resolves relative to the test file and loads its
+configured policies; `enabledPolicies` adds only the additional sources for
+that individual case.
+
 The Home Manager module exposes these same fields at
 `programs.safetyCorePermissions`, plus `completePolicySources`, `prCreate`,
-`installCli`, and `installClaudeBashHook`, plus Pi's `autoApprove` and
-`judgeModel` settings. `completePolicySources` references
+`installCli`, and `installClaudeBashHook`, plus Pi's `autoApprove`,
+`showFullCommand`, and `judgeModel` settings. `completePolicySources` references
 the packaged complete DSL source set; `prCreate` renders a complete,
 repository/organization-scoped `gh pr create` DSL source. The flake packages
 the CLI, core/parser assets, DSL source directory, and Claude, OpenCode v1,

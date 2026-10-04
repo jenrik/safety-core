@@ -6,7 +6,7 @@ import { childInvocationFrom, taintWrapperResult } from "./wrapper-utils.js";
 const EXECUTABLE_TARGETS = new Set(["builtin", "command", "exec", "source", "."]);
 
 /** Preserve child evidence for builtins that dispatch code or another command. */
-export const builtinHandler: CommandHandler = Object.freeze({
+export const builtinHandler = Object.freeze<CommandHandler>({
   name: "builtin",
   handle(cursor, context) {
     const args = cursor.invocation.argv;
@@ -16,7 +16,10 @@ export const builtinHandler: CommandHandler = Object.freeze({
       return taintWrapperResult(evalArguments(args.slice(targetIndex + 1), context), context);
     }
     if (target?.kind === "known" && EXECUTABLE_TARGETS.has(target.value)) {
-      return taintWrapperResult(childInvocationFrom(args, targetIndex, context, undefined, "none", "builtin-only"), context);
+      return taintWrapperResult(
+        childInvocationFrom(args, targetIndex, context, undefined, "none", "builtin-only"),
+        context,
+      );
     }
     return dynamicExecutableIndeterminate(context.span);
   },

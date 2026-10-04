@@ -50,12 +50,7 @@ export const SECRET_PATTERNS: readonly string[] = [
 ];
 
 // Names that match SECRET_PATTERNS but are known-safe (templates/examples).
-export const SECRET_EXCEPTIONS: readonly string[] = [
-  "*.env.example",
-  "*.env.sample",
-  "*.env.template",
-  "*.env.dist",
-];
+export const SECRET_EXCEPTIONS: readonly string[] = ["*.env.example", "*.env.sample", "*.env.template", "*.env.dist"];
 
 // Commands whose primary effect is emitting file content to stdout.
 export const READING_COMMANDS: ReadonlySet<string> = new Set([
@@ -88,20 +83,10 @@ export const AUTO_ALLOW_READONLY_COMMANDS: readonly string[] = readOnlyBashComma
 
 // ─── GitHub direct-HTTP block ────────────────────────────────────────────────
 
-export const BLOCKED_GITHUB_DOMAINS: readonly string[] = [
-  "raw.githubusercontent.com",
-  "api.github.com",
-];
+export const BLOCKED_GITHUB_DOMAINS: readonly string[] = ["raw.githubusercontent.com", "api.github.com"];
 
 // HTTP client executables considered when scanning a shell command.
-export const HTTP_TOOLS: ReadonlySet<string> = new Set([
-  "curl",
-  "wget",
-  "http",
-  "httpie",
-  "fetch",
-  "httpx",
-]);
+export const HTTP_TOOLS: ReadonlySet<string> = new Set(["curl", "wget", "http", "httpie", "fetch", "httpx"]);
 
 // ─── kubectl ─────────────────────────────────────────────────────────────────
 
@@ -174,12 +159,6 @@ export const KUBECTL_PROTECTED_TYPES: ReadonlySet<string> = new Set([
   "tokenrequests",
 ]);
 
-export const KUBECTL_ROLLOUT_ALLOW: ReadonlySet<string> = new Set([
-  "status",
-  "history",
-]);
+export const KUBECTL_ROLLOUT_ALLOW: ReadonlySet<string> = new Set(["status", "history"]);
 
-export const KUBECTL_AUTH_ALLOW: ReadonlySet<string> = new Set([
-  "can-i",
-  "whoami",
-]);
+export const KUBECTL_AUTH_ALLOW: ReadonlySet<string> = new Set(["can-i", "whoami"]);

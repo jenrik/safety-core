@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-
+import type { SourceSpan } from "../src/bash/cst.ts";
+import { fromInitialEnvironment, lookupBinding } from "../src/bash/environment.ts";
+import type { Outcome } from "../src/bash/outcome.ts";
 import {
   analysisFailure,
   appendOutcomeSummary,
@@ -16,15 +18,12 @@ import {
   strongestOutcome,
 } from "../src/bash/outcome.ts";
 import {
-  DEFAULT_BASH_ANALYSIS_LIMITS,
-  runSteps,
   type BashAnalysisLimits,
+  DEFAULT_BASH_ANALYSIS_LIMITS,
   type DispatchTarget,
+  runSteps,
   type Step,
 } from "../src/bash/runner.ts";
-import { fromInitialEnvironment, lookupBinding } from "../src/bash/environment.ts";
-import type { SourceSpan } from "../src/bash/cst.ts";
-import type { Outcome } from "../src/bash/outcome.ts";
 import { BashParserFailure } from "../src/shell.ts";
 
 const span: SourceSpan = { start: 3, end: 9 };
@@ -65,7 +64,9 @@ describe("Bash authorization outcomes", () => {
     expect(Object.isFrozen(outcome)).toBeTrue();
     expect(Object.isFrozen(outcome.span)).toBeTrue();
     expect(outcome).not.toHaveProperty("value");
-    expect(() => { (outcome.span as { start: number }).start = 0; }).toThrow();
+    expect(() => {
+      (outcome.span as { start: number }).start = 0;
+    }).toThrow();
   });
 
   test("does not retain ordinary safe outcomes", () => {
@@ -90,12 +91,16 @@ describe("Bash authorization outcomes", () => {
     if (right.events.kind === "append") expect(right.events.previous).toBe(prefix.events);
     const merged = materializeOutcomeSummary(summary);
 
-    expect(merged.policies?.map((policy) => policy.reason)).toEqual(["prefix", "left", "right"]);
-    expect(merged.policy?.reason).toBe("right");
+    expect(merged).toMatchObject({
+      policies: [{ reason: "prefix" }, { reason: "left" }, { reason: "right" }],
+      policy: { reason: "right" },
+    });
 
     const descendantThenPrefix = materializeOutcomeSummary(mergeOutcomeSummaries([left, prefix]));
-    expect(descendantThenPrefix.policies?.map((policy) => policy.reason)).toEqual(["prefix", "left"]);
-    expect(descendantThenPrefix.policy?.reason).toBe("left");
+    expect(descendantThenPrefix).toMatchObject({
+      policies: [{ reason: "prefix" }, { reason: "left" }],
+      policy: { reason: "left" },
+    });
   });
 
   test("retains physically distinct equal policy observations", () => {
@@ -112,17 +117,19 @@ describe("Bash authorization outcomes", () => {
       const length = 1 + (random() % 64);
       for (let index = 0; index < length; index++) {
         const candidate = random() % 6;
-        outcomes.push(candidate === 0
-          ? safe()
-          : candidate === 1
-            ? labeledSafe(`${iteration}-${index}`)
-            : candidate === 2
-              ? indeterminate({ start: index, end: index + 1 })
-              : candidate === 3
-                ? failure({ start: index, end: index + 1 })
-                : candidate === 4
-                  ? analysisFailure("max-steps", { start: index, end: index + 1 })
-                  : deny({ start: index, end: index + 1 }));
+        outcomes.push(
+          candidate === 0
+            ? safe()
+            : candidate === 1
+              ? labeledSafe(`${iteration}-${index}`)
+              : candidate === 2
+                ? indeterminate({ start: index, end: index + 1 })
+                : candidate === 3
+                  ? failure({ start: index, end: index + 1 })
+                  : candidate === 4
+                    ? analysisFailure("max-steps", { start: index, end: index + 1 })
+                    : deny({ start: index, end: index + 1 }),
+        );
       }
 
       const summary = outcomes.reduce(appendOutcomeSummary, emptyOutcomeSummary());
@@ -138,7 +145,8 @@ describe("Bash authorization outcomes", () => {
     }
     const branchCount = 64;
     const branches = Array.from({ length: branchCount }, (_, index) =>
-      appendOutcomeSummary(prefix, labeledSafe(`branch-${index}`)));
+      appendOutcomeSummary(prefix, labeledSafe(`branch-${index}`)),
+    );
     for (const branch of branches) {
       expect(branch.events.kind).toBe("append");
       if (branch.events.kind === "append") expect(branch.events.previous).toBe(prefix.events);
@@ -217,7 +225,9 @@ describe("iterative Bash authorization runner", () => {
   test("records a thrown target as redacted failure and continues later work", () => {
     let safeTargetRan = false;
     const initial: Step = fork([
-      target(() => { throw new Error(); }),
+      target(() => {
+        throw new Error();
+      }),
       target(() => {
         safeTargetRan = true;
         return result(safe());
@@ -232,9 +242,11 @@ describe("iterative Bash authorization runner", () => {
   });
 
   test("rethrows a parser deployment assertion instead of deferring it", () => {
-    const initial: Step = continueWith(target(() => {
-      throw new BashParserFailure("parser disappeared");
-    }));
+    const initial: Step = continueWith(
+      target(() => {
+        throw new BashParserFailure("parser disappeared");
+      }),
+    );
 
     expect(() => runSteps(initial, limits())).toThrow(BashParserFailure);
   });
@@ -279,11 +291,7 @@ describe("iterative Bash authorization runner", () => {
     const completed = runSteps(fork(targets), limits({ maxSteps: 1 }));
 
     expect(completed.outcome).toEqual(analysisFailure("max-steps", span));
-    expect(gaps.sort()).toEqual([
-      "first:max-steps",
-      "second:max-steps",
-      "third:max-steps",
-    ]);
+    expect(gaps.sort()).toEqual(["first:max-steps", "second:max-steps", "third:max-steps"]);
   });
 
   for (const [field, budget] of [
@@ -384,10 +392,13 @@ describe("iterative Bash authorization runner", () => {
       let growth: DispatchTarget;
       growth = target(() => fork(Array.from({ length: fanout }, () => growth)));
 
-      const completed = runSteps(continueWith(growth), limits({
-        maxSteps: maxWorkItems * 4,
-        maxWorkItems,
-      }));
+      const completed = runSteps(
+        continueWith(growth),
+        limits({
+          maxSteps: maxWorkItems * 4,
+          maxWorkItems,
+        }),
+      );
 
       expect(completed.outcome).toEqual(analysisFailure("max-work-items", span));
       expect(completed.verdict).toEqual({ kind: "neutral" });
@@ -396,7 +407,9 @@ describe("iterative Bash authorization runner", () => {
 
   test("drains outer-runner work admitted before a later queue admission failure", () => {
     let denyCalls = 0;
-    const growth = target(() => fork([target(() => result(safe())), target(() => result(safe())), target(() => result(safe()))]));
+    const growth = target(() =>
+      fork([target(() => result(safe())), target(() => result(safe())), target(() => result(safe()))]),
+    );
     const denied = target(() => {
       denyCalls++;
       return result(deny(span));
@@ -414,10 +427,13 @@ describe("iterative Bash authorization runner", () => {
       denyCalls++;
       return result(deny(span));
     });
-    const completed = runSteps(fork([target(() => result(safe())), denied, target(() => result(safe()))]), limits({
-      maxSteps: 20,
-      maxWorkItems: 2,
-    }));
+    const completed = runSteps(
+      fork([target(() => result(safe())), denied, target(() => result(safe()))]),
+      limits({
+        maxSteps: 20,
+        maxWorkItems: 2,
+      }),
+    );
 
     expect(completed.outcome).toEqual(analysisFailure("max-work-items", span));
     expect(denyCalls).toBe(0);
@@ -464,7 +480,13 @@ function fork(targets: readonly DispatchTarget[]): Step {
   return { kind: "fork", state: fromInitialEnvironment(), targets, span };
 }
 
-function result(outcome: ReturnType<typeof safe> | ReturnType<typeof indeterminate> | ReturnType<typeof failure> | ReturnType<typeof deny>): Step {
+function result(
+  outcome:
+    | ReturnType<typeof safe>
+    | ReturnType<typeof indeterminate>
+    | ReturnType<typeof failure>
+    | ReturnType<typeof deny>,
+): Step {
   return { kind: "result", state: fromInitialEnvironment(), outcome, span };
 }
 

@@ -2,16 +2,15 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import {
-  STRICT_BASH_PROFILE_EXECUTABLES,
-  evaluateConfiguredBash,
-  initBashParser,
-  type BashProfileSnapshot,
-  type GhPrCreatePolicy,
-} from "../src/index.ts";
 import { ghNativeAliasesForRule } from "../src/bash/handlers/gh-command-line.ts";
 import { GH_READ_ONLY_RULES } from "../src/bash/policies/gh-read-only.ts";
+import {
+  type BashProfileSnapshot,
+  evaluateConfiguredBash,
+  type GhPrCreatePolicy,
+  initBashParser,
+  STRICT_BASH_PROFILE_EXECUTABLES,
+} from "../src/index.ts";
 
 const policy: GhPrCreatePolicy = {
   enabled: true,
@@ -31,10 +30,7 @@ beforeAll(async () => {
       : join(process.cwd(), "node_modules", "tree-sitter-bash", "tree-sitter-bash.wasm"),
     join(wasmDir, "tree-sitter-bash.wasm"),
   );
-  symlinkSync(
-    join(process.cwd(), "node_modules", "web-tree-sitter"),
-    join(wasmDir, "node_modules", "web-tree-sitter"),
-  );
+  symlinkSync(join(process.cwd(), "node_modules", "web-tree-sitter"), join(wasmDir, "node_modules", "web-tree-sitter"));
   await initBashParser(wasmDir);
 });
 
@@ -47,11 +43,17 @@ function decision(command: string, activePolicy: GhPrCreatePolicy = policy): str
     readOnlyBash: false,
     ghApiReadOnly: false,
     ghReadOnly: false,
-    strictProfiles: Object.freeze(Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false]))) as BashProfileSnapshot["strictProfiles"],
+    strictProfiles: Object.freeze(
+      Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false])),
+    ) as BashProfileSnapshot["strictProfiles"],
     ghPrCreate: Object.freeze(activePolicy),
     limits: Object.freeze({ maxFunctionDepth: 128, maxNestedScriptDepth: 64, maxSteps: 7_500, maxWorkItems: 10_000 }),
   });
-  return evaluateConfiguredBash({ source: command, initialEnvironment: { kind: "verified", values: { GH_PROMPT_DISABLED: "1" } }, profileSnapshot }).permission.kind;
+  return evaluateConfiguredBash({
+    source: command,
+    initialEnvironment: { kind: "verified", values: { GH_PROMPT_DISABLED: "1" } },
+    profileSnapshot,
+  }).permission.kind;
 }
 
 describe("gh pr create policy", () => {
@@ -93,22 +95,33 @@ describe("gh pr create policy", () => {
       "GH_EDITOR=printf gh pr create --repo github.com/acme/widgets --fill",
       "/usr/bin/gh pr create --repo github.com/acme/widgets --fill",
       "gh pr create --repo github.com/acme/widgets --fill > result.txt",
-    ]) expect(decision(command), command).toBe("deny");
+    ])
+      expect(decision(command), command).toBe("deny");
   });
 
   test("denies direct gh api calls, including pull-request equivalents", () => {
     expect(decision("gh api -X POST repos/acme/widgets/pulls -f title=fix")).toBe("deny");
     expect(decision("gh api repos/attacker/widgets/pulls --method=POST -f title=fix")).toBe("deny");
-    expect(decision("gh api graphql -f 'query=mutation { createPullRequest(input: {}) { pullRequest { id } } }'")).toBe("deny");
+    expect(decision("gh api graphql -f 'query=mutation { createPullRequest(input: {}) { pullRequest { id } } }'")).toBe(
+      "deny",
+    );
     expect(decision("gh api graphql --input pull-request-mutation.json")).toBe("deny");
     expect(decision("gh api graphql -f 'query=query { viewer { login } }'")).toBe("deny");
     expect(decision("GH_REPO=attacker/widgets gh api -X POST 'repos/{owner}/{repo}/pulls' -f title=fix")).toBe("deny");
     expect(decision("endpoint='repos/attacker/widgets/pulls'; gh api -X POST \"$endpoint\" -f title=fix")).toBe("deny");
     expect(decision("gh api -X POST https://api.github.com/repos/attacker/widgets/pulls -f title=fix")).toBe("deny");
-    expect(decision("gh api -X POST https://github.example/api/v3/repos/attacker/widgets/pulls -f title=fix")).toBe("deny");
-    expect(decision("gh api https://api.github.com/graphql -f 'query=mutation { createPullRequest(input: {}) { pullRequest { id } } }'")).toBe("deny");
+    expect(decision("gh api -X POST https://github.example/api/v3/repos/attacker/widgets/pulls -f title=fix")).toBe(
+      "deny",
+    );
+    expect(
+      decision(
+        "gh api https://api.github.com/graphql -f 'query=mutation { createPullRequest(input: {}) { pullRequest { id } } }'",
+      ),
+    ).toBe("deny");
     expect(decision("gh api repos/attacker/widgets/'pulls' -f title=fix")).toBe("deny");
-    expect(decision("gh api graphql -f 'query=mutation { create'Pull'Request(input: {}) { pullRequest { id } } }'")).toBe("deny");
+    expect(
+      decision("gh api graphql -f 'query=mutation { create'Pull'Request(input: {}) { pullRequest { id } } }'"),
+    ).toBe("deny");
   });
 
   test("ignores non-creation gh commands and disabled profiles", () => {
@@ -179,8 +192,10 @@ describe("gh pr create policy", () => {
       "strace bash",
     ];
     for (const interpreter of wrappers) {
-      expect(decision(`printf '%s\\n' 'gh pr create --repo github.com/attacker/widgets --fill' | ${interpreter}`), interpreter)
-        .toBe("deny");
+      expect(
+        decision(`printf '%s\\n' 'gh pr create --repo github.com/attacker/widgets --fill' | ${interpreter}`),
+        interpreter,
+      ).toBe("deny");
     }
   });
 
@@ -219,12 +234,10 @@ describe("gh pr create policy", () => {
       const allowed = random() % 2 === 0;
       const target = allowed
         ? `github.com/${owner}/${repository}`
-        : `github.com/${owner}${random() % 9 + 1}/${repository}`;
-      const flag = ["--repo", "-R", "--repo=", "-R="][random() % 4];
+        : `github.com/${owner}${(random() % 9) + 1}/${repository}`;
+      const flag = ["--repo", "-R", "--repo=", "-R="][random() % 4]!;
       const value = flag.endsWith("=") ? `${flag}${target}` : `${flag} ${target}`;
-      const command = random() % 2 === 0
-        ? `gh pr create --fill ${value}`
-        : `gh ${value} pr create --fill`;
+      const command = random() % 2 === 0 ? `gh pr create --fill ${value}` : `gh ${value} pr create --fill`;
       const generatedPolicy: GhPrCreatePolicy = {
         enabled: true,
         allowedRepositories: [`${owner}/${repository}`],
@@ -246,15 +259,16 @@ describe("gh pr create policy", () => {
       const organization = `organization${random() % 100000}`;
       const repository = `repo${random() % 100000}`;
       const allowed = random() % 2 === 0;
-      const targetOrganization = allowed ? organization : `${organization}${random() % 9 + 1}`;
+      const targetOrganization = allowed ? organization : `${organization}${(random() % 9) + 1}`;
       const generatedPolicy: GhPrCreatePolicy = {
         enabled: true,
         allowedRepositories: [],
         allowedOrganizations: [organization],
       };
 
-      expect(decision(`gh pr create --repo github.com/${targetOrganization}/${repository} --fill`, generatedPolicy))
-        .toBe(allowed ? "defer" : "deny");
+      expect(
+        decision(`gh pr create --repo github.com/${targetOrganization}/${repository} --fill`, generatedPolicy),
+      ).toBe(allowed ? "defer" : "deny");
     }
   });
 });

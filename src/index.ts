@@ -3,22 +3,8 @@
 // Every harness consumes the configuration-driven Bash evaluator. Compatibility
 // analyzers remain exported until the final cleanup slice removes old callers.
 
-export * from "./patterns.js";
-export * from "./messages.js";
-export {
-  basename,
-  assertBashParserInitialized,
-  discoverWasmDir,
-  initBundledBashParser,
-  initBashParser,
-  isBashParserFailure,
-  isBashParserInitialized,
-  matchesAnyGlob,
-  parseBashProgram,
-  resolveBundledBashAssets,
-} from "./shell.js";
-export { BashParserFailure } from "./shell.js";
-export type { BundledBashAssets } from "./shell.js";
+export * from "./audit.js";
+export * from "./authorization.js";
 export type {
   BashAssignment,
   BashCommand,
@@ -42,30 +28,52 @@ export type {
   BashWord,
   SourceSpan,
 } from "./bash/cst.js";
-export * from "./secrets.js";
-export * from "./github.js";
-export * from "./kubectl.js";
-export * from "./authorization.js";
-export * from "./legacy-config.js";
-export { analyzeSecretReadInvocation } from "./bash/policies/secrets.js";
-export { analyzeGithubHttpInvocation } from "./bash/policies/github.js";
-export { analyzeKubectlInvocation } from "./bash/policies/kubectl.js";
+export * from "./bash/io.js";
 export { analyzeGhApiInvocation } from "./bash/policies/gh-api.js";
+export type { GhPrCreatePolicy } from "./bash/policies/gh-pr-create.js";
 export { analyzeGhPrCreateInvocation } from "./bash/policies/gh-pr-create.js";
 export { analyzeGitReadOnlyInvocation } from "./bash/policies/git.js";
-export { completePolicyInitialEnvironment, policyInitialEnvironment, POLICY_ENVIRONMENT_ROUTES } from "./bash/policy-environment.js";
-export type { GhPrCreatePolicy } from "./bash/policies/gh-pr-create.js";
-export * from "./audit.js";
-export * from "./judge.js";
+export { analyzeGithubHttpInvocation } from "./bash/policies/github.js";
+export { analyzeKubectlInvocation } from "./bash/policies/kubectl.js";
+export { analyzeSecretReadInvocation } from "./bash/policies/secrets.js";
+export {
+  completePolicyInitialEnvironment,
+  POLICY_ENVIRONMENT_ROUTES,
+  policyInitialEnvironment,
+} from "./bash/policy-environment.js";
 export * from "./config.js";
-export * from "./policy/types.js";
-export * from "./policy/evaluate.js";
+export * from "./github.js";
+export * from "./judge.js";
+export * from "./kubectl.js";
+export * from "./legacy-config.js";
+export * from "./messages.js";
+export * from "./patterns.js";
 export * from "./policy/config.js";
-export * from "./policy/load.js";
+export * from "./policy/evaluate.js";
 export * from "./policy/events.js";
-export * from "./policy/filesystem.js";
 export * from "./policy/executable.js";
-export * from "./policy/runtime.js";
+export * from "./policy/file-permissions.js";
+export * from "./policy/filesystem.js";
+export * from "./policy/load.js";
+export * from "./policy/opencode-file-permissions.js";
+export * from "./policy/opencode-preflight.js";
 export * from "./policy/reload.js";
+export * from "./policy/runtime.js";
 export * from "./policy/session.js";
 export * from "./policy/trace.js";
+export * from "./policy/types.js";
+export * from "./secrets.js";
+export type { BundledBashAssets } from "./shell.js";
+export {
+  assertBashParserInitialized,
+  BashParserFailure,
+  basename,
+  discoverWasmDir,
+  initBashParser,
+  initBundledBashParser,
+  isBashParserFailure,
+  isBashParserInitialized,
+  matchesAnyGlob,
+  parseBashProgram,
+  resolveBundledBashAssets,
+} from "./shell.js";

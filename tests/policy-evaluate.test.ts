@@ -1,16 +1,16 @@
 import { describe, expect, test } from "bun:test";
-
+import { fromVerifiedInitialEnvironment, modeledBindings } from "../src/bash/environment.ts";
 import { evaluatePolicyEvents, validateLoadedBashPolicy } from "../src/policy/evaluate.ts";
 import type {
   BashPolicyAnalysis,
   BashPolicyEvent,
   GuardBashPolicy,
   GuardPolicyDecision,
+  InvocationView,
   PermissionBashPolicy,
   PolicyDecision,
   ValidatedBashPolicy,
 } from "../src/policy/types.ts";
-import { fromInitialEnvironment } from "../src/bash/environment.ts";
 
 const allow = (reason: string) => ({ kind: "allow" as const, reason: literal(reason) });
 const deny = (reason: string) => ({ kind: "deny" as const, reason: literal(reason) });
@@ -22,21 +22,42 @@ const completeAnalysis = (): BashPolicyAnalysis => ({ complete: true });
 const incompleteAnalysis = (): BashPolicyAnalysis => ({ complete: false });
 
 function invocation(executable: string): BashPolicyEvent {
+  const bindings = modeledBindings(fromVerifiedInitialEnvironment({ TOKEN: "actual-environment-value" }));
   return {
     kind: "invocation",
     executable: { kind: "known", value: executable },
     argv: Object.freeze([{ kind: "known", value: "--actual-argument" }]),
-    environment: fromInitialEnvironment({ TOKEN: "actual-environment-value" }),
+    executionTarget: "external-path",
+    executableIdentity: {
+      qualification: "known",
+      spelling: executable,
+      basename: executable,
+      chain: [],
+      selectedPath: `/bin/${executable}`,
+      canonicalTarget: `/bin/${executable}`,
+    },
+    environment: bindings.values,
+    missingBindings: bindings.missingBindings,
+    redirects: [],
+    assignments: {},
     span: { start: 0, end: executable.length },
+    provenance: { route: ["direct"] },
+    inPipeline: false,
+    processEffect: "none",
   };
 }
 
 function executionGap(reason: string): BashPolicyEvent {
+  const bindings = modeledBindings(fromVerifiedInitialEnvironment({ TOKEN: "actual-environment-value" }));
   return {
     kind: "execution-gap",
     reason,
-    environment: fromInitialEnvironment({ TOKEN: "actual-environment-value" }),
+    environment: bindings.values,
+    missingBindings: bindings.missingBindings,
     span: { start: 0, end: reason.length },
+    provenance: { route: ["direct"] },
+    inPipeline: false,
+    processEffect: "none",
   };
 }
 
@@ -64,63 +85,127 @@ function policy(
 }
 
 function basename(event: BashPolicyEvent): string | undefined {
-  return event.kind === "invocation" && event.executable?.kind === "known"
-    ? event.executable.value
-    : undefined;
+  return event.kind === "invocation" && event.executable?.kind === "known" ? event.executable.value : undefined;
 }
 
 describe("open Bash policy decision algebra", () => {
   test("allows only when separate permission policies cover every invocation", () => {
-    expect(evaluatePolicyEvents([invocation("git"), invocation("docker")], [
-      policy("/p/git", "permission", (event) => basename(event) === "git" ? allow("git read") : ignore()),
-      policy("/p/docker", "permission", (event) => basename(event) === "docker" ? allow("docker read") : ignore()),
-    ], completeAnalysis())).toMatchObject({ decision: "allow" });
+    expect(
+      evaluatePolicyEvents(
+        [invocation("git"), invocation("docker")],
+        [
+          policy("/p/git", "permission", (event) => (basename(event) === "git" ? allow("git read") : ignore())),
+          policy("/p/docker", "permission", (event) =>
+            basename(event) === "docker" ? allow("docker read") : ignore(),
+          ),
+        ],
+        completeAnalysis(),
+      ),
+    ).toMatchObject({ decision: "allow" });
   });
 
   test("a guard success cannot grant permission", () => {
-    expect(evaluatePolicyEvents([invocation("git")], [
-      policy("/p/guard", "guard", () => defer("guard passed")),
-    ], completeAnalysis())).toMatchObject({ decision: "defer" });
+    expect(
+      evaluatePolicyEvents(
+        [invocation("git")],
+        [policy("/p/guard", "guard", () => defer("guard passed"))],
+        completeAnalysis(),
+      ),
+    ).toMatchObject({ decision: "defer" });
   });
 
   test("defensively rejects a runtime guard allow as fatal", () => {
-    expect(() => evaluatePolicyEvents([invocation("git")], [
-      policy("/p/invalid-guard", "guard", (() => allow("invalid guard allow")) as unknown as (event: BashPolicyEvent) => GuardPolicyDecision),
-    ], completeAnalysis())).toThrow("Guard policies cannot allow");
+    expect(() =>
+      evaluatePolicyEvents(
+        [invocation("git")],
+        [
+          policy("/p/invalid-guard", "guard", (() => allow("invalid guard allow")) as unknown as (
+            event: BashPolicyEvent,
+          ) => GuardPolicyDecision),
+        ],
+        completeAnalysis(),
+      ),
+    ).toThrow("Guard policies cannot allow");
   });
 
   test("requires a canonical absolute source path without resolving source files", () => {
     for (const canonicalPath of ["relative/policy", "/p/../policy", "/p//policy", "/p/./policy"]) {
-      expect(() => validateLoadedBashPolicy(policy(canonicalPath, "permission", () => allow("read"))), canonicalPath)
-        .toThrow("canonical absolute path");
+      expect(
+        () => validateLoadedBashPolicy(policy(canonicalPath, "permission", () => allow("read"))),
+        canonicalPath,
+      ).toThrow("canonical absolute path");
     }
-    expect(validateLoadedBashPolicy(policy("/p/policy", "permission", () => allow("read"))).source)
-      .toEqual({ canonicalPath: "/p/policy" });
+    expect(validateLoadedBashPolicy(policy("/p/policy", "permission", () => allow("read"))).source).toEqual({
+      canonicalPath: "/p/policy",
+    });
   });
 
   test("any event denial wins over permission coverage", () => {
-    expect(evaluatePolicyEvents([invocation("git"), invocation("docker")], [
-      policy("/p/read", "permission", () => allow("read")),
-      policy("/p/deny-docker", "guard", (event) => basename(event) === "docker" ? deny("docker denied") : ignore()),
-    ], completeAnalysis())).toMatchObject({ decision: "deny" });
+    expect(
+      evaluatePolicyEvents(
+        [invocation("git"), invocation("docker")],
+        [
+          policy("/p/read", "permission", () => allow("read")),
+          policy("/p/deny-docker", "guard", (event) =>
+            basename(event) === "docker" ? deny("docker denied") : ignore(),
+          ),
+        ],
+        completeAnalysis(),
+      ),
+    ).toMatchObject({ decision: "deny" });
   });
 
   test("incomplete analysis and reachable execution gaps prevent whole-request allow", () => {
     const permissions = [policy("/p/read", "permission", () => allow("read"))];
 
-    expect(evaluatePolicyEvents([invocation("git")], permissions, incompleteAnalysis())).toMatchObject({ decision: "defer" });
-    expect(evaluatePolicyEvents([executionGap("opaque-child")], permissions, completeAnalysis())).toMatchObject({ decision: "defer" });
+    expect(evaluatePolicyEvents([invocation("git")], permissions, incompleteAnalysis())).toMatchObject({
+      decision: "defer",
+    });
+    expect(evaluatePolicyEvents([executionGap("opaque-child")], permissions, completeAnalysis())).toMatchObject({
+      decision: "defer",
+    });
+  });
+
+  test("an environment-independent permission may cover only its selected unresolved invocation", () => {
+    const unresolved: InvocationView = {
+      ...invocation("sleep"),
+      executionTarget: "unresolved" as const,
+      missingBindings: "unknown" as const,
+    } as InvocationView;
+    const independent = {
+      ...policy("/p/sleep", "permission", () => allow("sleep")),
+      select: [{ kind: "executable-basename", value: "sleep", environmentIndependent: true }],
+    } as ValidatedBashPolicy;
+    const ordinary = policy("/p/ordinary", "permission", () => allow("ordinary"));
+
+    expect(evaluatePolicyEvents([unresolved], [independent], completeAnalysis()).decision).toBe("allow");
+    expect(evaluatePolicyEvents([unresolved], [ordinary], completeAnalysis()).decision).toBe("defer");
+    expect(
+      evaluatePolicyEvents(
+        [{ ...unresolved, executionTarget: "shell-function" as const }],
+        [independent],
+        completeAnalysis(),
+      ).decision,
+    ).toBe("defer");
   });
 
   test("a policy may deny an execution gap", () => {
-    expect(evaluatePolicyEvents([executionGap("opaque-child")], [
-      policy("/p/gap", "guard", () => deny("opaque execution forbidden")),
-    ], incompleteAnalysis())).toMatchObject({ decision: "deny" });
+    expect(
+      evaluatePolicyEvents(
+        [executionGap("opaque-child")],
+        [policy("/p/gap", "guard", () => deny("opaque execution forbidden"))],
+        incompleteAnalysis(),
+      ),
+    ).toMatchObject({ decision: "deny" });
   });
 
   test("traces retain the original modeled argv and complete environment", () => {
     const event = invocation("git");
-    const result = evaluatePolicyEvents([event], [policy("/p/read", "permission", () => allow("read"))], completeAnalysis());
+    const result = evaluatePolicyEvents(
+      [event],
+      [policy("/p/read", "permission", () => allow("read"))],
+      completeAnalysis(),
+    );
     const trace = result.traces[0]!;
 
     expect(trace.event).toBe(event);
@@ -141,34 +226,46 @@ describe("open Bash policy decision algebra", () => {
       {
         events: [invocation("git"), invocation("docker")],
         policies: [
-          policy("/p/git", "permission", (event) => basename(event) === "git" ? allow("git read") : ignore()),
-          policy("/p/docker", "permission", (event) => basename(event) === "docker" ? allow("docker read") : ignore()),
+          policy("/p/git", "permission", (event) => (basename(event) === "git" ? allow("git read") : ignore())),
+          policy("/p/docker", "permission", (event) =>
+            basename(event) === "docker" ? allow("docker read") : ignore(),
+          ),
         ],
         expected: "allow",
       },
       {
         events: [invocation("git"), invocation("docker"), executionGap("opaque-child")],
         policies: [
-          policy("/p/git", "permission", (event) => basename(event) === "git" ? allow("git read") : ignore()),
-          policy("/p/docker", "permission", (event) => basename(event) === "docker" ? allow("docker read") : ignore()),
-          policy("/p/gap", "guard", (event) => event.kind === "execution-gap" ? deny("opaque execution forbidden") : ignore()),
+          policy("/p/git", "permission", (event) => (basename(event) === "git" ? allow("git read") : ignore())),
+          policy("/p/docker", "permission", (event) =>
+            basename(event) === "docker" ? allow("docker read") : ignore(),
+          ),
+          policy("/p/gap", "guard", (event) =>
+            event.kind === "execution-gap" ? deny("opaque execution forbidden") : ignore(),
+          ),
         ],
         expected: "deny",
       },
       {
         events: [invocation("git"), invocation("docker")],
-        policies: [policy("/p/git", "permission", (event) => basename(event) === "git" ? allow("git read") : ignore())],
+        policies: [
+          policy("/p/git", "permission", (event) => (basename(event) === "git" ? allow("git read") : ignore())),
+        ],
         expected: "defer",
       },
     ];
 
     for (const [scenarioIndex, scenario] of scenarios.entries()) {
-      expect(evaluatePolicyEvents(scenario.events, scenario.policies, completeAnalysis()).decision).toBe(scenario.expected);
+      expect(evaluatePolicyEvents(scenario.events, scenario.policies, completeAnalysis()).decision).toBe(
+        scenario.expected,
+      );
       for (let seed = 0; seed < 1_024; seed++) {
         const eventOrder = permute(scenario.events, seed * 2 + 1);
         const policyOrder = permute(scenario.policies, seed * 2 + 2);
-        expect(evaluatePolicyEvents(eventOrder, policyOrder, completeAnalysis()).decision, `scenario ${scenarioIndex}, seed ${seed}`)
-          .toBe(scenario.expected);
+        expect(
+          evaluatePolicyEvents(eventOrder, policyOrder, completeAnalysis()).decision,
+          `scenario ${scenarioIndex}, seed ${seed}`,
+        ).toBe(scenario.expected);
       }
     }
   });

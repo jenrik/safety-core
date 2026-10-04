@@ -3,14 +3,8 @@
 // this repeated whole-command compatibility evaluation in favor of its
 // structured secret-read evidence.
 
-import {
-  SECRET_EXCEPTIONS,
-  SECRET_PATTERNS,
-} from "./patterns.js";
-import {
-  basename,
-  matchesAnyGlob,
-} from "./shell.js";
+import { SECRET_EXCEPTIONS, SECRET_PATTERNS } from "./patterns.js";
+import { basename, matchesAnyGlob } from "./shell.js";
 
 /** True iff `name` is treated as a secret file by policy. */
 export function isSecretFileName(name: string): boolean {

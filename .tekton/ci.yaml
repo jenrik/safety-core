@@ -1,0 +1,61 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: safety-core-ci-
+  annotations:
+    pipelinesascode.tekton.dev/on-event: "[pull_request, push]"
+    pipelinesascode.tekton.dev/on-target-branch: "[main, refs/heads/main]"
+    pipelinesascode.tekton.dev/task: "[git-clone:0.9]"
+    pipelinesascode.tekton.dev/cancel-in-progress: "true"
+    pipelinesascode.tekton.dev/max-keep-runs: "10"
+spec:
+  params:
+    - name: repo-url
+      value: "{{ repo_url }}"
+    - name: revision
+      value: "{{ revision }}"
+  pipelineSpec:
+    params:
+      - name: repo-url
+      - name: revision
+    workspaces:
+      - name: source
+      - name: basic-auth
+    tasks:
+      - name: checkout
+        taskRef:
+          name: git-clone
+        params:
+          - name: url
+            value: $(params.repo-url)
+          - name: revision
+            value: $(params.revision)
+        workspaces:
+          - name: output
+            workspace: source
+          - name: basic-auth
+            workspace: basic-auth
+      - name: verify
+        runAfter: [checkout]
+        taskSpec:
+          workspaces:
+            - name: source
+          steps:
+            - name: test
+              image: docker.io/nixos/nix:2.32.8
+              workingDir: $(workspaces.source.path)
+              script: |
+                #!/usr/bin/env sh
+                set -eu
+                nix --extra-experimental-features 'nix-command flakes' develop .#default --command sh -c '
+                  npm ci --ignore-scripts
+                  bun run typescheck
+                  bun run test
+                  nix --extra-experimental-features "nix-command flakes" flake check
+                '
+  workspaces:
+    - name: source
+      emptyDir: {}
+    - name: basic-auth
+      secret:
+        secretName: "{{ git_auth_secret }}"

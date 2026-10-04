@@ -1,9 +1,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-
-import { POLICY_ENVIRONMENT_ROUTES } from "../src/bash/policy-environment.js";
-import { GH_HELP_TOPIC_RULES, GH_READ_ONLY_RULES } from "../src/bash/policies/gh-read-only.js";
 import { ghNativeAliasesForRule } from "../src/bash/handlers/gh-command-line.js";
+import { GH_HELP_TOPIC_RULES, GH_READ_ONLY_RULES } from "../src/bash/policies/gh-read-only.js";
+import { POLICY_ENVIRONMENT_ROUTES } from "../src/bash/policy-environment.js";
 
 interface Fixture {
   readonly metadata: Readonly<Record<string, string>>;
@@ -50,18 +49,23 @@ export function renderGhReadOnlyAudit(fixture: Fixture): string {
     const rule = rules.get(key);
     if (!rule) throw new Error(`missing manifest rule for gh ${key}`);
     const nativeAliases = ghNativeAliasesForRule(rule);
-    const aliases = nativeAliases.length > 0 ? nativeAliases.map((alias) => `\`gh ${alias.join(" ")}\``).join(", ") : "None";
-    const exact = rule.disposition === "allow"
-      ? `\`gh ${key}\` only; zero flags and zero operands`
-      : rule.disposition === "owned"
-        ? `Owned by \`${rule.owner}\``
-        : "None";
-    const excluded = rule.disposition === "allow"
-      ? "All flags, operands, redirects, and non-native spellings defer."
-      : rule.disposition === "owned"
-        ? "ghReadOnly does not authorize this route."
-        : `${rule.exclusionReason}: ${rule.rationale}`;
-    lines.push(`| \`gh ${escapeCell(key)}\` | ${aliases} | **${rule.disposition}**${rule.preview ? " (preview)" : ""} | ${escapeCell(exact)} | ${escapeCell(excluded)} | ${escapeCell(rule.outputTrust)} | ${escapeCell(rule.environmentRoutes.map((name) => `\`${name}\``).join(", ") || "None")} | ${escapeCell(rule.evidence)} |`);
+    const aliases =
+      nativeAliases.length > 0 ? nativeAliases.map((alias) => `\`gh ${alias.join(" ")}\``).join(", ") : "None";
+    const exact =
+      rule.disposition === "allow"
+        ? `\`gh ${key}\` only; zero flags and zero operands`
+        : rule.disposition === "owned"
+          ? `Owned by \`${rule.owner}\``
+          : "None";
+    const excluded =
+      rule.disposition === "allow"
+        ? "All flags, operands, redirects, and non-native spellings defer."
+        : rule.disposition === "owned"
+          ? "ghReadOnly does not authorize this route."
+          : `${rule.exclusionReason}: ${rule.rationale}`;
+    lines.push(
+      `| \`gh ${escapeCell(key)}\` | ${aliases} | **${rule.disposition}**${rule.preview ? " (preview)" : ""} | ${escapeCell(exact)} | ${escapeCell(excluded)} | ${escapeCell(rule.outputTrust)} | ${escapeCell(rule.environmentRoutes.map((name) => `\`${name}\``).join(", ") || "None")} | ${escapeCell(rule.evidence)} |`,
+    );
   }
 
   lines.push(
@@ -78,7 +82,9 @@ export function renderGhReadOnlyAudit(fixture: Fixture): string {
     "| --- | --- | --- | --- |",
   );
   for (const rule of GH_HELP_TOPIC_RULES) {
-    lines.push(`| \`${rule.name}\` | **${rule.disposition}** | \`gh ${rule.name}\`, \`gh help ${rule.name}\` | ${escapeCell(rule.rationale)} |`);
+    lines.push(
+      `| \`${rule.name}\` | **${rule.disposition}** | \`gh ${rule.name}\`, \`gh help ${rule.name}\` | ${escapeCell(rule.rationale)} |`,
+    );
   }
 
   const topLevel = fixture.commands.filter((entry) => entry.kind === "top-level-command");
@@ -97,7 +103,10 @@ export function renderGhReadOnlyAudit(fixture: Fixture): string {
     "",
     "Preview routes require re-review whenever upstream behavior changes:",
     "",
-    fixture.commands.filter((entry) => entry.preview).map((entry) => `- \`gh ${entry.path.join(" ")}\``).join("\n"),
+    fixture.commands
+      .filter((entry) => entry.preview)
+      .map((entry) => `- \`gh ${entry.path.join(" ")}\``)
+      .join("\n"),
     "",
     "## Dynamic aliases and extensions",
     "",
@@ -116,7 +125,9 @@ export function renderGhReadOnlyAudit(fixture: Fixture): string {
     "| --- | --- | --- | --- | --- |",
   );
   for (const route of POLICY_ENVIRONMENT_ROUTES) {
-    lines.push(`| \`${route.name}\` | ${route.disposition} | ${route.scope} | ${route.capture ? "yes" : "no"} | ${escapeCell(route.rationale)} |`);
+    lines.push(
+      `| \`${route.name}\` | ${route.disposition} | ${route.scope} | ${route.capture ? "yes" : "no"} | ${escapeCell(route.rationale)} |`,
+    );
   }
 
   lines.push(

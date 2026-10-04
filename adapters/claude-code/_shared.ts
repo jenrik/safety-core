@@ -95,8 +95,3 @@ export function run(main: () => Promise<void> | void): void {
       process.exit(2);
     });
 }
-
-function isBashParserFailure(error: unknown): boolean {
-  return typeof error === "object" && error !== null
-    && "code" in error && error.code === "SAFETY_CORE_BASH_PARSER_FAILURE";
-}

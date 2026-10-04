@@ -8,12 +8,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import {
-  SECRETS_POLICY_FALLBACK,
-  basename,
-  buildSecretBlockMessage,
-  isSecretPath,
-} from "@safety-core/core";
+import { basename, buildSecretBlockMessage, isSecretPath, SECRETS_POLICY_FALLBACK } from "@safety-core/core";
 
 import { hardBlock, parseHookEvent, readStdin, run } from "./_shared.js";
 
@@ -49,6 +44,6 @@ run(() => {
       return;
     case "PreToolUse":
       if (event.tool_name === "Read") handlePreToolUseRead(event);
-       return;
+      return;
   }
 });

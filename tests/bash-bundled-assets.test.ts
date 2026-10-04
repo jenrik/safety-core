@@ -21,7 +21,10 @@ test("resolves generated source, packed core, and source adapter grammars indepe
     join(root, "packages", "core", "dist", "index.js"),
     join(root, "adapters", "claude-code", "bash_policy.ts"),
   ]) {
-    expect(resolveBundledBashAssets(pathToFileURL(modulePath).href, runtimePath), modulePath).toEqual({ grammarPath, runtimePath });
+    expect(resolveBundledBashAssets(pathToFileURL(modulePath).href, runtimePath), modulePath).toEqual({
+      grammarPath,
+      runtimePath,
+    });
   }
 });
 

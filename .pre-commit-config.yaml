@@ -1,0 +1,80 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: check-yaml
+      - id: check-toml
+      - id: detect-private-key
+      - id: end-of-file-fixer
+        exclude: \.(patch|diff)$
+      - id: mixed-line-ending
+        args: [--fix=lf]
+        exclude: \.(patch|diff)$
+      - id: trailing-whitespace
+        exclude: \.(patch|diff)$
+
+  - repo: local
+    hooks:
+      - id: typescript-typescheck
+        name: TypeScript type check
+        entry: bun run typescheck
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: typescript-test
+        name: TypeScript test suite
+        entry: bun run test
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: nix-flake-check
+        name: Nix flake check
+        entry: nix flake check
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: biome-format
+        name: Biome format
+        entry: biome format --write
+        language: system
+        files: \.(ts|tsx|js|jsx|mjs|cjs)$
+
+      - id: biome-lint
+        name: Biome lint
+        entry: biome lint
+        language: system
+        files: \.(ts|tsx|js|jsx|mjs|cjs)$
+
+      - id: nixfmt
+        name: nixfmt
+        entry: nixfmt
+        language: system
+        files: \.nix$
+
+      - id: markdownlint
+        name: markdownlint
+        entry: markdownlint
+        language: system
+        files: \.(md|markdown)$
+
+      - id: ruff-check
+        name: Ruff lint
+        entry: ruff check --fix
+        language: system
+        files: \.py$
+        exclude: ^notebooks/
+
+      - id: ruff-format
+        name: Ruff format
+        entry: ruff format
+        language: system
+        files: \.py$
+        exclude: ^notebooks/
