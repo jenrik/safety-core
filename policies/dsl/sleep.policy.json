@@ -1,0 +1,59 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "permission",
+  "select": [
+    {
+      "executable": {
+        "projection": "basename",
+        "equals": "sleep"
+      },
+      "environmentIndependent": true
+    }
+  ],
+  "registers": {},
+  "folds": {},
+  "options": {},
+  "fragments": {},
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [
+        {
+          "when": {
+            "not": {
+              "call": "executionTargetIs",
+              "args": ["shell-function"]
+            }
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "non-function command with basename sleep auto-allowed"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            }
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      }
+    }
+  }
+}
