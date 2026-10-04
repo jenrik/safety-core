@@ -33,6 +33,8 @@ for (const packageName of ["core", "opencode-v1", "pi", "claude-code"]) {
 
 await build("src/index.ts", "packages/core/dist", ["web-tree-sitter"]);
 await build("src/cli.ts", "packages/core/dist", ["web-tree-sitter"], "#!/usr/bin/env node\n");
+await build("src/policy/testing.ts", "packages/core/dist", ["web-tree-sitter", "bun:test"]);
+await build("src/test-preload.ts", "packages/core/dist", ["web-tree-sitter", "bun:test"]);
 await buildPatchedBashGrammar(root, resolve(root, "packages/core/tree-sitter-bash.wasm"));
 
 await build("packages/opencode-v1/server.ts", "packages/opencode-v1/dist", ["@safety-core/core"]);

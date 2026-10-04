@@ -55,6 +55,37 @@ trusted; `"allowlisted"` requires canonical absolute roots in `allowedRoots`.
 Project permissions can expand global permission coverage, but a global guard
 denial remains dominant.
 
+## Policy tests
+
+Put a Bun test beside its policy using the `<policy>.test.ts` name, then run
+`safety-core test <policy>.test.ts`. The runner enables the matching
+`<policy>.json` or `<policy>.mjs` source automatically. Tests may select an
+authoritative config and add supporting global sources without repeating the
+policy under test. The suite provides deterministic property cases and a small
+seeded random generator:
+
+```ts
+import { expect } from "bun:test";
+import { policyTestForFile } from "@safety-core/core/testing";
+
+const policyTest = policyTestForFile(import.meta.url);
+
+policyTest.test("allows the intended command", { enabledPolicies: ["base.policy.json"] }, ({ evaluate }) => {
+  expect(evaluate("tool inspect").decision).toBe("allow");
+});
+
+policyTest.property("accepts argument orderings", { cases: 1_024, seed: 1 }, ({ random, evaluate }) => {
+  const args = random.shuffle(["--output=json", "--namespace=review", "get", "pods"]);
+  expect(evaluate(`kubectl ${args.join(" ")}`).decision).toBe("allow");
+});
+```
+
+`policyTestForFile()` also supports normal Bun test discovery. With the
+standalone Nix CLI, the suite is additionally exposed as the `policyTest`
+global by the runner. `config` resolves relative to the test file and loads its
+configured policies; `enabledPolicies` adds only the additional sources for
+that individual case.
+
 The Home Manager module exposes these same fields at
 `programs.safetyCorePermissions`, plus `completePolicySources`, `prCreate`,
 `installCli`, and `installClaudeBashHook`, plus Pi's `autoApprove`,

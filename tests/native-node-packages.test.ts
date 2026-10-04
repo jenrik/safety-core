@@ -182,6 +182,26 @@ test("packed packages install and expose the OpenCode v1 server and TUI forms; p
     );
     expect(standaloneValidation.status).toBe(0);
     expect(standaloneValidation.stdout).toBe(`${standalonePolicy}: valid\n`);
+    const policyUnderTest = join(installation, "package.policy.mjs");
+    const policyTest = join(installation, "package.policy.test.ts");
+    writeFileSync(
+      policyUnderTest,
+      `export default Object.freeze({ apiVersion: 1, layer: "permission", select: Object.freeze([{ kind: "invocation", environmentIndependent: true }]), evaluate: (event) => event.kind === "invocation" && event.executable?.kind === "known" && event.executable.value === "package-command" ? { kind: "allow", reason: [{ kind: "literal", value: "package test" }] } : { kind: "ignore" } });\n`,
+    );
+    writeFileSync(
+      policyTest,
+      `import { expect } from "bun:test";\npolicyTest.test("uses the packaged setup", ({ evaluate }) => expect(evaluate("package-command").decision).toBe("allow"));\n`,
+    );
+    const packagedPolicyTest = spawnSync(
+      join(installation, "node_modules", ".bin", "safety-core"),
+      ["test", policyTest],
+      {
+        cwd: installation,
+        encoding: "utf8",
+        env: { ...process.env },
+      },
+    );
+    expect(packagedPolicyTest.status).toBe(0);
     const bashHook = spawnSync(join(installation, "node_modules", ".bin", "safety-core-claude-bash-policy"), [], {
       cwd: installation,
       encoding: "utf8",

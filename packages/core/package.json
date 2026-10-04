@@ -8,7 +8,8 @@
   },
   "exports": {
     ".": "./dist/index.js",
-    "./cli": "./dist/cli.js"
+    "./cli": "./dist/cli.js",
+    "./testing": "./dist/testing.js"
   },
   "bin": {
     "safety-core": "./dist/cli.js"
