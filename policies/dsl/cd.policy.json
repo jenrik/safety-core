@@ -1,0 +1,107 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "permission",
+  "select": [
+    {
+      "executable": {
+        "projection": "basename",
+        "equals": "cd"
+      },
+      "environmentIndependent": true
+    }
+  ],
+  "registers": {},
+  "folds": {},
+  "options": {},
+  "fragments": {},
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [
+        {
+          "when": {
+            "call": "executionTargetIs",
+            "args": [
+              "shell-function"
+            ]
+          },
+          "action": {
+            "decision": "deny",
+            "reason": [
+              "Bash function shadowing of the cd builtin is blocked. Invoke the builtin directly with `command cd <dir>` (or `builtin cd <dir>`), or unset the function before changing directory."
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            }
+          }
+        },
+        {
+          "when": {
+            "call": "hasInheritedExecutableFunction",
+            "args": [
+              "cd"
+            ]
+          },
+          "action": {
+            "decision": "deny",
+            "reason": [
+              "An inherited exported Bash function shadows the cd builtin, so this invocation is not the direct builtin. Invoke `command cd <dir>` (or `builtin cd <dir>`), or unset the exported function before changing directory."
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            }
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "cd"
+                ]
+              },
+              {
+                "not": {
+                  "call": "hasAnyAssignment",
+                  "args": []
+                }
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "direct Bash cd builtin with any argument auto-allowed"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            }
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      }
+    }
+  }
+}
