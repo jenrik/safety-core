@@ -316,9 +316,12 @@ describe("safety-core CLI", () => {
 
   test("explain emits every source decision and the exact modeled canary argv and environment", () => {
     const home = fixture();
-    const result = cli(home, ["explain", "--json", "CANARY_ASSIGN=exact-value printf '%s' CANARY_ARG"], {
-      CANARY_INHERITED: "inherited-value",
-    });
+    const result = cli(home, [
+      "explain",
+      "--json",
+      "--env-var=CANARY_INHERITED=inherited-value",
+      "CANARY_ASSIGN=exact-value printf '%s' CANARY_ARG",
+    ]);
     expect(result.status).toBe(0);
     const trace = JSON.parse(result.stdout);
     expect(trace).toMatchObject({ version: 1, decision: "allow" });
@@ -346,7 +349,12 @@ describe("safety-core CLI", () => {
       }),
     );
 
-    const result = cli(home, ["explain", "--json", "printf CANARY_ARG"], { CANARY_INHERITED: "exact-inherited-value" });
+    const result = cli(home, [
+      "explain",
+      "--json",
+      "--env-var=CANARY_INHERITED=exact-inherited-value",
+      "printf CANARY_ARG",
+    ]);
     expect(result.status).toBe(0);
     const trace = JSON.parse(result.stdout);
     expect(trace).toMatchObject({ version: 1, decision: "allow", analysis: { complete: true } });
@@ -369,7 +377,175 @@ describe("safety-core CLI", () => {
     expect(sourceStartingWithOption.status).toBe(0);
     expect(JSON.parse(sourceStartingWithOption.stdout)).toMatchObject({ version: 1, decision: "defer" });
   });
+
+  test("explain is hermetic by default and reads evaluation values only from --env-var", () => {
+    const home = fixture();
+    installEnvironmentPolicy(home);
+    const ambient = { CANARY_INHERITED: "exact-inherited-value" };
+
+    const hermetic = cli(home, ["explain", "--json", "printf CANARY_ARG"], ambient);
+    expect(hermetic.status).toBe(0);
+    expect(JSON.parse(hermetic.stdout)).toMatchObject({ decision: "defer" });
+
+    const supplied = cli(
+      home,
+      ["explain", "--json", "--env-var=CANARY_INHERITED=exact-inherited-value", "printf CANARY_ARG"],
+      ambient,
+    );
+    expect(supplied.status).toBe(0);
+    expect(JSON.parse(supplied.stdout)).toMatchObject({ decision: "allow" });
+  });
+
+  test("--inherit-env reproduces the adapter environment and --env-var overrides it", () => {
+    const home = fixture();
+    installEnvironmentPolicy(home);
+
+    const inherited = cli(home, ["explain", "--json", "--inherit-env", "printf CANARY_ARG"], {
+      CANARY_INHERITED: "exact-inherited-value",
+    });
+    expect(inherited.status).toBe(0);
+    expect(JSON.parse(inherited.stdout)).toMatchObject({ decision: "allow" });
+
+    const overridden = cli(
+      home,
+      ["explain", "--json", "--inherit-env", "--env-var=CANARY_INHERITED=exact-inherited-value", "printf CANARY_ARG"],
+      { CANARY_INHERITED: "ambient-value" },
+    );
+    expect(overridden.status).toBe(0);
+    expect(JSON.parse(overridden.stdout)).toMatchObject({ decision: "allow" });
+  });
+
+  test("--env-mode=filtered reports unspecified names as unknown instead of unset", () => {
+    const home = fixture();
+    const verified = cli(home, ["explain", "--json", "printf CANARY_ARG"]);
+    expect(verified.status).toBe(0);
+    expect(JSON.parse(verified.stdout).events[0].missingBindings).toBe("unset");
+
+    const filtered = cli(home, ["explain", "--json", "--env-mode=filtered", "printf CANARY_ARG"]);
+    expect(filtered.status).toBe(0);
+    expect(JSON.parse(filtered.stdout).events[0].missingBindings).toBe("unknown");
+  });
+
+  test("--cwd sets the evaluation directory and discovers project policies", () => {
+    const home = fixture();
+    const { project, policy } = installProjectPolicy(home);
+
+    const result = cli(home, ["explain", "--json", "--cwd", project, "> relative.txt"]);
+    expect(result.status).toBe(0);
+    const trace = JSON.parse(result.stdout);
+    expect(trace.sources.some((source: any) => source.canonicalPath === policy)).toBeTrue();
+    expect(trace.events[0].cwd).toBe(project);
+    expect(trace.fileAccesses[0].path).toBe(join(project, "relative.txt"));
+  });
+
+  test("validate --cwd discovers project policies from the selected directory", () => {
+    const home = fixture();
+    const { project, policy } = installProjectPolicy(home);
+    const result = cli(home, ["validate", "--cwd", project]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(`  ${policy}\n`);
+  });
+
+  test("human explain output lists modeled file accesses", () => {
+    const home = fixture();
+    const result = cli(home, ["explain", "--cwd", home, "printf CANARY_ARG > relative.txt"]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("file-accesses:");
+    expect(result.stdout).toContain(join(home, "relative.txt"));
+  });
+
+  test("rejects invalid --env-var, --env-mode, and --cwd values", () => {
+    const home = fixture();
+    for (const [label, args] of [
+      ["--env-var", ["explain", "--env-var=CANARY", "printf x"]],
+      ["--env-var", ["explain", "--env-var==value", "printf x"]],
+      ["--env-mode", ["explain", "--env-mode=partial", "printf x"]],
+      ["--cwd", ["explain", "--cwd", join(home, "missing-dir"), "printf x"]],
+    ] as const) {
+      const result = cli(home, args);
+      expect(result.status, label).not.toBe(0);
+      expect(result.stderr, label).toContain(label);
+    }
+  });
+
+  test("--env-var splits on the first = and preserves empty and embedded values", () => {
+    const home = fixture();
+    const result = cli(home, ["explain", "--json", "--env-var=EXPR=a=b", "--env-var=EMPTY=", "printf CANARY_ARG"]);
+    expect(result.status).toBe(0);
+    const environment = JSON.parse(result.stdout).events[0].environment;
+    expect(environment.EXPR).toEqual({ kind: "known", value: "a=b" });
+    expect(environment.EMPTY).toEqual({ kind: "known", value: "" });
+  });
+
+  test("property: --env-var equals and space forms accept natural ordering", () => {
+    const home = fixture();
+    installEnvironmentPolicy(home);
+    for (let seed = 0; seed < 8; seed++) {
+      const option =
+        seed % 2 === 0
+          ? [`--env-var=CANARY_INHERITED=exact-inherited-value`]
+          : ["--env-var", "CANARY_INHERITED=exact-inherited-value"];
+      const args =
+        seed % 4 < 2
+          ? ["explain", "--json", ...option, "printf CANARY_ARG"]
+          : ["explain", ...option, "--json", "printf CANARY_ARG"];
+      const result = cli(home, args);
+      expect(result.status, `seed ${seed}`).toBe(0);
+      expect(JSON.parse(result.stdout).decision, `seed ${seed}`).toBe("allow");
+    }
+  }, 30_000);
 });
+
+function installEnvironmentPolicy(home: string): string {
+  const policy = join(home, "environment.policy.json");
+  writeFileSync(policy, JSON.stringify(environmentPermissionPolicy()));
+  writeFileSync(
+    join(home, "safety-core", "config.json"),
+    JSON.stringify({
+      version: 1,
+      policies: [policy],
+      projectPolicies: { mode: "disabled" },
+      bashAnalysis: { maxFunctionDepth: 7, maxNestedScriptDepth: 6, maxSteps: 50, maxWorkItems: 50 },
+    }),
+  );
+  return policy;
+}
+
+function installProjectPolicy(home: string): { readonly project: string; readonly policy: string } {
+  const project = join(home, "project");
+  const projectConfig = join(project, ".safety-core");
+  const policy = join(project, "project.policy.json");
+  mkdirSync(projectConfig, { recursive: true });
+  writeFileSync(
+    join(home, "safety-core", "config.json"),
+    JSON.stringify({
+      version: 1,
+      policies: [],
+      projectPolicies: { mode: "all" },
+      bashAnalysis: { maxFunctionDepth: 7, maxNestedScriptDepth: 6, maxSteps: 50, maxWorkItems: 50 },
+    }),
+  );
+  writeFileSync(join(projectConfig, "config.json"), JSON.stringify({ version: 1, policies: ["project.policy.json"] }));
+  writeFileSync(policy, JSON.stringify(projectAllowPolicy()));
+  return { project, policy };
+}
+
+function projectAllowPolicy(): Record<string, unknown> {
+  return {
+    language: "safety-core/bash-policy-v1",
+    layer: "permission",
+    select: [{ kind: "invocation" }],
+    registers: {},
+    start: "start",
+    states: {
+      start: {
+        cases: [{ when: true, action: { decision: "allow", reason: ["project allow"] } }],
+        default: { decision: "ignore" },
+        end: { decision: "ignore" },
+      },
+    },
+  };
+}
 
 function environmentPermissionPolicy(): Record<string, unknown> {
   return {

@@ -49,5 +49,13 @@ export function renderExplainTrace(trace: ExplainTrace, json: boolean): string {
       ),
     ]),
   ];
+  if (trace.fileAccesses !== undefined && trace.fileAccesses.length > 0) {
+    lines.push(
+      "file-accesses:",
+      ...trace.fileAccesses.map(
+        (access) => `  ${access.operation} ${access.effect} ${access.path ?? `<${access.reason ?? "unknown"}>`}`,
+      ),
+    );
+  }
   return `${lines.join("\n")}\n`;
 }

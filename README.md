@@ -26,10 +26,16 @@ explicitly selects a project manifest and composes its declarative policies
 with the global configuration. `safety-core validate` prints the canonical
 source path and SHA-256 digest selected for the current directory; use it
 before enabling a policy. `safety-core explain --json '<command>'` reports the
-exact modeled events and decisions for local diagnosis. Use `--` before a
- source string that begins with `-`. `safety-core policy validate
- /path/to/source.policy.json` validates a standalone declarative policy's
- schema and requires every declared state to be reachable from its start state.
+exact modeled events and decisions for local diagnosis. Policy evaluation is
+hermetic: `explain` does not read the ambient environment, so pass values with
+`--env-var NAME=VALUE` (repeatable), or add `--inherit-env` to reproduce the
+live adapter environment before `--env-var` overrides. `--cwd /path` selects the
+directory used for relative path resolution and project-policy discovery, and
+`--env-mode filtered` treats names you did not supply as unknown instead of
+proven unset. Use `--` before a source string that begins with `-`.
+`safety-core policy validate /path/to/source.policy.json` validates a standalone
+declarative policy's schema and requires every declared state to be reachable
+from its start state.
 
 ```json
 {

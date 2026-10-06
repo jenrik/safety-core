@@ -1,9 +1,15 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command, CommanderError, InvalidArgumentError } from "commander";
 import { PolicyStartupError } from "./policy/config.js";
 import { parsePolicyDocument, validatePolicyStateReachability } from "./policy/dsl/validate.js";
+import {
+  buildExplainEnvironment,
+  type ExplainEnvironmentAssignment,
+  type ExplainEnvironmentMode,
+} from "./policy/explain.js";
 import { nodeExecutableFilesystem } from "./policy/filesystem.js";
 import { evaluateLoadedPolicies, loadPolicyRuntime } from "./policy/runtime.js";
 import { createExplainTrace, renderExplainTrace } from "./policy/trace.js";
@@ -33,9 +39,15 @@ export function createProgram(): Command {
   program
     .command("validate")
     .description("print the canonical paths and digests of active policy sources")
-    .action(async () => {
-      const options = program.opts<{ config?: string; projectConfig?: string }>();
-      const runtime = await loadPolicyRuntime(process.cwd(), process.env, options.config, options.projectConfig);
+    .option("--cwd <path>", "discover project policies from this directory", existingDirectory)
+    .action(async (options: { readonly cwd?: string }) => {
+      const paths = program.opts<{ config?: string; projectConfig?: string }>();
+      const runtime = await loadPolicyRuntime(
+        options.cwd ?? process.cwd(),
+        process.env,
+        paths.config,
+        paths.projectConfig,
+      );
       for (const source of runtime.policySet.sources)
         process.stdout.write(`${source.sha256}  ${source.canonicalPath}\n`);
     });
@@ -82,19 +94,56 @@ export function createProgram(): Command {
     .command("explain")
     .description("explain the policy decision for one Bash source string")
     .option("--json", "emit the trace as JSON")
+    .option(
+      "--cwd <path>",
+      "evaluate relative to this directory and discover project policies from it",
+      existingDirectory,
+    )
+    .option(
+      "--env-var <name=value>",
+      "define a known policy-evaluation environment value (repeatable)",
+      collectEnvironmentAssignment,
+      [] as readonly ExplainEnvironmentAssignment[],
+    )
+    .option(
+      "--env-mode <mode>",
+      "how unspecified names are treated: verified (proven unset) or filtered (unknown)",
+      parseEnvironmentMode,
+      "verified" as ExplainEnvironmentMode,
+    )
+    .option("--inherit-env", "capture the ambient process environment before applying --env-var")
     .argument("<bash-source>", "Bash source to analyze")
-    .action(async (source: string, options: { readonly json?: boolean }) => {
-      const paths = program.opts<{ config?: string; projectConfig?: string }>();
-      const runtime = await loadPolicyRuntime(process.cwd(), process.env, paths.config, paths.projectConfig);
-      await initBundledBashParser();
-      const evaluation = evaluateLoadedPolicies(
-        runtime,
-        source,
-        { kind: "verified", values: process.env as Record<string, string> },
-        { cwd: process.cwd(), executableFilesystem: nodeExecutableFilesystem },
-      );
-      process.stdout.write(renderExplainTrace(createExplainTrace(runtime, evaluation), options.json === true));
-    });
+    .action(
+      async (
+        source: string,
+        options: {
+          readonly json?: boolean;
+          readonly cwd?: string;
+          readonly envVar: readonly ExplainEnvironmentAssignment[];
+          readonly envMode: ExplainEnvironmentMode;
+          readonly inheritEnv?: boolean;
+        },
+      ) => {
+        const paths = program.opts<{ config?: string; projectConfig?: string }>();
+        const cwd = options.cwd ?? process.cwd();
+        // Config discovery may consult the ambient environment; policy
+        // evaluation itself is hermetic and driven only by the flags.
+        const runtime = await loadPolicyRuntime(cwd, process.env, paths.config, paths.projectConfig);
+        await initBundledBashParser();
+        const evaluation = evaluateLoadedPolicies(
+          runtime,
+          source,
+          buildExplainEnvironment({
+            assignments: options.envVar,
+            mode: options.envMode,
+            inheritEnv: options.inheritEnv === true,
+            ambient: process.env,
+          }),
+          { cwd, executableFilesystem: nodeExecutableFilesystem },
+        );
+        process.stdout.write(renderExplainTrace(createExplainTrace(runtime, evaluation), options.json === true));
+      },
+    );
 
   return program;
 }
@@ -104,6 +153,42 @@ function nonEmptyPath(option: string): (path: string) => string {
     if (path.length === 0) throw new InvalidArgumentError(`${option} requires a non-empty path`);
     return path;
   };
+}
+
+function existingDirectory(path: string): string {
+  if (path.length === 0) throw new InvalidArgumentError("--cwd requires a non-empty path");
+  const resolved = resolve(path);
+  let isDirectory = false;
+  try {
+    isDirectory = statSync(resolved).isDirectory();
+  } catch {
+    isDirectory = false;
+  }
+  if (!isDirectory) throw new InvalidArgumentError(`--cwd is not a directory: ${path}`);
+  return resolved;
+}
+
+function parseEnvironmentAssignment(value: string): ExplainEnvironmentAssignment {
+  const separator = value.indexOf("=");
+  if (separator <= 0) throw new InvalidArgumentError("--env-var requires NAME=VALUE with a non-empty name");
+  const name = value.slice(0, separator);
+  const assignmentValue = value.slice(separator + 1);
+  if (name.includes("\0") || assignmentValue.includes("\0"))
+    throw new InvalidArgumentError("--env-var must not contain NUL bytes");
+  return Object.freeze({ name, value: assignmentValue });
+}
+
+function collectEnvironmentAssignment(
+  value: string,
+  previous: readonly ExplainEnvironmentAssignment[],
+): readonly ExplainEnvironmentAssignment[] {
+  return [...previous, parseEnvironmentAssignment(value)];
+}
+
+function parseEnvironmentMode(value: string): ExplainEnvironmentMode {
+  if (value !== "verified" && value !== "filtered")
+    throw new InvalidArgumentError("--env-mode must be 'verified' or 'filtered'");
+  return value;
 }
 
 function canonicalPolicyPath(path: string): string {
