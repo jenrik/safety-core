@@ -41,6 +41,31 @@ how filesystem-metadata predicates interact with harness file permissions;
 they must not silently become an unmodeled file-read authorization. Add direct
 and property tests before relying on either spelling for automatic permission.
 
+## Pre-commit hook coverage for project-local policy tests
+
+Project-local declarative policies live in a project's `.safety-core/` directory
+together with a colocated `<policy_name>.test.ts` suite. `bun test` discovery
+skips dot directories, so those suites are not discovered the way
+`policies/dsl/*.test.ts` is. Today the current `.safety-core/` suites still run:
+`tests/project-bun-policies.test.ts` imports them explicitly, and the existing
+pre-commit `bun run test` hook runs that file. The remaining gap is fragility,
+not absent coverage: a newly added project-local suite silently receives no
+execution unless a human also adds it to the integration import list.
+
+A second limitation is the direct runner. `safety-core test <policy>.test.ts`
+resolves the policy under test as a sibling `<stem>.json` or `<stem>.mjs`, so it
+rejects the `<stem>.policy.json` naming that every checked-in global policy uses
+(and that the project-local policies use too). Running it against a colocated
+suite fails with "cannot find policy under test".
+
+Add a pre-commit hook check that discovers and runs each project-local
+`<policy_name>.test.ts` explicitly (and `safety-core policy validate` for each
+project-local policy), so a policy edit cannot pass the hook with its colocated
+suite unexecuted and without relying on a manually maintained import list.
+Consider teaching the `safety-core test` runner the `<stem>.policy.json` naming
+as part of the same change, since that is the extension the checked-in sources
+already use.
+
 ## Relative-PATH command resolution after a directory change
 
 `cd`/`pushd`/`popd` no longer taint the whole environment. A directory-changing
