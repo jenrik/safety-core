@@ -1,0 +1,507 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "permission",
+  "select": [
+    {
+      "executable": {
+        "projection": "basename",
+        "equals": "bun"
+      }
+    }
+  ],
+  "registers": {},
+  "folds": {
+    "noTerminator": {
+      "collection": "argv",
+      "operation": "all",
+      "when": {
+        "not": {
+          "call": "equals",
+          "args": [
+            {
+              "ref": "fold.item"
+            },
+            "--"
+          ]
+        }
+      }
+    }
+  },
+  "options": {
+    "testNamePattern": {
+      "names": [
+        "-t",
+        "--test-name-pattern"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "attachedShort",
+        "equalsLong"
+      ],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "timeout": {
+      "names": [
+        "--timeout"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "equalsLong"
+      ],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "retry": {
+      "names": [
+        "--retry"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "equalsLong"
+      ],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "rerunEach": {
+      "names": [
+        "--rerun-each"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "equalsLong"
+      ],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "maxConcurrency": {
+      "names": [
+        "--max-concurrency"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "equalsLong"
+      ],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "parallelDelay": {
+      "names": [
+        "--parallel-delay"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "equalsLong"
+      ],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "seed": {
+      "names": [
+        "--seed"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "equalsLong"
+      ],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "shard": {
+      "names": [
+        "--shard"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "equalsLong"
+      ],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "pathIgnorePatterns": {
+      "names": [
+        "--path-ignore-patterns"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "equalsLong"
+      ],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "coverageReporter": {
+      "names": [
+        "--coverage-reporter"
+      ],
+      "value": "required",
+      "forms": [
+        "separate",
+        "equalsLong"
+      ],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "bail": {
+      "names": [
+        "--bail"
+      ],
+      "value": "optional",
+      "forms": [
+        "equalsLong"
+      ],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "changed": {
+      "names": [
+        "--changed"
+      ],
+      "value": "optional",
+      "forms": [
+        "equalsLong"
+      ],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "parallel": {
+      "names": [
+        "--parallel"
+      ],
+      "value": "optional",
+      "forms": [
+        "equalsLong"
+      ],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "coverage": {
+      "names": [
+        "--coverage"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "noCoverage": {
+      "names": [
+        "--no-coverage"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "only": {
+      "names": [
+        "--only"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "todo": {
+      "names": [
+        "--todo"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "passWithNoTests": {
+      "names": [
+        "--pass-with-no-tests"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "concurrent": {
+      "names": [
+        "--concurrent"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "randomize": {
+      "names": [
+        "--randomize"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "isolate": {
+      "names": [
+        "--isolate"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "dots": {
+      "names": [
+        "--dots"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    },
+    "onlyFailures": {
+      "names": [
+        "--only-failures"
+      ],
+      "value": "absent",
+      "forms": [],
+      "availableIn": [
+        "selection"
+      ],
+      "set": {}
+    }
+  },
+  "fragments": {},
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "bun"
+                ]
+              },
+              {
+                "call": "executionTargetIs",
+                "args": [
+                  "external-path"
+                ]
+              },
+              {
+                "not": {
+                  "call": "hasAnyAssignment",
+                  "args": []
+                }
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "test"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "selection"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      }
+    },
+    "selection": {
+      "cases": [
+        {
+          "when": {
+            "all": [
+              {
+                "call": "atEndOfArguments",
+                "args": []
+              },
+              {
+                "ref": "fold.noTerminator"
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": [
+              "bun test with reviewed flags and project-relative selection auto-allowed by the project bun-test policy"
+            ],
+            "fold": [
+              "noTerminator"
+            ],
+            "audit": {
+              "invocation": {
+                "ref": "event"
+              }
+            }
+          }
+        },
+        {
+          "when": {
+            "all": [
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "-"
+                  ]
+                }
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "/"
+                  ]
+                }
+              },
+              {
+                "not": {
+                  "call": "startsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "~"
+                  ]
+                }
+              },
+              {
+                "not": {
+                  "call": "equals",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    ".."
+                  ]
+                }
+              },
+              {
+                "not": {
+                  "call": "includes",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "../"
+                  ]
+                }
+              },
+              {
+                "not": {
+                  "call": "endsWith",
+                  "args": [
+                    {
+                      "ref": "word"
+                    },
+                    "/.."
+                  ]
+                }
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "selection"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      }
+    }
+  }
+}

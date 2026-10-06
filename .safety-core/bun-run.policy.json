@@ -1,0 +1,137 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "permission",
+  "select": [
+    {
+      "executable": {
+        "projection": "basename",
+        "equals": "bun"
+      }
+    }
+  ],
+  "registers": {},
+  "folds": {},
+  "options": {},
+  "fragments": {},
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [
+        {
+          "when": {
+            "all": [
+              {
+                "call": "isDirectExecutable",
+                "args": [
+                  "bun"
+                ]
+              },
+              {
+                "call": "executionTargetIs",
+                "args": [
+                  "external-path"
+                ]
+              },
+              {
+                "not": {
+                  "call": "hasAnyAssignment",
+                  "args": []
+                }
+              },
+              {
+                "call": "equals",
+                "args": [
+                  {
+                    "ref": "word"
+                  },
+                  "run"
+                ]
+              }
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "script"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      }
+    },
+    "script": {
+      "cases": [
+        {
+          "when": {
+            "call": "inStringSet",
+            "args": [
+              {
+                "ref": "word"
+              },
+              [
+                "build:native-packages",
+                "test",
+                "typescheck"
+              ]
+            ]
+          },
+          "action": {
+            "consume": "word",
+            "next": "reviewed"
+          }
+        }
+      ],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      },
+      "end": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      }
+    },
+    "reviewed": {
+      "cases": [],
+      "default": {
+        "decision": "defer",
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      },
+      "end": {
+        "decision": "allow",
+        "reason": [
+          "bun run <reviewed project script> auto-allowed by the project bun-run policy"
+        ],
+        "audit": {
+          "invocation": {
+            "ref": "event"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "policies": [
+    ".safety-core/bun-run.policy.json",
+    ".safety-core/bun-test.policy.json"
+  ]
+}
