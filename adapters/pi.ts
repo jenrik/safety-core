@@ -263,12 +263,13 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
       return { block: true, reason };
     }
     if (result.decision === "defer" && !settings.autoApprove) {
+      const reason = policyDeferReason(result);
       const approved =
         ctx.hasUI && typeof ctx.ui.confirm === "function"
           ? await ctx.ui
               .confirm(
                 "Safety permission required",
-                permissionPromptMessage(source, settings.showFullCommand),
+                permissionPromptMessage(source, settings.showFullCommand, reason),
                 ctx.signal === undefined ? {} : { signal: ctx.signal },
               )
               .catch(() => false)
@@ -301,9 +302,11 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
   });
 }
 
-/** Build the one-time approval message, embedding the full command when enabled. */
-export function permissionPromptMessage(command: string, showFullCommand: boolean): string {
-  const request = "The configured policy could not fully authorize this command.";
+/** Build the one-time approval message, embedding the defer reason and full command when available. */
+export function permissionPromptMessage(command: string, showFullCommand: boolean, reason?: string): string {
+  const request = reason
+    ? `The configured policy could not fully authorize this command: ${reason}`
+    : "The configured policy could not fully authorize this command.";
   return showFullCommand && command.length > 0
     ? `${request}\n\n${command}\n\nAllow it once?`
     : `${request} Allow it once?`;
@@ -338,6 +341,33 @@ function policyReason(result: BashPolicyEvaluation, fallback: string): string {
       ? trace.decision.reason?.map((part) => (part.kind === "literal" ? part.value : String(part.value))).join("")
       : undefined) ?? fallback
   );
+}
+
+function policyDeferReason(result: BashPolicyEvaluation): string | undefined {
+  const reasons = new Set<string>();
+  for (const trace of result.traces) {
+    if (trace.decision.kind !== "defer" || trace.decision.reason === undefined) continue;
+    const rendered = trace.decision.reason
+      .map((part) => (part.kind === "literal" ? part.value : String(part.value)))
+      .join("");
+    if (rendered.length > 0) reasons.add(rendered);
+  }
+  if (reasons.size > 0) return [...reasons].join("; ");
+
+  const gap = result.events.find((event) => event.kind === "execution-gap");
+  if (gap !== undefined && gap.kind === "execution-gap") return `unmodelled shell construct: ${gap.reason}`;
+
+  const uncovered = new Set<string>();
+  for (const event of result.events) {
+    if (event.kind !== "invocation") continue;
+    const covered = result.traces.some(
+      (trace) => trace.event === event && trace.layer === "permission" && trace.decision.kind === "allow",
+    );
+    if (!covered && event.executable !== null && event.executable.kind === "known")
+      uncovered.add(event.executable.value);
+  }
+  if (uncovered.size > 0) return `no permission policy covers: ${[...uncovered].join(", ")}`;
+  return undefined;
 }
 
 function policyFailureReason(error: unknown): string {

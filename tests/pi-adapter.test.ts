@@ -177,6 +177,117 @@ test("Pi blocks generic denial and prompts only generic defer", async () => {
   expect(deferred).toEqual({ block: true, reason: "Command requires policy approval" });
 });
 
+test("Pi surfaces and de-duplicates defer reasons in the one-time permission prompt", async () => {
+  const { createPiExtension } = await import("../adapters/pi.ts");
+  const handlers = new Map<string, Function>();
+  const deferWithReasons: BashPolicyEvaluation = {
+    ...defer,
+    traces: [
+      {
+        source: { canonicalPath: "/a" },
+        layer: "permission",
+        event: {} as never,
+        decision: { kind: "defer", reason: [{ kind: "literal", value: "needs network access" }] },
+      },
+      {
+        source: { canonicalPath: "/b" },
+        layer: "permission",
+        event: {} as never,
+        decision: { kind: "defer", reason: [{ kind: "literal", value: "needs network access" }] },
+      },
+      {
+        source: { canonicalPath: "/c" },
+        layer: "permission",
+        event: {} as never,
+        decision: {
+          kind: "defer",
+          reason: [
+            { kind: "literal", value: "rule " },
+            { kind: "value", value: 7 },
+          ],
+        },
+      },
+    ],
+  };
+  const calls: Array<{ title: string; message: string }> = [];
+  createPiExtension(
+    {
+      on: (name: string, handler: Function) => handlers.set(name, handler),
+      registerTool() {},
+      registerCommand() {},
+      appendEntry() {},
+    } as never,
+    { runtime: Promise.resolve(runtime), evaluatePolicies: () => deferWithReasons },
+  );
+  const result = await handlers.get("tool_call")!(
+    { toolName: "bash", toolCallId: "defer", input: { command: "curl example" } },
+    {
+      hasUI: true,
+      signal: undefined,
+      ui: {
+        notify() {},
+        confirm: async (title: string, message: string) => {
+          calls.push({ title, message });
+          return false;
+        },
+      },
+    },
+  );
+  expect(result).toEqual({ block: true, reason: "Command requires policy approval" });
+  expect(calls[0]!.title).toBe("Safety permission required");
+  expect(calls[0]!.message).toContain("needs network access; rule 7");
+  expect(calls[0]!.message.match(/needs network access/g)).toHaveLength(1);
+  expect(calls[0]!.message).toContain("Allow it once?");
+  expect(calls[0]!.message).toContain("curl example");
+});
+
+test("Pi synthesizes a defer reason for uncovered invocations and unmodelled constructs", async () => {
+  const { createPiExtension } = await import("../adapters/pi.ts");
+  const uncovered: BashPolicyEvaluation = {
+    ...defer,
+    analysis: { complete: true },
+    events: [{ kind: "invocation", executable: { kind: "known", value: "echo" } } as never],
+    traces: [],
+  };
+  const gap: BashPolicyEvaluation = {
+    ...defer,
+    analysis: { complete: true },
+    events: [{ kind: "execution-gap", reason: "unsupported-shell-redirect" } as never],
+    traces: [],
+  };
+  for (const [evaluation, expected] of [
+    [uncovered, "no permission policy covers: echo"],
+    [gap, "unmodelled shell construct: unsupported-shell-redirect"],
+  ] as const) {
+    const handlers = new Map<string, Function>();
+    const prompts: string[] = [];
+    createPiExtension(
+      {
+        on: (name: string, handler: Function) => handlers.set(name, handler),
+        registerTool() {},
+        registerCommand() {},
+        appendEntry() {},
+      } as never,
+      { runtime: Promise.resolve(runtime), evaluatePolicies: () => evaluation },
+    );
+    await handlers.get("tool_call")!(
+      { toolName: "bash", toolCallId: "defer", input: { command: "echo hi" } },
+      {
+        hasUI: true,
+        signal: undefined,
+        ui: {
+          notify() {},
+          confirm: async (_title: string, message: string) => {
+            prompts.push(message);
+            return false;
+          },
+        },
+      },
+    );
+    expect(prompts[0], expected).toContain(expected);
+  }
+});
+
 test("Pi preserves actionable GitHub CLI steering when blocking Bash", async () => {
   const { createPiExtension } = await import("../adapters/pi.ts");
   const handlers = new Map<string, Function>();
@@ -614,6 +725,10 @@ test("property: Pi prompt embeds the exact command only when display is enabled"
     expect(permissionPromptMessage(command, false), `seed ${seed}`).toBe(
       "The configured policy could not fully authorize this command. Allow it once?",
     );
+    expect(permissionPromptMessage(command, false, `reason ${seed}`), `seed ${seed}`).toBe(
+      `The configured policy could not fully authorize this command: reason ${seed} Allow it once?`,
+    );
+    expect(permissionPromptMessage(command, true, `reason ${seed}`), `seed ${seed}`).toContain(`reason ${seed}`);
   }
 });
 
