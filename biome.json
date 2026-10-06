@@ -7,7 +7,7 @@
       "analysis/**",
       "packages/**",
       "policies/code/**",
-      "poclies/dsl/**/*.test.ts",
+      "policies/dsl/**/*.test.ts",
       "scripts/**",
       "src/**",
       "tests/**",
@@ -19,7 +19,7 @@
       "!!packages/*/node_modules",
       "!!packages/pi/extensions/extension.js",
       "!!packages/core/tree-sitter-bash.wasm",
-      "!!policies/dsl",
+      "!!policies/dsl/**/*.policy.json",
       "!!notebooks"
     ]
   },
