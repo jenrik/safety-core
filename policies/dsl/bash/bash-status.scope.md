@@ -67,3 +67,8 @@ policy unless independently covered.
   deferred at request finalization.
 - **deny:** this policy has no deny rule. Independent guard policies can still
   deny a command or a harness file access.
+
+Because an `allow` requires a proven Bash builtin rather than an unresolved
+external target, this policy deliberately leaves its executable selectors
+without `environmentIndependent`; an invocation whose resolution is unresolved
+therefore defers.

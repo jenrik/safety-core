@@ -102,3 +102,7 @@ arbitrary operand paths.
 - **deny:** this policy has no deny rule. Independent guard policies and
   harness file-access checks can still deny a selected invocation or its
   surrounding effects, and that denial dominates this policy's permit.
+
+Because an `allow` requires a proven external path, this policy deliberately
+leaves its executable selector without `environmentIndependent`; an invocation
+whose executable resolution is unresolved therefore defers.

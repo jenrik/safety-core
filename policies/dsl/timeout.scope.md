@@ -117,3 +117,7 @@ is established.
 - **deny:** this permission policy has no deny rule. A separate guard policy
   may still deny the wrapper, child, or file access, and that deny dominates
   this policy's permit.
+
+Because an `allow` requires a proven external path, this policy deliberately
+leaves its executable selector without `environmentIndependent`; an invocation
+whose executable resolution is unresolved therefore defers.

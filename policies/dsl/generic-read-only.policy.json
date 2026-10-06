@@ -6,19 +6,22 @@
       "executable": {
         "projection": "basename",
         "equals": "git"
-      }
+      },
+      "environmentIndependent": true
     },
     {
       "executable": {
         "projection": "basename",
         "equals": "sha256sum"
-      }
+      },
+      "environmentIndependent": true
     },
     {
       "executable": {
         "projection": "basename",
         "equals": "tea"
-      }
+      },
+      "environmentIndependent": true
     }
   ],
   "registers": {},

@@ -1,7 +1,7 @@
 {
   "language": "safety-core/bash-policy-v1",
   "layer": "permission",
-  "select": [{ "executable": { "projection": "basename", "equals": "jf" } }],
+  "select": [{ "executable": { "projection": "basename", "equals": "jf" }, "environmentIndependent": true }],
   "registers": {
     "formatValid": { "type": "bool", "initial": true }
   },

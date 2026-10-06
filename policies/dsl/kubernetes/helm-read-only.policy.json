@@ -1,7 +1,7 @@
 {
   "language": "safety-core/bash-policy-v1",
   "layer": "permission",
-  "select": [{ "executable": { "projection": "basename", "equals": "helm" } }],
+  "select": [{ "executable": { "projection": "basename", "equals": "helm" }, "environmentIndependent": true }],
   "registers": { "tableOutput": { "type": "bool", "initial": true }, "dryRunValid": { "type": "bool", "initial": true }, "namespaceBeforeCommand": { "type": "bool", "initial": false } },
   "folds": {},
   "options": {

@@ -145,3 +145,7 @@ without an equivalent policy guard would permit reading a secret file list.
   returns `deny` with guidance to invoke external GNU `find` (for example,
   `command find`) or remove the function. This denial dominates any permit
   from another policy for the same event.
+
+Because an `allow` requires a proven external path, this policy deliberately
+leaves its executable selector without `environmentIndependent`; an invocation
+whose executable resolution is unresolved therefore defers.

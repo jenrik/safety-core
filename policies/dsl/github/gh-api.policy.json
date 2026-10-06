@@ -1,7 +1,7 @@
 {
   "language": "safety-core/bash-policy-v1",
   "layer": "permission",
-  "select": [{ "executable": { "projection": "basename", "equals": "gh" } }],
+  "select": [{ "executable": { "projection": "basename", "equals": "gh" }, "environmentIndependent": true }],
   "registers": { "method": { "type": "inputRef", "initial": null }, "endpointValue": { "type": "inputRef", "initial": null }, "hasMethod": { "type": "bool", "initial": false }, "hasParameters": { "type": "bool", "initial": false }, "unsafe": { "type": "bool", "initial": false } },
   "folds": {},
   "options": {

@@ -84,3 +84,14 @@ of scope. The policy relies on kubectl v1.37.0 parsing and, for server dry-run,
 on the selected API server. Deliberate attempts to bypass the policy through
 unrelated executables or bespoke transport calls are outside the non-adversarial
 agent threat model.
+
+## Environment-independent selector audit
+
+Permission policies whose `allow` requires a proven external path deliberately
+leave their executable selectors without `environmentIndependent`, so they defer
+when executable resolution is unresolved. This applies to `cat`, `find`, `tee`,
+and `timeout` (all documented in their own scope files).
+
+`github/gh-read-only.policy.json` is a defer-only permission policy: it has no
+`allow` decisions at all, so an `environmentIndependent` selector would be inert
+and it is intentionally left unset.

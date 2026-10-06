@@ -6,7 +6,8 @@
       "executable": {
         "projection": "basename",
         "equals": "nix-prefetch-url"
-      }
+      },
+      "environmentIndependent": true
     }
   ],
   "registers": {

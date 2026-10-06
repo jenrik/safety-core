@@ -6,7 +6,8 @@
       "executable": {
         "projection": "basename",
         "equals": "argocd"
-      }
+      },
+      "environmentIndependent": true
     }
   ],
   "registers": {},

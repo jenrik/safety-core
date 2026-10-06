@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import type { ResolvedWord } from "../src/bash/expand.ts";
 import { type CompiledPolicyProgram, compilePolicyDocument } from "../src/policy/dsl/compile.ts";
 import { createDslPolicy } from "../src/policy/dsl/evaluate.ts";
@@ -35,6 +36,10 @@ function event(argv: readonly ResolvedWord[]): InvocationView {
 
 function policy(document: Record<string, unknown>) {
   return createDslPolicy(compilePolicyDocument(validatePolicyDocument(document)), source);
+}
+
+function loadPolicyDocument(name: string): Record<string, any> {
+  return JSON.parse(readFileSync(new URL(`../policies/dsl/${name}.policy.json`, import.meta.url), "utf8"));
 }
 
 const base = (): Record<string, any> => ({
@@ -110,6 +115,81 @@ describe("DCRM evaluation", () => {
     expect(policy(document).select).toEqual([
       { kind: "executable-basename", value: "tool", environmentIndependent: true },
     ]);
+  });
+
+  test("permission policies that allow without a proven external path opt into environment independence", () => {
+    const independent = [
+      "command-discovery",
+      "containers/strict-cosign",
+      "containers/strict-crane",
+      "containers/strict-docker",
+      "containers/strict-podman-compose",
+      "containers/strict-podman",
+      "containers/strict-skopeo",
+      "env-command",
+      "generic-read-only",
+      "github/gh-api",
+      "jfrog/jf-rt-ping-read-only",
+      "jfrog/strict-jf",
+      "jfrog/strict-jfrog",
+      "kubernetes/helm-read-only",
+      "kubernetes/strict-argocd",
+      "kubernetes/strict-kubectl",
+      "kubernetes/strict-oc",
+      "nix/nix-prefetch-url",
+      "nix/strict-nix-env",
+      "nix/strict-nix-store",
+      "nix/strict-nix",
+      "strict-npm",
+      "strict-pip",
+      "strict-tofu",
+      "strict-uv",
+      "strict-yarn",
+    ];
+    const provenTargetScoped = ["cat", "find", "tee", "timeout", "bash/bash-status", "bash/bash-test"];
+
+    for (const name of independent) {
+      const selectors = loadPolicyDocument(name).select;
+      expect(selectors.length, name).toBeGreaterThan(0);
+      for (const selector of selectors)
+        expect(selector, `${name} selector`).toMatchObject({ environmentIndependent: true });
+    }
+    for (const name of provenTargetScoped) {
+      for (const selector of loadPolicyDocument(name).select)
+        expect(selector.environmentIndependent ?? false, `${name} selector`).toBe(false);
+    }
+  });
+
+  test("a real environment-independent policy covers an unresolved invocation and defers without the flag", () => {
+    const independent = policy(loadPolicyDocument("command-discovery")) as unknown as ValidatedBashPolicy;
+    const unresolved: InvocationView = {
+      ...event([
+        { kind: "known", value: "-v" },
+        { kind: "known", value: "helm" },
+      ]),
+      executable: { kind: "known", value: "command" },
+      executionTarget: "unresolved",
+      executableIdentity: {
+        qualification: "incomplete",
+        spelling: "command",
+        basename: "command",
+        chain: [],
+        failure: { kind: "not-external" },
+      },
+      environment: { __SAFETY_CORE_BASH_FUNCTIONS_CAPTURED: { kind: "known" as const, value: "true" } },
+      missingBindings: "unknown",
+    };
+
+    expect(evaluatePolicyEvents([unresolved], [independent], { complete: true }).decision).toBe("allow");
+    expect(
+      evaluatePolicyEvents([{ ...unresolved, executionTarget: "shell-function" }], [independent], { complete: true })
+        .decision,
+    ).toBe("defer");
+
+    const stripped = loadPolicyDocument("command-discovery");
+    for (const selector of stripped.select) delete selector.environmentIndependent;
+    const ordinary = policy(stripped) as unknown as ValidatedBashPolicy;
+    expect(evaluatePolicyEvents([unresolved], [ordinary], { complete: true }).decision).toBe("defer");
   });
   test("honors first-match order, guards against pre-state, and applies updates simultaneously", () => {
     const document = base();

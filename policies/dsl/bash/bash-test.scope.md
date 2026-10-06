@@ -72,3 +72,8 @@ every other reachable invocation must independently be covered.
   final automatic approval.
 - **deny:** this policy has no deny rule. Independent guards and harness file
   permission checks can still deny the request.
+
+Because an `allow` requires a proven Bash builtin rather than an unresolved
+external target, this policy deliberately leaves its executable selectors
+without `environmentIndependent`; an invocation whose resolution is unresolved
+therefore defers.

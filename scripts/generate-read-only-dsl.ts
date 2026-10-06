@@ -249,9 +249,9 @@ function generic() {
     "generic-read-only.policy.json",
     document(
       [
-        { executable: { projection: "basename", equals: "git" } },
-        { executable: { projection: "basename", equals: "sha256sum" } },
-        { executable: { projection: "basename", equals: "tea" } },
+        { executable: { projection: "basename", equals: "git" }, environmentIndependent: true },
+        { executable: { projection: "basename", equals: "sha256sum" }, environmentIndependent: true },
+        { executable: { projection: "basename", equals: "tea" }, environmentIndependent: true },
       ],
       {
         start,
@@ -551,7 +551,7 @@ function strict() {
     write(
       `${directory === "" ? "" : `${directory}/`}strict-${executable}.policy.json`,
       document(
-        [{ executable: { projection: "basename", equals: executable } }],
+        [{ executable: { projection: "basename", equals: executable }, environmentIndependent: true }],
         states,
         options,
         executable === "kubectl"

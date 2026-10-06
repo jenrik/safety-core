@@ -84,3 +84,7 @@ the risk that GNU `cat` reads arbitrary operand paths.
   `deny` with guidance to invoke external GNU `cat` (for example, `command
   cat`) or remove the function. This denial dominates any permit from another
   policy for the same event.
+
+Because an `allow` requires a proven external path, this policy deliberately
+leaves its executable selector without `environmentIndependent`; an invocation
+whose executable resolution is unresolved therefore defers.

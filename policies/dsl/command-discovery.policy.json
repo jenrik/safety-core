@@ -6,7 +6,8 @@
       "executable": {
         "projection": "basename",
         "equals": "command"
-      }
+      },
+      "environmentIndependent": true
     }
   ],
   "registers": {},

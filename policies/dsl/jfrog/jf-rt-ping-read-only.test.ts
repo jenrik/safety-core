@@ -5,7 +5,11 @@ import type { ValidatedBashPolicy } from "../../../src/policy/types.ts";
 
 const policyTest = policyTestForFile(import.meta.url);
 
-function decision(policy: ValidatedBashPolicy, args: readonly string[], overrides: Record<string, unknown> = {}): string {
+function decision(
+  policy: ValidatedBashPolicy,
+  args: readonly string[],
+  overrides: Record<string, unknown> = {},
+): string {
   return policy.evaluate({
     kind: "invocation",
     executable: { kind: "known", value: "jf" },
@@ -40,14 +44,18 @@ policyTest.test("permits the documented ping command and p alias", ({ policy }) 
   }
 });
 
-policyTest.property("aliases, documented output values, and option forms compose", { cases: 100, seed: 17 }, ({ policy, random }) => {
-  const command = random.pick(["ping", "p"]);
-  const value = random.pick(["json", "table"]);
-  const option = random.boolean() ? ["--format", value] : [`--format=${value}`];
-  expect(decision(policy, ["rt", command, ...option]), `rt ${command} ${option.join(" ")}`).toBe("allow");
-  const repeated = random.pick(["json", "table"]);
-  expect(decision(policy, ["rt", command, "--format", value, `--format=${repeated}`])).toBe("allow");
-});
+policyTest.property(
+  "aliases, documented output values, and option forms compose",
+  { cases: 100, seed: 17 },
+  ({ policy, random }) => {
+    const command = random.pick(["ping", "p"]);
+    const value = random.pick(["json", "table"]);
+    const option = random.boolean() ? ["--format", value] : [`--format=${value}`];
+    expect(decision(policy, ["rt", command, ...option]), `rt ${command} ${option.join(" ")}`).toBe("allow");
+    const repeated = random.pick(["json", "table"]);
+    expect(decision(policy, ["rt", command, "--format", value, `--format=${repeated}`])).toBe("allow");
+  },
+);
 
 policyTest.test("defers non-ping paths, unreviewed flags, malformed formats, and extra input", ({ policy }) => {
   for (const args of [
@@ -86,7 +94,9 @@ policyTest.test("defers modeled unsafe execution routes and environment configur
     decision(policy, ["rt", "ping"], { assignments: { JFROG_CLI_SERVER_ID: { kind: "known", value: "synthetic" } } }),
   ).toBe("defer");
   expect(
-    decision(policy, ["rt", "ping"], { environment: { __SAFETY_CORE_BASH_FUNCTION_jf: { kind: "known", value: "present" } } }),
+    decision(policy, ["rt", "ping"], {
+      environment: { __SAFETY_CORE_BASH_FUNCTION_jf: { kind: "known", value: "present" } },
+    }),
   ).toBe("defer");
   expect(
     decision(policy, ["rt", "ping"], {
@@ -108,8 +118,31 @@ policyTest.test("defers modeled unsafe execution routes and environment configur
     "JFROG_CLI_HOME_DIR",
     "JFROG_CLI_SERVER_ID",
   ]) {
-    expect(decision(policy, ["rt", "ping"], { environment: { [name]: { kind: "known", value: "synthetic" } } }), name).toBe("defer");
-    expect(decision(policy, ["rt", "ping"], { environment: { [name]: { kind: "known", value: "" } } }), `${name}=empty`).toBe("allow");
+    expect(
+      decision(policy, ["rt", "ping"], { environment: { [name]: { kind: "known", value: "synthetic" } } }),
+      name,
+    ).toBe("defer");
+    expect(
+      decision(policy, ["rt", "ping"], { environment: { [name]: { kind: "known", value: "" } } }),
+      `${name}=empty`,
+    ).toBe("allow");
   }
   expect(decision(policy, ["rt", "ping"], { missingBindings: "unknown" })).toBe("defer");
+});
+
+policyTest.test("permits an unresolved invocation when the environment is independently safe", ({ policy }) => {
+  expect(policy.select).toMatchObject([{ environmentIndependent: true }]);
+  expect(
+    decision(policy, ["rt", "ping"], {
+      executionTarget: "unresolved",
+      missingBindings: "unknown",
+      environment: {
+        JFROG_CLI_COMMAND_SUMMARY_OUTPUT_DIR: { kind: "known", value: "" },
+        JFROG_CLI_ENCRYPTION_KEY: { kind: "known", value: "" },
+        JFROG_CLI_HOME_DIR: { kind: "known", value: "" },
+        JFROG_CLI_SERVER_ID: { kind: "known", value: "" },
+        __SAFETY_CORE_BASH_FUNCTIONS_CAPTURED: { kind: "known", value: "true" },
+      },
+    }),
+  ).toBe("allow");
 });

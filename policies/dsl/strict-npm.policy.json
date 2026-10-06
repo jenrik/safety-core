@@ -6,7 +6,8 @@
       "executable": {
         "projection": "basename",
         "equals": "npm"
-      }
+      },
+      "environmentIndependent": true
     }
   ],
   "registers": {},
