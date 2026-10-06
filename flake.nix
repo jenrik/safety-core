@@ -181,13 +181,17 @@
               }
             }' > config/safety-core/config.json
             test "$(SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core validate | grep -Ec '^[0-9a-f]{64}  /nix/store/')" -eq ${toString (builtins.length productionDslPolicies)}
-            SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core explain --json -- 'git --version' | grep -q '"decision": "allow"'
-            SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core explain --json -- 'cat credentials.json' | grep -q '"decision": "deny"'
-            SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core explain --json -- 'echo uncovered' | grep -q '"decision": "defer"'
+            SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core explain --json -- 'git --version' > "$TMPDIR/explain-git.json"
+            grep -q '"decision": "allow"' "$TMPDIR/explain-git.json"
+            SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core explain --json -- 'cat credentials.json' > "$TMPDIR/explain-cat.json"
+            grep -q '"decision": "deny"' "$TMPDIR/explain-cat.json"
+            SAFETY_CORE_CONFIG_HOME="$PWD/config" ${sc.core}/bin/safety-core explain --json -- 'echo uncovered' > "$TMPDIR/explain-echo.json"
+            grep -q '"decision": "defer"' "$TMPDIR/explain-echo.json"
             mkdir -p project/.safety-core invalid/safety-core
             printf '%s\n' '{"version":1,"policies":["project.policy.json"]}' > project/.safety-core/config.json
             printf '%s\n' '{"language":"safety-core/bash-policy-v1","layer":"permission","select":[{"kind":"invocation"}],"registers":{},"folds":{},"options":{},"fragments":{},"start":"start","states":{"start":{"cases":[],"default":{"decision":"ignore"},"end":{"decision":"allow","reason":["project additive allow"]}}}}' > project/project.policy.json
-            (cd project && SAFETY_CORE_CONFIG_HOME="$PWD/../config" ${sc.core}/bin/safety-core explain --json -- 'project-additive' | grep -q '"decision": "allow"')
+            (cd project && SAFETY_CORE_CONFIG_HOME="$PWD/../config" ${sc.core}/bin/safety-core explain --json -- 'project-additive' > "$TMPDIR/explain-project.json")
+            grep -q '"decision": "allow"' "$TMPDIR/explain-project.json"
             printf '%s\n' '{"version":1,"policies":["/missing.policy.json"],"projectPolicies":{"mode":"disabled"},"bashAnalysis":{"maxFunctionDepth":8,"maxNestedScriptDepth":8,"maxSteps":100,"maxWorkItems":100}}' > invalid/safety-core/config.json
             if SAFETY_CORE_CONFIG_HOME="$PWD/invalid" ${sc.core}/bin/safety-core validate; then
               echo "invalid policy source unexpectedly loaded" >&2
