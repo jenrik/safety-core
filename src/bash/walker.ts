@@ -8,6 +8,7 @@ import {
   assignLocalBinding,
   type Environment,
   endCommandOverlay,
+  hasBinding,
   known,
   lookupBinding,
   pushFunctionFrame,
@@ -28,6 +29,7 @@ import {
 import { transitionBuiltin } from "./handlers/builtins.js";
 import { importBashFunctions, isImportedBashFunction, markImportedBashFunction } from "./imported-functions.js";
 import { type BashIoContext, inheritedBashIo, redirectBashIo } from "./io.js";
+import { type OptionGrammar, scanOptions } from "./options.js";
 import {
   type AnalysisBudget,
   analysisFailure,
@@ -56,7 +58,7 @@ import {
   initialShellState,
   joinShellStates,
   taintShellState,
-  withShellCwd,
+  withDirectoryChange,
   withShellEnvironment,
 } from "./state.js";
 
@@ -907,9 +909,16 @@ function executeNormalizedInvocation(
   }
 
   if (isPossiblyStateMutatingBuiltin(normalized.executable.value)) {
-    let tainted = withEnvironment(input, taintFrame(input.state.environment, { kind: "unmodelled-builtin", span }));
-    if (["cd", "pushd", "popd"].includes(normalized.executable.value))
-      tainted = withState(tainted, withShellCwd(tainted.state, null));
+    const tainted = isDirectoryChangingBuiltin(normalized.executable.value)
+      ? withState(
+          input,
+          applyDirectoryChange(input.state, normalized),
+          input.returned,
+          input.nestedScriptDepth,
+          input.outcome,
+          appendWrites(input.writes, DIRECTORY_CHANGE_WRITES),
+        )
+      : withEnvironment(input, taintFrame(input.state.environment, { kind: "unmodelled-builtin", span }));
     dispatchNormalized(
       normalized,
       tainted,
@@ -1142,7 +1151,7 @@ function scheduleChildExecutions(
     if (newShell)
       child = withState(
         child,
-        initialShellState(childEnvironment, imported?.definitions, child.state.cwd),
+        initialShellState(childEnvironment, imported?.definitions, child.state.cwd, child.state.cwdUncertain),
         false,
         child.nestedScriptDepth,
         imported?.invalid ? appendOutcomeSummary(child.outcome, indeterminate(span)) : child.outcome,
@@ -1240,6 +1249,79 @@ function isPossiblyStateMutatingBuiltin(executable: string): boolean {
     "unalias",
     "wait",
   ].includes(executable);
+}
+
+function isDirectoryChangingBuiltin(executable: string): boolean {
+  return executable === "cd" || executable === "pushd" || executable === "popd";
+}
+
+/** Names cd rewrites; tracking them lets branch joins keep `PWD` conservative. */
+const DIRECTORY_CHANGE_WRITES: readonly string[] = Object.freeze(["PWD", "OLDPWD"]);
+
+/** Only `cd`, `pushd`, and `popd` can move the shell, so only they track cwd. */
+const DIRECTORY_GRAMMARS: Readonly<Record<string, OptionGrammar>> = Object.freeze({
+  cd: directoryGrammar(["L", "P", "e", "@"]),
+  pushd: directoryGrammar(["n", "L", "P"]),
+  popd: directoryGrammar(["n", "L", "P"]),
+});
+
+function directoryGrammar(letters: readonly string[]): OptionGrammar {
+  return Object.freeze({
+    longResolution: "exact",
+    options: Object.freeze(
+      letters.map((letter) => Object.freeze({ id: letter, short: Object.freeze([letter]), value: "none" as const })),
+    ),
+  });
+}
+
+/**
+ * Resolves a directory-changing builtin without weakening variable or function
+ * bindings. A determinate destination (an absolute target, an absolute HOME, or
+ * a relative target from a known cwd under an empty CDPATH) keeps command
+ * resolution trustworthy; anything the walker cannot name (unknown operand, a
+ * non-empty CDPATH, an unknown starting cwd, stack rotation, or ambiguous
+ * options) marks cwd-dependent resolution uncertain so it fails closed.
+ */
+function applyDirectoryChange(state: BashShellState, command: NormalizedCommand): BashShellState {
+  const executable = command.executable;
+  if (!executable || executable.kind !== "known") return withDirectoryChange(state, false);
+  const parsed = scanOptions(command.argv, DIRECTORY_GRAMMARS[executable.value]!);
+  if (parsed.kind === "failure") return withDirectoryChange(state, false);
+  // `pushd -n` and `popd -n` only edit the directory stack.
+  if (parsed.options.some((option) => option.id === "n")) return state;
+  if (executable.value === "popd") return withDirectoryChange(state, false);
+
+  const operand = command.argv[parsed.operandIndex];
+  if (!operand) {
+    // Bare `cd` selects HOME; bare `pushd` rotates the stack.
+    return withDirectoryChange(state, executable.value === "cd" && homeIsAbsolute(state));
+  }
+  if (parsed.operandIndex + 1 < command.argv.length) return withDirectoryChange(state, false);
+  if (operand.kind !== "known") return withDirectoryChange(state, false);
+  return withDirectoryChange(state, directoryTargetDeterminate(state, executable.value, operand.value));
+}
+
+function homeIsAbsolute(state: BashShellState): boolean {
+  const home = lookupBinding(state.environment, "HOME");
+  return home.value.kind === "known" && home.value.value.startsWith("/");
+}
+
+function directoryTargetDeterminate(state: BashShellState, executable: string, target: string): boolean {
+  if (target === "-") return false;
+  if (executable === "pushd" && (target.startsWith("+") || target.startsWith("-"))) return false;
+  if (target.startsWith("/")) return true;
+  // A relative target is only nameable from a cwd we already know and a CDPATH
+  // that cannot redirect it.
+  return state.cwd !== null && cdpathDefinitelyEmpty(state.environment);
+}
+
+/** A non-empty CDPATH entry can redirect a relative target away from cwd. */
+function cdpathDefinitelyEmpty(environment: Environment): boolean {
+  const binding = lookupBinding(environment, "CDPATH");
+  if (binding.value.kind === "known") return binding.value.value.split(":").every((entry) => entry === "");
+  if (binding.value.kind === "unset")
+    return hasBinding(environment, "CDPATH") || environment.missingBindings === "unset";
+  return false;
 }
 
 function isBuiltinShellRoute(command: NormalizedCommand): boolean {

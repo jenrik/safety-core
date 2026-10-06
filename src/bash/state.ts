@@ -1,6 +1,7 @@
 import type { BashFunction } from "./cst.js";
 import {
   assignBinding,
+  assignNonLocalBinding,
   type BranchCheckpoint,
   type Environment,
   forkCheckpoint,
@@ -20,6 +21,15 @@ export interface BashShellState {
   readonly environment: Environment;
   /** Null when a directory-changing transition cannot be proved. */
   readonly cwd: string | null;
+  /**
+   * True when a directory change moved the shell somewhere we cannot name, so
+   * cwd-dependent external command resolution must fail closed. It is distinct
+   * from an unknown initial `cwd`: a snapshot that never observed a directory
+   * change carries the environment's own relative-PATH semantics unchanged.
+   * `cwd` itself stays null after any directory change so relative file
+   * accesses remain unproved; this flag only governs command resolution.
+   */
+  readonly cwdUncertain: boolean;
   readonly functionCandidates: ReadonlyMap<string, readonly BashFunction[]>;
   /** Names that may still resolve externally on at least one reachable path. */
   readonly missingFunctions: ReadonlySet<string>;
@@ -45,21 +55,43 @@ export function initialShellState(
   environment: Environment,
   imported: readonly BashFunction[] = [],
   cwd: string | null = null,
+  cwdUncertain = false,
 ): BashShellState {
   return shellState(
     environment,
     new Map(imported.map((definition) => [definition.name, Object.freeze([definition])])),
     new Set(),
     cwd,
+    cwdUncertain,
   );
 }
 
 export function withShellEnvironment(state: BashShellState, environment: Environment): BashShellState {
-  return shellState(environment, state.functionCandidates, state.missingFunctions, state.cwd);
+  return shellState(environment, state.functionCandidates, state.missingFunctions, state.cwd, state.cwdUncertain);
 }
 
-export function withShellCwd(state: BashShellState, cwd: string | null): BashShellState {
-  return shellState(state.environment, state.functionCandidates, state.missingFunctions, cwd);
+export function withShellCwd(state: BashShellState, cwd: string | null, cwdUncertain = cwd === null): BashShellState {
+  return shellState(state.environment, state.functionCandidates, state.missingFunctions, cwd, cwdUncertain);
+}
+
+/**
+ * Applies a directory-changing builtin. Only the cwd, its determinacy, and the
+ * `PWD`/`OLDPWD` variables cd is defined to rewrite are affected; variable
+ * bindings and shell functions are otherwise preserved. `PWD`/`OLDPWD` become
+ * unknown because a static walker cannot prove the destination directory exists,
+ * so a subsequent `$PWD` must not be trusted to hold a stale path. The shared
+ * `cwd` stays null so relative file accesses keep deferring; `determinate`
+ * distinguishes a destination the walker can name from one it cannot, which is
+ * all command resolution needs.
+ */
+export function withDirectoryChange(state: BashShellState, determinate: boolean): BashShellState {
+  const reason: UnknownReason = { kind: "directory-change" };
+  const environment = assignNonLocalBinding(
+    assignNonLocalBinding(state.environment, "PWD", unknown(reason)),
+    "OLDPWD",
+    unknown(reason),
+  );
+  return shellState(environment, state.functionCandidates, state.missingFunctions, null, !determinate);
 }
 
 export function defineShellFunction(state: BashShellState, definition: BashFunction): BashShellState {
@@ -75,7 +107,7 @@ export function defineShellFunction(state: BashShellState, definition: BashFunct
     previous.value.kind !== "unset" && previous.exported
       ? assignBinding(state.environment, exportedName, unknown({ kind: "redefined-exported-function" }))
       : state.environment;
-  return shellState(environment, functions, missing, state.cwd);
+  return shellState(environment, functions, missing, state.cwd, state.cwdUncertain);
 }
 
 /** Mark a known function for export without inventing Bash's serialized text. */
@@ -91,7 +123,7 @@ export function exportShellFunction(state: BashShellState, name: string): BashSh
           exportedName,
           true,
         );
-  return shellState(environment, state.functionCandidates, state.missingFunctions, state.cwd);
+  return shellState(environment, state.functionCandidates, state.missingFunctions, state.cwd, state.cwdUncertain);
 }
 
 export function unexportShellFunction(state: BashShellState, name: string): BashShellState {
@@ -101,6 +133,7 @@ export function unexportShellFunction(state: BashShellState, name: string): Bash
     state.functionCandidates,
     state.missingFunctions,
     state.cwd,
+    state.cwdUncertain,
   );
 }
 
@@ -114,13 +147,19 @@ export function removeShellFunction(state: BashShellState, name: string): BashSh
   const environment = hasBinding(state.environment, exportedName)
     ? unsetBinding(unsetBinding(state.environment, exportedName), inheritedBashFunctionFact(name))
     : state.environment;
-  return shellState(environment, functions, missing, state.cwd);
+  return shellState(environment, functions, missing, state.cwd, state.cwdUncertain);
 }
 
 /** Preserve a possible definition while allowing the name to resolve externally. */
 export function invalidateShellFunction(state: BashShellState, name: string): BashShellState {
   if (!state.functionCandidates.has(name)) return state;
-  return shellState(state.environment, state.functionCandidates, new Set([...state.missingFunctions, name]), state.cwd);
+  return shellState(
+    state.environment,
+    state.functionCandidates,
+    new Set([...state.missingFunctions, name]),
+    state.cwd,
+    state.cwdUncertain,
+  );
 }
 
 /** A dynamic function name can remove any currently-known definition. */
@@ -130,6 +169,7 @@ export function invalidateShellFunctions(state: BashShellState): BashShellState 
     state.functionCandidates,
     new Set([...state.missingFunctions, ...state.functionCandidates.keys()]),
     state.cwd,
+    state.cwdUncertain,
   );
 }
 
@@ -140,6 +180,7 @@ export function taintShellState(state: BashShellState, reason: UnknownReason): B
     state.functionCandidates,
     new Set([...state.missingFunctions, ...state.functionCandidates.keys()]),
     null,
+    true,
   );
 }
 
@@ -178,7 +219,10 @@ export function joinShellStates(
     }
   }
   const cwd = branches.every((branch) => branch.state.cwd === branches[0]!.state.cwd) ? branches[0]!.state.cwd : null;
-  return shellState(environment, functions, missing, cwd);
+  const cwdUncertain =
+    branches.some((branch) => branch.state.cwdUncertain) ||
+    branches.some((branch) => branch.state.cwd !== branches[0]!.state.cwd);
+  return shellState(environment, functions, missing, cwd, cwdUncertain);
 }
 
 /** Current-scope children propagate complete state; subshell children leak none. */
@@ -192,6 +236,7 @@ function shellState(
   functionCandidates: ReadonlyMap<string, readonly BashFunction[]>,
   missingFunctions: ReadonlySet<string>,
   cwd: string | null,
+  cwdUncertain: boolean,
 ): BashShellState {
-  return Object.freeze({ environment, functionCandidates, missingFunctions, cwd });
+  return Object.freeze({ environment, functionCandidates, missingFunctions, cwd, cwdUncertain });
 }

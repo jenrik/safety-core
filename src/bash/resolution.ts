@@ -84,9 +84,9 @@ export function resolveBashExecutionTarget(
   const executable = command.executable;
   if (!executable || executable.kind !== "known" || !executable.value) return "unresolved";
   const name = executable.value;
-  if (domain === "external-path") return "external-path";
+  if (domain === "external-path") return pathLookupUncertain(state, name) ? "unresolved" : "external-path";
   if (domain === "builtin-only") return !name.includes("/") && BASH_BUILTINS.has(name) ? "builtin" : "unresolved";
-  if (name.includes("/")) return "external-path";
+  if (name.includes("/")) return pathLookupUncertain(state, name) ? "unresolved" : "external-path";
   if (domain === "shell") {
     if (state.functionCandidates.has(name)) return state.missingFunctions.has(name) ? "unresolved" : "shell-function";
     const environment = state.environment;
@@ -98,5 +98,17 @@ export function resolveBashExecutionTarget(
     )
       return "unresolved";
   }
-  return BASH_BUILTINS.has(name) ? "builtin" : "external-path";
+  const target = BASH_BUILTINS.has(name) ? "builtin" : "external-path";
+  if (target === "external-path" && pathLookupUncertain(state, name)) return "unresolved";
+  return target;
+}
+
+/**
+ * A filesystem lookup that depends on the shell's current directory is
+ * uncertain after an unmodelled directory change. Builtins and shell functions
+ * are unaffected because they are not located through the filesystem. Absolute
+ * paths are also unaffected because the kernel resolves them without cwd.
+ */
+function pathLookupUncertain(state: BashShellState, name: string): boolean {
+  return state.cwdUncertain && !name.startsWith("/");
 }

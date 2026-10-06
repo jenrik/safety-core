@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { BashFunction } from "../src/bash/cst.ts";
 import { assignBinding, fromInitialEnvironment, known, lookupBinding } from "../src/bash/environment.ts";
+import { BASH_FUNCTIONS_CAPTURED_FACT, inheritedBashFunctionFact } from "../src/bash/policy-environment.ts";
 import {
   completeShellState,
   defineShellFunction,
@@ -11,6 +12,7 @@ import {
   invalidateShellFunctions,
   joinShellStates,
   removeShellFunction,
+  withDirectoryChange,
   withShellEnvironment,
 } from "../src/bash/state.ts";
 
@@ -92,6 +94,60 @@ describe("complete abstract Bash shell state", () => {
       expect(invalidated.functionCandidates.has(name), name).toBeTrue();
       expect(invalidated.missingFunctions.has(name), name).toBeTrue();
     }
+  });
+
+  test("a directory change preserves bindings and functions while invalidating cwd", () => {
+    const definition = bashFunction("f");
+    const environment = fromInitialEnvironment({
+      X: "kept",
+      PWD: "/workspace",
+      [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT",
+      [inheritedBashFunctionFact("git")]: "__SAFETY_CORE_PRESENT",
+    });
+    const base = defineShellFunction(initialShellState(environment, [], "/workspace"), definition);
+    const moved = withDirectoryChange(base, true);
+
+    expect(moved.cwd).toBeNull();
+    expect(moved.cwdUncertain).toBeFalse();
+    expect(moved.functionCandidates.get("f")).toEqual([definition]);
+    expect(lookupBinding(moved.environment, "X").value).toEqual({ kind: "known", value: "kept" });
+    expect(lookupBinding(moved.environment, BASH_FUNCTIONS_CAPTURED_FACT).value.kind).toBe("known");
+    expect(lookupBinding(moved.environment, inheritedBashFunctionFact("git")).value.kind).toBe("known");
+    expect(lookupBinding(moved.environment, "PWD").value.kind).toBe("unknown");
+  });
+
+  test("an indeterminate directory change marks cwd uncertain", () => {
+    const base = initialShellState(fromInitialEnvironment({}), [], "/workspace");
+    const moved = withDirectoryChange(base, false);
+
+    expect(moved.cwd).toBeNull();
+    expect(moved.cwdUncertain).toBeTrue();
+  });
+
+  test("branch joins propagate directory uncertainty and never revive a determinate cwd", () => {
+    const base = initialShellState(fromInitialEnvironment({}), [], "/workspace");
+    const determinate = withDirectoryChange(base, true);
+    const indeterminate = withDirectoryChange(base, false);
+
+    const aligned = joinShellStates(forkShellState(base), [
+      { state: determinate, writes: new Set() },
+      { state: determinate, writes: new Set() },
+    ]);
+    expect(aligned.cwd).toBeNull();
+    expect(aligned.cwdUncertain).toBeFalse();
+
+    const mixed = joinShellStates(forkShellState(base), [
+      { state: base, writes: new Set() },
+      { state: determinate, writes: new Set() },
+    ]);
+    expect(mixed.cwd).toBeNull();
+    expect(mixed.cwdUncertain).toBeTrue();
+
+    const uncertain = joinShellStates(forkShellState(base), [
+      { state: base, writes: new Set() },
+      { state: indeterminate, writes: new Set() },
+    ]);
+    expect(uncertain.cwdUncertain).toBeTrue();
   });
 });
 

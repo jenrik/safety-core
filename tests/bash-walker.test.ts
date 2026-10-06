@@ -4,13 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BashFunction, BashProgram } from "../src/bash/cst.ts";
 import { dispatchCommand, preflightCommand } from "../src/bash/dispatch.ts";
-import { fromInitialEnvironment, lookupBinding } from "../src/bash/environment.ts";
+import { fromInitialEnvironment, fromVerifiedInitialEnvironment, lookupBinding } from "../src/bash/environment.ts";
 import type { NormalizedCommand, ResolvedWord } from "../src/bash/expand.ts";
 import { safe } from "../src/bash/outcome.ts";
-import { BASH_FUNCTIONS_CAPTURED_FACT } from "../src/bash/policy-environment.ts";
+import { BASH_FUNCTIONS_CAPTURED_FACT, inheritedBashFunctionFact } from "../src/bash/policy-environment.ts";
+import type { BashExecutionTargetKind } from "../src/bash/resolution.ts";
 import { runSteps } from "../src/bash/runner.ts";
 import { walkProgram } from "../src/bash/walker.ts";
-import { initBashParser, parseBashProgram } from "../src/index.ts";
+import { type InvocationView, initBashParser, parseBashProgram } from "../src/index.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-bash-walker-"));
 
@@ -732,6 +733,99 @@ describe("stateful Bash statement walker", () => {
   });
 });
 
+describe("directory-changing builtins", () => {
+  test("a determinate cd keeps later bare commands on the external path", () => {
+    expect(analyze("git --version").executionTargets).toEqual(["external-path"]);
+    expect(analyze("cd /tmp && git --version").executionTargets).toEqual(["builtin", "external-path"]);
+    expect(analyze("cd /tmp; cd /var; git --version").executionTargets).toEqual([
+      "builtin",
+      "builtin",
+      "external-path",
+    ]);
+  });
+
+  test("an indeterminate cd leaves cwd null and command resolution uncertain", () => {
+    const result = analyze('cd "$DIR" && git --version');
+
+    expect(result.executionTargets).toEqual(["builtin", "unresolved"]);
+    expect(result.invocations.at(-1)?.cwd).toBeNull();
+  });
+
+  test("function facts survive a cd and later calls still resolve as shell functions", () => {
+    const result = analyze("f(){ git --version; }; cd /tmp; f");
+    const call = result.policyInvocations.find(
+      (event) => event.executable?.kind === "known" && event.executable.value === "f",
+    );
+
+    expect(call?.executionTarget).toBe("shell-function");
+    expect(result.executionTargets).toEqual(["builtin", "external-path"]);
+  });
+
+  test("an inherited function fact survives a cd", () => {
+    const environment = fromInitialEnvironment({
+      [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT",
+      "BASH_FUNC_foo%%": "() { git --version; }",
+      [inheritedBashFunctionFact("foo")]: "__SAFETY_CORE_PRESENT",
+    });
+    const result = analyzeWith("cd /tmp; foo", () => safe(), environment);
+    const event = result.policyInvocations.at(-1)!;
+
+    expect(event.environment[inheritedBashFunctionFact("foo")]).toEqual({
+      kind: "known",
+      value: "__SAFETY_CORE_PRESENT",
+    });
+    expect(event.environment[BASH_FUNCTIONS_CAPTURED_FACT]?.kind).toBe("known");
+  });
+
+  test("pushd and popd track determinacy consistently with cd", () => {
+    expect(analyze("pushd /tmp; git --version").executionTargets).toEqual(["builtin", "external-path"]);
+    expect(analyze("popd; git --version").executionTargets).toEqual(["builtin", "unresolved"]);
+    expect(analyze("pushd /tmp; popd; git --version").executionTargets).toEqual(["builtin", "builtin", "unresolved"]);
+  });
+
+  test("a cd whose destination comes from command substitution is indeterminate", () => {
+    expect(analyze('cd "$(compute-dir)"; git --version').executionTargets).toEqual([
+      "external-path",
+      "builtin",
+      "unresolved",
+    ]);
+  });
+
+  test("a branch that changes directory keeps PWD unknown after the join", () => {
+    const environment = fromInitialEnvironment({
+      [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT",
+      PWD: "/workspace",
+    });
+    const result = analyzeWith('if c; then cd /tmp; fi; run "$PWD"', () => safe(), environment);
+
+    expect(result.invocations.at(-1)?.argv).toEqual([unknownWord()]);
+  });
+
+  test("relative cd determinacy depends on a known cwd and an empty CDPATH", () => {
+    expect(analyzeInDirectory("cd sub; git --version", "/workspace").executionTargets).toEqual([
+      "builtin",
+      "unresolved",
+    ]);
+    for (const environment of [
+      fromVerifiedInitialEnvironment({}),
+      fromVerifiedInitialEnvironment({ CDPATH: "" }),
+      fromInitialEnvironment({ [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT", CDPATH: "" }),
+    ]) {
+      expect(analyzeInDirectory("cd sub; git --version", "/workspace", environment).executionTargets).toEqual([
+        "builtin",
+        "external-path",
+      ]);
+    }
+    expect(
+      analyzeInDirectory(
+        "cd sub; git --version",
+        "/workspace",
+        fromInitialEnvironment({ [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT", CDPATH: "/elsewhere" }),
+      ).executionTargets,
+    ).toEqual(["builtin", "unresolved"]);
+  });
+});
+
 function analyze(
   source: string,
   limits: Partial<Parameters<typeof runSteps>[1]> = {},
@@ -749,6 +843,7 @@ function analyze(
 
 interface DispatchRequestLike {
   readonly command: NormalizedCommand;
+  readonly executionTarget: BashExecutionTargetKind;
   readonly nestedScriptDepth: number;
   readonly continueWithSource: (
     source: string,
@@ -801,27 +896,49 @@ function analyzeWith(
   return analyzeProgram(program, dispatch, environment, limits);
 }
 
+function analyzeInDirectory(
+  source: string,
+  cwd: string,
+  environment = fromInitialEnvironment({ [BASH_FUNCTIONS_CAPTURED_FACT]: "__SAFETY_CORE_PRESENT" }),
+) {
+  const program = parseBashProgram(source);
+  expect(program.kind).toBe("program");
+  if (program.kind !== "program") throw new Error(program.reason);
+
+  return analyzeProgram(program, () => safe(), environment, {}, cwd);
+}
+
 function analyzeProgram(
   program: BashProgram,
   dispatch: (request: DispatchRequestLike) => unknown,
   environment = fromInitialEnvironment(),
   limits: Partial<Parameters<typeof runSteps>[1]> = {},
+  cwd?: string,
 ) {
   const invocations: NormalizedCommand[] = [];
   const depths: number[] = [];
+  const executionTargets: BashExecutionTargetKind[] = [];
+  const policyInvocations: InvocationView[] = [];
   const initial = walkProgram(program, {
     environment,
     preflightCommand,
+    ...(cwd !== undefined ? { cwd } : {}),
+    recordPolicyEvent: (event) => {
+      if (event.kind === "invocation") policyInvocations.push(event);
+    },
     dispatchCommand: (request) => {
       const candidate = request as unknown as DispatchRequestLike;
       invocations.push(candidate.command ?? (request as unknown as NormalizedCommand));
       depths.push(candidate.nestedScriptDepth ?? 0);
+      executionTargets.push(candidate.executionTarget ?? "unresolved");
       return dispatch(candidate) as ReturnType<typeof safe>;
     },
   });
   return {
     invocations,
     depths,
+    executionTargets,
+    policyInvocations,
     completed: runSteps(initial, {
       maxFunctionDepth: 128,
       maxNestedScriptDepth: 64,
