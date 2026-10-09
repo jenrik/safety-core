@@ -7,9 +7,11 @@ import {
   checkWebfetchUrl,
   completePolicyInitialEnvironment,
   createCompletionJudge,
+  createPermissionPromptServer,
   createPolicyRuntimeReloader,
   type ExecutableFilesystem,
   evaluateLoadedPolicies,
+  forwardPermissionPrompt,
   getJudgeVerdict,
   initBundledBashParser,
   invokeJudge,
@@ -18,8 +20,11 @@ import {
   type LoadedPolicyRuntime,
   loadPolicyRuntime,
   nodeExecutableFilesystem,
+  type PermissionPromptServer,
   type PiAdapterConfig,
   persistPiAdapterConfig,
+  SAFETY_CORE_PROMPT_ROOT_PID,
+  SAFETY_CORE_PROMPT_SOCKET,
   SECRET_BLOCK_MESSAGE,
   setJudgeProvider,
   setJudgeVerdict,
@@ -56,6 +61,9 @@ interface ModelRuntimeAccess {
 
 const PI_SETTINGS_ENTRY = "safety-core-pi-settings";
 const ACTIVE_MODEL = "active model";
+
+let rootPromptServer: PermissionPromptServer | undefined;
+let rootPromptContext: ExtensionContext | undefined;
 
 export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDependencies = {}) {
   const parserReady = initBundledBashParser();
@@ -111,10 +119,47 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
       // Best-effort: an unavailable or nix-managed config stays runtime-only.
     }
   };
+  const updateRootPromptContext = (ctx: ExtensionContext) => {
+    if (rootPromptServer !== undefined) rootPromptContext = ctx;
+  };
+  const ensureRootPromptServer = async (ctx: ExtensionContext) => {
+    if (process.env[SAFETY_CORE_PROMPT_SOCKET] !== undefined) {
+      updateRootPromptContext(ctx);
+      return;
+    }
+    rootPromptContext = ctx;
+    rootPromptServer ??= await createPermissionPromptServer(async ({ title, message }) => {
+      const root = rootPromptContext;
+      return root?.hasUI && typeof root.ui.confirm === "function"
+        ? root.ui.confirm(title, message, root.signal === undefined ? {} : { signal: root.signal }).catch(() => false)
+        : false;
+    });
+    process.env[SAFETY_CORE_PROMPT_SOCKET] = rootPromptServer.path;
+    process.env[SAFETY_CORE_PROMPT_ROOT_PID] = String(process.pid);
+  };
+  const confirmPermission = async (
+    ctx: ExtensionContext,
+    source: string,
+    reason: string | undefined,
+  ): Promise<boolean> => {
+    updateRootPromptContext(ctx);
+    const request = {
+      title: "Safety permission required",
+      message: permissionPromptMessage(source, settings.showFullCommand, reason),
+    };
+    const forwarded = await forwardPermissionPrompt(request, ctx.signal === undefined ? {} : { signal: ctx.signal });
+    if (forwarded !== undefined) return forwarded;
+    return ctx.hasUI && typeof ctx.ui.confirm === "function"
+      ? ctx.ui
+          .confirm(request.title, request.message, ctx.signal === undefined ? {} : { signal: ctx.signal })
+          .catch(() => false)
+      : false;
+  };
 
   pi.on("session_start", async (_event, ctx) => {
     try {
       await parserReady;
+      await ensureRootPromptServer(ctx);
       await restoreSettings(ctx);
     } catch (error) {
       poisoned = policyFailureReason(error);
@@ -123,6 +168,7 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
   });
 
   pi.on("session_tree", async (_event, ctx) => {
+    updateRootPromptContext(ctx);
     if (poisoned) return;
     try {
       await restoreSettings(ctx);
@@ -246,6 +292,7 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
       if (reason) return { block: true, reason };
     }
     if (event.toolName !== "bash") return;
+    updateRootPromptContext(ctx);
     const source = (event.input as { command?: string })?.command ?? "";
     if (poisoned) return { block: true, reason: poisoned };
     let result: BashPolicyEvaluation;
@@ -264,16 +311,7 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
     }
     if (result.decision === "defer" && !settings.autoApprove) {
       const reason = policyDeferReason(result);
-      const approved =
-        ctx.hasUI && typeof ctx.ui.confirm === "function"
-          ? await ctx.ui
-              .confirm(
-                "Safety permission required",
-                permissionPromptMessage(source, settings.showFullCommand, reason),
-                ctx.signal === undefined ? {} : { signal: ctx.signal },
-              )
-              .catch(() => false)
-          : false;
+      const approved = await confirmPermission(ctx, source, reason);
       if (!approved) return { block: true, reason: "Command requires policy approval" };
     }
     // As in the other adapters, deterministic policy denial is considered first.

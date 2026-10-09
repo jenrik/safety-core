@@ -4,6 +4,7 @@ import { createOpenCodePlugin } from "../adapters/opencode.ts";
 import { createOpenCodeV2Plugin } from "../adapters/opencode-v2.ts";
 import {
   type BashPolicyEvaluation,
+  createPermissionPromptServer,
   initBundledBashParser,
   type LoadedPolicyRuntime,
   OPENCODE_POLICY_RELOAD_COMMAND,
@@ -43,6 +44,41 @@ test("OpenCode v2 maps Bash permission outcomes through its dedicated adapter", 
     await (plugin["tool.execute.before"] as Function)({ tool: "bash", ...identity }, { args: { command: source } });
     await (plugin["permission.ask"] as Function)({ type: "bash", pattern: source, ...identity }, output);
     expect(output.status).toBe(expected);
+  }
+});
+
+test("OpenCode forwards nested deferred Bash permission to the root prompt socket", async () => {
+  const previous = process.env.SAFETY_CORE_PROMPT_SOCKET;
+  const previousRootPID = process.env.SAFETY_CORE_PROMPT_ROOT_PID;
+  const prompts: string[] = [];
+  const server = await createPermissionPromptServer(async (request) => {
+    prompts.push(request.message);
+    return true;
+  });
+  process.env.SAFETY_CORE_PROMPT_SOCKET = server.path;
+  process.env.SAFETY_CORE_PROMPT_ROOT_PID = "nested-root";
+  try {
+    for (const create of [createOpenCodePlugin, createOpenCodeV2Plugin]) {
+      const plugin = await create({ runtime, evaluatePolicies: () => defer });
+      const output: { status: "allow" | "ask" | "deny" } = { status: "ask" };
+      const identity = { sessionID: "nested", callID: create.name };
+      await (plugin["tool.execute.before"] as Function)(
+        { tool: "bash", ...identity },
+        { args: { command: `nested-${create.name}` } },
+      );
+      await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "nested", ...identity }, output);
+      expect(output.status).toBe("allow");
+    }
+    expect(prompts).toEqual([
+      expect.stringContaining("nested-createOpenCodePlugin"),
+      expect.stringContaining("nested-createOpenCodeV2Plugin"),
+    ]);
+  } finally {
+    if (previous === undefined) delete process.env.SAFETY_CORE_PROMPT_SOCKET;
+    else process.env.SAFETY_CORE_PROMPT_SOCKET = previous;
+    if (previousRootPID === undefined) delete process.env.SAFETY_CORE_PROMPT_ROOT_PID;
+    else process.env.SAFETY_CORE_PROMPT_ROOT_PID = previousRootPID;
+    await server.close();
   }
 });
 

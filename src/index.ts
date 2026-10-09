@@ -48,6 +48,7 @@ export * from "./kubectl.js";
 export * from "./legacy-config.js";
 export * from "./messages.js";
 export * from "./patterns.js";
+export * from "./prompt.js";
 export * from "./policy/config.js";
 export * from "./policy/evaluate.js";
 export * from "./policy/events.js";

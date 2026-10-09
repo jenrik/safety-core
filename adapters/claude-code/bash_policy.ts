@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 
 import {
   createPolicySessionManifest,
+  forwardPermissionPrompt,
   initBundledBashParser,
   type LoadedPolicyRuntime,
   loadPolicyRuntime,
@@ -36,6 +37,14 @@ run(async () => {
   }
   if (decision?.kind === "allow") emitAllow(decision.reason);
   if (decision?.kind === "deny") emitDeny(decision.reason);
+  if (decision === undefined) {
+    const approved = await forwardPermissionPrompt({
+      title: "Safety permission required",
+      message: `Nested Claude Code requires approval to execute:\n\n${event.tool_input!.command as string}\n\nAllow it once?`,
+    });
+    if (approved === true) emitAllow("Approved by the parent safety permission prompt");
+    if (approved === false) emitDeny("Rejected by the parent safety permission prompt");
+  }
 });
 
 /** Persist configuration and source identity during the one SessionStart event. */

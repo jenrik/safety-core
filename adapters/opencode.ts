@@ -15,6 +15,7 @@ import {
   createPolicyRuntimeReloader,
   type ExecutableFilesystem,
   evaluateLoadedPolicies,
+  forwardPermissionPrompt,
   type HarnessFilePermissions,
   initBundledBashParser,
   invokeJudge,
@@ -162,6 +163,14 @@ export async function createOpenCodePlugin(
         preflights.get(input as unknown as Record<string, unknown>),
         output.status,
       );
+      const preflight = preflights.get(input as unknown as Record<string, unknown>);
+      if (output.status !== "ask" || preflight?.kind !== "complete" || preflight.evaluation.decision !== "defer")
+        return;
+      const approved = await forwardPermissionPrompt({
+        title: "Safety permission required",
+        message: `Nested OpenCode requires approval to execute:\n\n${preflight.source}\n\nAllow it once?`,
+      });
+      if (approved !== undefined) output.status = approved ? "allow" : "deny";
     },
     event: async ({ event }: { event: OpenCodeEvent }) => {
       if (event.type === "tui.command.execute" && event.properties.command === OPENCODE_POLICY_RELOAD_COMMAND) {

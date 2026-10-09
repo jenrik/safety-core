@@ -121,6 +121,12 @@ secret-path blocks, or a judge denial. The setting and the selected judge model
 follow the active Pi session branch. Global Pi defaults come from the `pi`
 configuration above (or the matching Home Manager options).
 
+When Pi starts as the root harness, it creates a private Unix-domain prompt
+socket and exports its location as `SAFETY_CORE_PROMPT_SOCKET`. Nested Pi,
+OpenCode, and Claude Code processes inherit that variable. Their policy-deferred
+Bash prompts are shown in the root Pi TUI; if the root endpoint is unavailable,
+the nested harness keeps its native permission behavior.
+
 See [policy authoring](./docs/policy-authoring.md),
 [read-only profiles](./docs/read-only-command-profiles.md), and
 [executable identity limitations](./docs/executable-identity-limitations.md).

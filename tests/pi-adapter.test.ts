@@ -1,4 +1,4 @@
-import { expect, mock, test } from "bun:test";
+import { afterEach, expect, mock, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,7 @@ import {
   buildGithubSuggestion,
   completePolicyInitialEnvironment,
   evaluateLoadedPolicies,
+  forwardPermissionPrompt,
   initBundledBashParser,
   type LoadedPolicyRuntime,
   loadPolicyRuntime,
@@ -14,6 +15,15 @@ import {
 } from "../src/index.ts";
 
 const renderedSettings: Array<{ items: any[]; onChange: (id: string, value: string) => unknown }> = [];
+const initialPromptSocket = process.env.SAFETY_CORE_PROMPT_SOCKET;
+const initialPromptRootPID = process.env.SAFETY_CORE_PROMPT_ROOT_PID;
+afterEach(() => {
+  if (initialPromptSocket === undefined) delete process.env.SAFETY_CORE_PROMPT_SOCKET;
+  else process.env.SAFETY_CORE_PROMPT_SOCKET = initialPromptSocket;
+  if (initialPromptRootPID === undefined) delete process.env.SAFETY_CORE_PROMPT_ROOT_PID;
+  else process.env.SAFETY_CORE_PROMPT_ROOT_PID = initialPromptRootPID;
+});
+
 mock.module("@earendil-works/pi-coding-agent", () => ({
   createBashTool: () => ({ execute() {} }),
   getSettingsListTheme: () => ({}),
@@ -715,6 +725,47 @@ test("Pi permission prompt shows the full command unless disabled", async () => 
       expect(calls[0]!.message).toBe("The configured policy could not fully authorize this command. Allow it once?");
     }
   }
+});
+
+test("Pi root forwards nested permission prompts through its inherited socket", async () => {
+  const { createPiExtension } = await import("../adapters/pi.ts");
+  const handlers = new Map<string, Function>();
+  const prompts: Array<{ title: string; message: string }> = [];
+  createPiExtension(
+    {
+      on: (name: string, handler: Function) => handlers.set(name, handler),
+      registerTool() {},
+      registerCommand() {},
+      appendEntry() {},
+    } as never,
+    { runtime: Promise.resolve(runtime) },
+  );
+  await handlers.get("session_start")!(
+    {},
+    {
+      cwd: "/workspace",
+      hasUI: true,
+      signal: undefined,
+      model: undefined,
+      modelRegistry: { getAvailable: () => [], getAll: () => [] },
+      sessionManager: { getBranch: () => [] },
+      ui: {
+        notify() {},
+        confirm: async (title: string, message: string) => {
+          prompts.push({ title, message });
+          return true;
+        },
+      },
+    },
+  );
+  expect(process.env.SAFETY_CORE_PROMPT_SOCKET).toEqual(expect.any(String));
+  await expect(
+    forwardPermissionPrompt(
+      { title: "Nested permission", message: "nested OpenCode command" },
+      { environment: { SAFETY_CORE_PROMPT_SOCKET: process.env.SAFETY_CORE_PROMPT_SOCKET! } },
+    ),
+  ).resolves.toBe(true);
+  expect(prompts).toEqual([{ title: "Nested permission", message: "nested OpenCode command" }]);
 });
 
 test("property: Pi prompt embeds the exact command only when display is enabled", async () => {

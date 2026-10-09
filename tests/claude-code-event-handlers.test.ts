@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createPermissionPromptServer } from "../src/index.ts";
 
 function runHook(path: string, input: unknown, env: NodeJS.ProcessEnv = process.env) {
   return spawnSync(process.execPath, [path], {
@@ -10,6 +11,23 @@ function runHook(path: string, input: unknown, env: NodeJS.ProcessEnv = process.
     input: JSON.stringify(input),
     encoding: "utf8",
     env,
+  });
+}
+
+function runHookAsync(
+  path: string,
+  input: unknown,
+  env: NodeJS.ProcessEnv,
+): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [path], { cwd: process.cwd(), env });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.once("error", reject);
+    child.once("close", (status) => resolve({ status, stdout, stderr }));
+    child.stdin.end(JSON.stringify(input));
   });
 }
 
@@ -121,6 +139,60 @@ test("Claude SessionStart creates the immutable policy manifest before Bash call
     expect(establishedPreToolUse.status).toBe(0);
     expect(establishedPreToolUse.stdout).toBe("");
   } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
+
+test("Claude forwards deferred nested Bash permissions to the Pi root socket", async () => {
+  const root = mkdtempSync(join(tmpdir(), "safety-core-claude-prompt-forward-"));
+  const home = join(root, "home");
+  const state = join(root, "state");
+  const prompts: string[] = [];
+  const server = await createPermissionPromptServer(async (request) => {
+    prompts.push(request.message);
+    return true;
+  });
+  const env = {
+    ...process.env,
+    HOME: home,
+    SAFETY_CORE_CONFIG_HOME: home,
+    SAFETY_CORE_STATE_HOME: state,
+    SAFETY_CORE_PROMPT_SOCKET: server.path,
+    SAFETY_CORE_PROMPT_ROOT_PID: "root-pi-process",
+  };
+  try {
+    mkdirSync(join(home, "safety-core"), { recursive: true });
+    writeFileSync(
+      join(home, "safety-core", "config.json"),
+      JSON.stringify({
+        version: 1,
+        policies: [],
+        projectPolicies: { mode: "disabled" },
+        bashAnalysis: { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 },
+      }),
+    );
+    const session = await runHookAsync(
+      "adapters/claude-code/bash_policy.ts",
+      { hook_event_name: "SessionStart", session_id: "nested-prompt", cwd: root },
+      env,
+    );
+    expect(session.status).toBe(0);
+    const preToolUse = await runHookAsync(
+      "adapters/claude-code/bash_policy.ts",
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "uncovered-nested-command" },
+        session_id: "nested-prompt",
+        cwd: root,
+      },
+      env,
+    );
+    expect(preToolUse.status).toBe(0);
+    expect(preToolUse.stdout).toContain('"permissionDecision":"allow"');
+    expect(prompts).toEqual([expect.stringContaining("uncovered-nested-command")]);
+  } finally {
+    await server.close();
     rmSync(root, { force: true, recursive: true });
   }
 });
