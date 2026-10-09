@@ -43,12 +43,14 @@ let
     version = "0.0.0";
     src = ./nix/npm-deps;
     nodejs = nodejs_22;
-    npmDepsHash = "sha256-o2l5jiVlRsmmDxE/5/buiK1rcZALYIJojBDIlrne1KQ=";
+    npmDepsHash = "sha256-35Nz4ShZeD/WIQecEHcBMBdLbhh+M7/oZ0bNgc0H2TU=";
     dontNpmBuild = true;
     # tree-sitter-bash ships native-binding install scripts we don't need.
     npmFlags = [ "--ignore-scripts" ];
     installPhase = ''
       mkdir -p $out/node_modules
+      mkdir -p $out/node_modules/@bufbuild
+      cp -r node_modules/@bufbuild/protobuf $out/node_modules/@bufbuild/
       cp -r node_modules/commander $out/node_modules/
       cp -r node_modules/web-tree-sitter $out/node_modules/
       cp -r node_modules/tree-sitter-bash $out/node_modules/
@@ -69,6 +71,8 @@ let
     dontUnpack = true;
     installPhase = ''
       mkdir -p $out/node_modules
+      mkdir -p $out/node_modules/@bufbuild
+      cp -r ${nodeModules}/node_modules/@bufbuild/protobuf $out/node_modules/@bufbuild/
       cp -r ${nodeModules}/node_modules/web-tree-sitter $out/node_modules/
       cp ${patchedGrammar}/tree-sitter-bash.wasm $out/tree-sitter-bash.wasm
     '';
@@ -91,7 +95,7 @@ let
       chmod -R u+w $out/node_modules
       cp -r ${nodeModules}/node_modules/commander $out/node_modules/
       cp ${wasmAssets}/tree-sitter-bash.wasm $out/tree-sitter-bash.wasm
-      esbuild --bundle --platform=node --format=esm --target=node20 --external:web-tree-sitter --outfile="$out/bin/safety-core" --banner:js='#!${nodejs_22}/bin/node' "$out/src/cli.ts"
+      esbuild --bundle --platform=node --format=esm --target=node20 --external:web-tree-sitter --external:@bufbuild/protobuf --outfile="$out/bin/safety-core" --banner:js='#!${nodejs_22}/bin/node' "$out/src/cli.ts"
       chmod -R u+w $out/node_modules/commander
       rm -rf $out/node_modules/commander
       chmod +x $out/bin/safety-core
@@ -250,6 +254,7 @@ in
           --format=esm \
           --target=node20 \
            --external:web-tree-sitter \
+           --external:@bufbuild/protobuf \
            --alias:@safety-core/core=./src/index.ts \
           --outfile="$out/$name.mjs" \
           --banner:js='#!${nodejs_22}/bin/node' \

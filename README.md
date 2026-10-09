@@ -125,7 +125,10 @@ When Pi starts as the root harness, it creates a private Unix-domain prompt
 socket and exports its location as `SAFETY_CORE_PROMPT_SOCKET`. Nested Pi,
 OpenCode, and Claude Code processes inherit that variable. Their policy-deferred
 Bash prompts are shown in the root Pi TUI; if the root endpoint is unavailable,
-the nested harness keeps its native permission behavior.
+the nested harness keeps its native permission behavior. The socket uses a
+4-byte big-endian frame length, a protobuf version handshake, and versioned
+protobuf request/response messages. Regenerate its checked-in TypeScript
+schemas with `bun run generate:prompt-proto` from the Nix development shell.
 
 See [policy authoring](./docs/policy-authoring.md),
 [read-only profiles](./docs/read-only-command-profiles.md), and

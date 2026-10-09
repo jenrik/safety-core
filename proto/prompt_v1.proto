@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package safety_core.prompt.v1;
+
+message PermissionPromptRequest {
+  string id = 1;
+  string title = 2;
+  string message = 3;
+}
+
+message PermissionPromptResponse {
+  string id = 1;
+  bool approved = 2;
+}

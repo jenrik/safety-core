@@ -298,6 +298,7 @@
             packages = [
               pkgs.bun
               pkgs.nodejs_22
+              pkgs.protobuf
               pkgs.typescript
               pkgs.python3
               pkgs.pre-commit

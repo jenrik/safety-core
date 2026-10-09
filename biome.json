@@ -19,6 +19,7 @@
       "!!packages/*/node_modules",
       "!!packages/pi/extensions/extension.js",
       "!!packages/core/tree-sitter-bash.wasm",
+      "!!src/prompt/gen",
       "!!policies/dsl/**/*.policy.json",
       "!!notebooks"
     ]

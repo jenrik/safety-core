@@ -1,16 +1,22 @@
 import { randomUUID } from "node:crypto";
 import { chmodSync, mkdtempSync, rmSync, unlinkSync } from "node:fs";
-import { createServer, Socket } from "node:net";
+import { createConnection, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
+import { ClientHelloSchema, ServerHello_Failure, ServerHelloSchema } from "./prompt/gen/prompt_handshake_pb.js";
+import { PermissionPromptRequestSchema, PermissionPromptResponseSchema } from "./prompt/gen/prompt_v1_pb.js";
 
 /** Environment variable inherited by nested harness processes. */
 export const SAFETY_CORE_PROMPT_SOCKET = "SAFETY_CORE_PROMPT_SOCKET";
 /** Internal marker preventing the root process from connecting to itself. */
 export const SAFETY_CORE_PROMPT_ROOT_PID = "SAFETY_CORE_PROMPT_ROOT_PID";
 
-const PROTOCOL_VERSION = 1;
+const VERSION = 1;
+const PROTOCOL_ID = "safety-core-prompt";
+const MAX_HANDSHAKE_BYTES = 4 * 1024;
 const MAX_MESSAGE_BYTES = 64 * 1024;
+const MAX_BUFFERED_BYTES = MAX_HANDSHAKE_BYTES + MAX_MESSAGE_BYTES + 8;
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1_000;
 
 export interface PermissionPromptRequest {
@@ -115,33 +121,44 @@ export function forwardPermissionPrompt(
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) return Promise.resolve(false);
 
   return new Promise<boolean | undefined>((resolve) => {
-    const id = randomUUID();
-    const socket = new Socket();
+    const socket = createConnection({ path: socketPath });
+    const reader = new FrameReader(socket);
+    const deadline = setTimeout(() => finish(undefined), timeoutMs);
     let settled = false;
-    let received = "";
     const finish = (result: boolean | undefined) => {
       if (settled) return;
       settled = true;
+      clearTimeout(deadline);
       socket.destroy();
       options.signal?.removeEventListener("abort", abort);
       resolve(result);
     };
     const abort = () => finish(false);
+    socket.on("error", () => {});
     options.signal?.addEventListener("abort", abort, { once: true });
-    socket.setTimeout(timeoutMs, () => finish(undefined));
-    socket.once("error", () => finish(undefined));
-    socket.on("data", (chunk: Buffer) => {
-      received += chunk.toString("utf8");
-      if (Buffer.byteLength(received) > MAX_MESSAGE_BYTES) return finish(undefined);
-      const newline = received.indexOf("\n");
-      if (newline === -1) return;
-      const response = parseResponse(received.slice(0, newline));
-      finish(response?.id === id ? response.approved : undefined);
-    });
-    socket.once("end", () => finish(undefined));
-    socket.connect(socketPath, () => {
-      socket.write(`${JSON.stringify({ version: PROTOCOL_VERSION, type: "permission-request", id, ...request })}\n`);
-    });
+    void (async () => {
+      try {
+        await waitForConnection(socket);
+        socket.write(frame(toBinary(ClientHelloSchema, create(ClientHelloSchema, handshakeRequest()))));
+        const hello = fromBinary(ServerHelloSchema, await reader.read(MAX_HANDSHAKE_BYTES));
+        if (hello.selectedVersion !== VERSION || hello.failure !== ServerHello_Failure.FAILURE_UNSPECIFIED) {
+          return finish(undefined);
+        }
+        const id = randomUUID();
+        socket.write(
+          frame(
+            toBinary(
+              PermissionPromptRequestSchema,
+              create(PermissionPromptRequestSchema, { id, title: request.title, message: request.message }),
+            ),
+          ),
+        );
+        const response = fromBinary(PermissionPromptResponseSchema, await reader.read(MAX_MESSAGE_BYTES));
+        finish(response.id === id ? response.approved : undefined);
+      } catch {
+        finish(undefined);
+      }
+    })();
   });
 }
 
@@ -149,62 +166,91 @@ async function respondToPrompt(
   socket: Socket,
   prompt: (request: PermissionPromptRequest) => Promise<boolean>,
 ): Promise<void> {
-  let received = "";
   socket.on("error", () => {});
-  socket.on("data", async (chunk: Buffer) => {
-    received += chunk.toString("utf8");
-    if (Buffer.byteLength(received) > MAX_MESSAGE_BYTES) return socket.destroy();
-    const newline = received.indexOf("\n");
-    if (newline === -1) return;
-    socket.pause();
-    const request = parseRequest(received.slice(0, newline));
-    const approved = request === undefined ? false : await prompt({ title: request.title, message: request.message });
-    if (!socket.destroyed)
-      socket.end(
-        `${JSON.stringify({ version: PROTOCOL_VERSION, type: "permission-response", id: request?.id ?? "", approved })}\n`,
-      );
+  socket.setTimeout(DEFAULT_TIMEOUT_MS, () => socket.destroy());
+  try {
+    const reader = new FrameReader(socket);
+    const hello = fromBinary(ClientHelloSchema, await reader.read(MAX_HANDSHAKE_BYTES));
+    const negotiated = hello.protocolId === PROTOCOL_ID && hello.supportedVersions.includes(VERSION);
+    socket.write(
+      frame(
+        toBinary(
+          ServerHelloSchema,
+          create(ServerHelloSchema, {
+            selectedVersion: negotiated ? VERSION : 0,
+            failure: negotiated ? ServerHello_Failure.FAILURE_UNSPECIFIED : ServerHello_Failure.NO_COMMON_VERSION,
+          }),
+        ),
+      ),
+    );
+    if (!negotiated) {
+      socket.end();
+      return;
+    }
+    const request = fromBinary(PermissionPromptRequestSchema, await reader.read(MAX_MESSAGE_BYTES));
+    if (!isPromptRequest(request) || request.id.length === 0) {
+      socket.destroy();
+      return;
+    }
+    const approved = await prompt({ title: request.title, message: request.message });
+    socket.end(
+      frame(
+        toBinary(PermissionPromptResponseSchema, create(PermissionPromptResponseSchema, { id: request.id, approved })),
+      ),
+    );
+  } catch {
+    socket.destroy();
+  }
+}
+
+function handshakeRequest(): { protocolId: string; supportedVersions: number[] } {
+  return { protocolId: PROTOCOL_ID, supportedVersions: [VERSION] };
+}
+
+function frame(bytes: Uint8Array): Buffer {
+  const header = Buffer.alloc(4);
+  header.writeUInt32BE(bytes.byteLength);
+  return Buffer.concat([header, bytes]);
+}
+
+function isPromptRequest(value: PermissionPromptRequest): boolean {
+  return (
+    typeof value.title === "string" &&
+    typeof value.message === "string" &&
+    Buffer.byteLength(value.title) + Buffer.byteLength(value.message) <= MAX_MESSAGE_BYTES
+  );
+}
+
+function waitForConnection(socket: Socket): Promise<void> {
+  return new Promise((resolve, reject) => {
+    socket.once("connect", resolve);
+    socket.once("error", reject);
   });
 }
 
-function parseRequest(value: string): ({ readonly id: string } & PermissionPromptRequest) | undefined {
-  try {
-    const parsed = JSON.parse(value) as Record<string, unknown>;
-    if (
-      parsed.version !== PROTOCOL_VERSION ||
-      parsed.type !== "permission-request" ||
-      typeof parsed.id !== "string" ||
-      parsed.id.length === 0 ||
-      !isPromptRequest(parsed)
-    )
-      return undefined;
-    return { id: parsed.id, title: parsed.title, message: parsed.message };
-  } catch {
-    return undefined;
-  }
-}
+/** Read fixed-size-prefixed protobuf messages without assuming socket chunk boundaries. */
+class FrameReader {
+  private readonly chunks: AsyncIterator<Buffer>;
+  private pending = Buffer.alloc(0);
 
-function parseResponse(value: string): { readonly id: string; readonly approved: boolean } | undefined {
-  try {
-    const parsed = JSON.parse(value) as Record<string, unknown>;
-    if (
-      parsed.version !== PROTOCOL_VERSION ||
-      parsed.type !== "permission-response" ||
-      typeof parsed.id !== "string" ||
-      typeof parsed.approved !== "boolean"
-    )
-      return undefined;
-    return { id: parsed.id, approved: parsed.approved };
-  } catch {
-    return undefined;
+  constructor(socket: Socket) {
+    this.chunks = socket[Symbol.asyncIterator]();
   }
-}
 
-function isPromptRequest(value: unknown): value is PermissionPromptRequest {
-  if (typeof value !== "object" || value === null) return false;
-  const request = value as Record<string, unknown>;
-  return (
-    typeof request.title === "string" &&
-    typeof request.message === "string" &&
-    Buffer.byteLength(request.title) + Buffer.byteLength(request.message) <= MAX_MESSAGE_BYTES
-  );
+  async read(limit: number): Promise<Buffer> {
+    while (this.pending.length < 4) await this.readChunk();
+    const length = this.pending.readUInt32BE(0);
+    if (length > limit) throw new Error("prompt message exceeds its protocol limit");
+    while (this.pending.length < length + 4) await this.readChunk();
+    const body = this.pending.subarray(4, length + 4);
+    this.pending = this.pending.subarray(length + 4);
+    return body;
+  }
+
+  private async readChunk(): Promise<void> {
+    const chunk = await this.chunks.next();
+    if (chunk.done) throw new Error("prompt socket closed before a complete message arrived");
+    this.pending = Buffer.concat([this.pending, Buffer.from(chunk.value)]);
+    if (this.pending.length > MAX_BUFFERED_BYTES) throw new Error("prompt socket buffer limit exceeded");
+  }
 }

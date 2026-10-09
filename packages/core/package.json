@@ -22,6 +22,7 @@
     "prepack": "bun ../../scripts/build-native-node-packages.ts"
   },
   "dependencies": {
+    "@bufbuild/protobuf": "2.16.0",
     "commander": "15.0.0",
     "web-tree-sitter": "0.26.11"
   }
