@@ -13,6 +13,19 @@
       ];
       pkgsFor = system: nixpkgs.legacyPackages.${system};
       scFor = system: (pkgsFor system).callPackage ./package.nix { };
+      mkDevelopmentCli =
+        pkgs:
+        pkgs.writeShellApplication {
+          name = "safety-core";
+          runtimeInputs = [ pkgs.bun ];
+          text = ''
+            if [ -z "''${SAFETY_CORE_DEV_ROOT:-}" ]; then
+              echo "SAFETY_CORE_DEV_ROOT must point to the safety-core checkout" >&2
+              exit 1
+            fi
+            exec bun "$SAFETY_CORE_DEV_ROOT/src/cli.ts" "$@"
+          '';
+        };
     in
     {
       packages = forAllSystems (
@@ -210,6 +223,21 @@
               | SAFETY_CORE_CONFIG_HOME="$PWD/config" SAFETY_CORE_STATE_HOME="$PWD/state" ${sc.claudeCodeHooks}/bash_policy.mjs)"
             touch $out
           '';
+          devshell-cli =
+            let
+              developmentCli = mkDevelopmentCli pkgs;
+            in
+            pkgs.runCommand "safety-core-devshell-cli-check" { } ''
+              set -e
+              mkdir -p source/src
+              printf '%s\n' 'console.log("first " + process.argv.slice(2).join(" "))' > source/src/cli.ts
+              SAFETY_CORE_DEV_ROOT="$PWD/source" ${developmentCli}/bin/safety-core argument > first
+              grep -Fx 'first argument' first
+              printf '%s\n' 'console.log("latest " + process.argv.slice(2).join(" "))' > source/src/cli.ts
+              SAFETY_CORE_DEV_ROOT="$PWD/source" ${developmentCli}/bin/safety-core argument > latest
+              grep -Fx 'latest argument' latest
+              touch $out
+            '';
           home-manager-config =
             let
               actualJson = pkgs.writeText "safety-core-home-manager-actual.json" (
@@ -291,7 +319,6 @@
         system:
         let
           pkgs = pkgsFor system;
-          sc = scFor system;
         in
         {
           default = pkgs.mkShell {
@@ -306,9 +333,10 @@
               pkgs.nixfmt
               pkgs.markdownlint-cli
               pkgs.ruff
-              sc.core
+              (mkDevelopmentCli pkgs)
             ];
             shellHook = ''
+              export SAFETY_CORE_DEV_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
               if [ -d .git ] && command -v pre-commit >/dev/null 2>&1; then
                 pre-commit install >/dev/null
               fi
