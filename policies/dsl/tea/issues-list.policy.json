@@ -1,0 +1,204 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "permission",
+  "select": [{ "executable": { "projection": "basename", "equals": "tea" } }],
+  "registers": {},
+  "folds": {},
+  "options": {
+    "login": {
+      "names": ["--login", "-l"],
+      "value": "required",
+      "forms": ["separate", "equalsLong"],
+      "availableIn": ["issues", "route"],
+      "set": {}
+    },
+    "repo": {
+      "names": ["--repo", "-r"],
+      "value": "required",
+      "forms": ["separate", "equalsLong"],
+      "availableIn": ["issues", "route"],
+      "set": {}
+    },
+    "remote": {
+      "names": ["--remote", "-R"],
+      "value": "required",
+      "forms": ["separate", "equalsLong"],
+      "availableIn": ["issues", "route"],
+      "set": {}
+    },
+    "output": {
+      "names": ["--output", "-o"],
+      "value": "required",
+      "forms": ["separate", "equalsLong"],
+      "availableIn": ["issues", "route"],
+      "set": {}
+    },
+    "comments": {
+      "names": ["--comments"],
+      "value": "optional",
+      "forms": ["equalsLong"],
+      "availableIn": ["issues", "route"],
+      "set": {}
+    },
+    "fields": {
+      "names": ["--fields", "-f"],
+      "value": "required",
+      "forms": ["separate", "equalsLong"],
+      "availableIn": ["issues", "route"],
+      "set": {}
+    },
+    "state": {
+      "names": ["--state"],
+      "value": "required",
+      "forms": ["separate", "equalsLong"],
+      "availableIn": ["issues", "route"],
+      "set": {}
+    },
+    "kind": {
+      "names": ["--kind", "-K"],
+      "value": "required",
+      "forms": ["separate", "equalsLong"],
+      "availableIn": ["issues", "route"],
+      "set": {}
+    },
+    "keyword": {
+      "names": ["--keyword", "-k"],
+      "value": "required",
+      "forms": ["separate", "equalsLong"],
+      "availableIn": ["issues", "route"],
+      "set": {}
+    },
+    "labels": {
+      "names": ["--labels", "-L"],
+      "value": "required",
+      "forms": ["separate", "equalsLong"],
+      "availableIn": ["issues", "route"],
+      "set": {}
+    },
+    "milestones": {
+      "names": ["--milestones", "-m"],
+      "value": "required",
+      "forms": ["separate", "equalsLong"],
+      "availableIn": ["issues", "route"],
+      "set": {}
+    },
+    "author": {
+      "names": ["--author", "-A"],
+      "value": "required",
+      "forms": ["separate", "equalsLong"],
+      "availableIn": ["issues", "route"],
+      "set": {}
+    },
+    "assignee": {
+      "names": ["--assignee", "-a"],
+      "value": "required",
+      "forms": ["separate", "equalsLong"],
+      "availableIn": ["issues", "route"],
+      "set": {}
+    },
+    "mentions": {
+      "names": ["--mentions", "-M"],
+      "value": "required",
+      "forms": ["separate", "equalsLong"],
+      "availableIn": ["issues", "route"],
+      "set": {}
+    },
+    "owner": {
+      "names": ["--owner", "--org"],
+      "value": "required",
+      "forms": ["separate", "equalsLong"],
+      "availableIn": ["issues", "route"],
+      "set": {}
+    },
+    "from": {
+      "names": ["--from", "-F"],
+      "value": "required",
+      "forms": ["separate", "equalsLong"],
+      "availableIn": ["issues", "route"],
+      "set": {}
+    },
+    "until": {
+      "names": ["--until", "-u"],
+      "value": "required",
+      "forms": ["separate", "equalsLong"],
+      "availableIn": ["issues", "route"],
+      "set": {}
+    },
+    "page": {
+      "names": ["--page", "-p"],
+      "value": "required",
+      "forms": ["separate", "equalsLong"],
+      "availableIn": ["issues", "route"],
+      "set": {}
+    },
+    "limit": {
+      "names": ["--limit", "--lm", "-lm"],
+      "value": "required",
+      "forms": ["separate", "equalsLong"],
+      "availableIn": ["issues", "route"],
+      "set": {}
+    }
+  },
+  "fragments": {
+    "allow": {
+      "cases": [
+        {
+          "when": {
+            "all": [
+              { "call": "atEndOfArguments", "args": [] },
+              { "call": "executionTargetIs", "args": ["external-path"] },
+              { "call": "isDirectExecutable", "args": ["tea"] },
+              { "not": { "call": "hasAnyAssignment", "args": [] } },
+              { "not": { "call": "hasRedirect", "args": [] } },
+              {
+                "not": {
+                  "call": "hasInheritedExecutableFunction",
+                  "args": ["tea"]
+                }
+              }
+            ]
+          },
+          "action": {
+            "decision": "allow",
+            "reason": ["tea issues list is read-only"]
+          }
+        }
+      ]
+    }
+  },
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [
+        {
+          "when": {
+            "call": "inStringSet",
+            "args": [{ "ref": "word" }, ["issues", "issue", "i"]]
+          },
+          "action": { "consume": "word", "next": "issues" }
+        }
+      ],
+      "default": { "decision": "defer" },
+      "end": { "decision": "defer" }
+    },
+    "issues": {
+      "cases": [
+        {
+          "when": {
+            "call": "inStringSet",
+            "args": [{ "ref": "word" }, ["list", "ls"]]
+          },
+          "action": { "consume": "word", "next": "route" }
+        }
+      ],
+      "default": { "decision": "defer" },
+      "end": { "decision": "defer" }
+    },
+    "route": {
+      "fragments": ["allow"],
+      "cases": [],
+      "default": { "decision": "defer" },
+      "end": { "decision": "defer" }
+    }
+  }
+}

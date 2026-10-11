@@ -1,0 +1,20 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "permission",
+  "select": [{ "executable": { "projection": "basename", "equals": "tea" } }],
+  "registers": {}, "folds": {},
+  "options": {
+    "login": { "names": ["--login", "-l"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["times"], "set": {} },
+    "repo": { "names": ["--repo", "-r"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["times"], "set": {} },
+    "remote": { "names": ["--remote", "-R"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["times"], "set": {} },
+    "output": { "names": ["--output", "-o"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["times"], "set": {} }
+  },
+  "fragments": {
+    "allowAtEnd": { "cases": [{ "when": { "all": [{ "call": "atEndOfArguments", "args": [] }, {"call":"executionTargetIs","args":["external-path"]},{ "call": "isDirectExecutable", "args": ["tea"] }, { "not": { "call": "hasAnyAssignment", "args": [] } }, { "not": { "call": "hasRedirect", "args": [] } }, { "not": { "call": "hasInheritedExecutableFunction", "args": ["tea"] } }] }, "action": { "decision": "allow", "reason": ["tea times default listing auto-allowed by the read-only route profile"], "audit": { "invocation": { "ref": "event" } } } }] }
+  },
+  "start": "start",
+  "states": {
+    "start": { "cases": [{ "when": { "not": { "all": [{ "call": "executionTargetIs", "args": ["external-path"] }, { "call": "isDirectExecutable", "args": ["tea"] }] } }, "action": { "decision": "defer" } }, { "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["times", "time", "t"]] }, "action": { "consume": "word", "next": "times" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "times": { "fragments": ["allowAtEnd"], "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["add", "a", "delete", "rm", "reset", "list", "ls"]] }, "action": { "decision": "defer" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } }
+  }
+}

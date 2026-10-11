@@ -84,6 +84,12 @@ positions without treating unknown flags as harmless. An accepted grammar
 should use `atEndOfArguments()` before allowing it; unconsumed words then defer
 instead of accidentally matching a prefix.
 
+The engine already distinguishes the separate form (`--option value`) from the
+equals-long form (`--option=value`): `separate` matches only the following-word
+shape and `equalsLong` matches only the `--option=value` shape. Declare each
+form the tool actually accepts rather than assuming one implies the other; an
+undeclared form defers instead of being inferred.
+
 For an endpoint grammar in v2, use `atEndOfWord()` before consuming the
 inspected argument when its entire spelling matters. `restOfWord` deliberately
 discards an unchecked suffix; use it only when the remaining characters truly
@@ -98,6 +104,20 @@ shape. Captures are a deliberately narrow diagnostic-template prototype, not a
 general templating language: no loops, recursion, includes, macros, dynamic
 lookup, user functions, ambient access, or collection traversal. They must be
 redesigned or explicitly expanded before accepting broader template features.
+
+## Policy tests
+
+Each declarative policy should have a co-located `<policy_name>.test.ts` suite
+that exercises its `permit`, `defer`, and `deny` outcomes with unit tests and
+repeated property cases. Build it with the `policyTestForFile` helper so plain
+`bun test` discovery loads the policy beside the suite.
+
+Run one suite with exactly its paired policy enabled using
+`safety-core test <path>`. The requested path may be the `.test.ts` suite itself
+or its colocated `.json`/`.mjs` policy source or `.scope.md` document; naming a
+policy or scope document emits a warning that identifies the suite it runs. The
+`test` command resolves the suite and policy and passes them to the same
+`policyTestForFile` helper through the preload environment.
 
 ## Why DCRM terminates
 

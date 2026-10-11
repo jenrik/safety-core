@@ -1,0 +1,23 @@
+{
+  "language": "safety-core/bash-policy-v1", "layer": "permission", "select": [{ "executable": { "projection": "basename", "equals": "tea" } }], "registers": {}, "folds": {},
+  "options": {
+    "watched": { "names": ["--watched"], "value": "absent", "forms": [], "availableIn": ["repos", "route", "terms"], "set": {} },
+    "starred": { "names": ["--starred"], "value": "absent", "forms": [], "availableIn": ["repos", "route", "terms"], "set": {} },
+    "type": { "names": ["--type", "-T"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "route", "terms"], "set": {} },
+    "owner": { "names": ["--owner", "-O"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "route", "terms"], "set": {} },
+    "private": { "names": ["--private"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["route", "terms"], "set": {} },
+    "archived": { "names": ["--archived"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["route", "terms"], "set": {} },
+    "fields": { "names": ["--fields", "-f"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "route", "terms"], "set": {} },
+    "page": { "names": ["--page", "-p"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "route", "terms"], "set": {} },
+    "limit": { "names": ["--limit", "--lm", "-lm"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "route", "terms"], "set": {} },
+    "login": { "names": ["--login", "-l"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "route", "terms"], "set": {} },
+    "output": { "names": ["--output", "-o"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "route", "terms"], "set": {} }
+  },
+  "fragments": { "allow": { "cases": [{ "when": { "all": [{ "call": "atEndOfArguments", "args": [] }, { "call": "executionTargetIs", "args": ["external-path"] }, { "call": "isDirectExecutable", "args": ["tea"] }, { "not": { "call": "hasAnyAssignment", "args": [] } }, { "not": { "call": "hasRedirect", "args": [] } }, { "not": { "call": "hasInheritedExecutableFunction", "args": ["tea"] } }] }, "action": { "decision": "allow", "reason": ["tea repos search is read-only"] } }] } },
+  "start": "start", "states": {
+    "start": { "cases": [{ "when": { "not": { "all": [{ "call": "executionTargetIs", "args": ["external-path"] }, { "call": "isDirectExecutable", "args": ["tea"] }] } }, "action": { "decision": "defer" } }, { "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["repos", "repo"]] }, "action": { "consume": "word", "next": "repos" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "repos": { "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["-w", "-s"]] }, "action": { "consume": "word", "next": "repos" } }, { "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["search", "s"]] }, "action": { "consume": "word", "next": "route" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "route": { "fragments": ["allow"], "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["-w", "-s", "--topic", "-t"]] }, "action": { "consume": "word", "next": "route" } }, { "when": { "not": { "call": "startsWith", "args": [{ "ref": "word" }, "-"] } }, "action": { "consume": "word", "next": "terms" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "terms": { "fragments": ["allow"], "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["-w", "-s", "--topic", "-t"]] }, "action": { "consume": "word", "next": "terms" } }, { "when": { "not": { "call": "startsWith", "args": [{ "ref": "word" }, "-"] } }, "action": { "consume": "word", "next": "terms" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } }
+  }
+}

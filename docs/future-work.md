@@ -52,19 +52,17 @@ pre-commit `bun run test` hook runs that file. The remaining gap is fragility,
 not absent coverage: a newly added project-local suite silently receives no
 execution unless a human also adds it to the integration import list.
 
-A second limitation is the direct runner. `safety-core test <policy>.test.ts`
-resolves the policy under test as a sibling `<stem>.json` or `<stem>.mjs`, so it
-rejects the `<stem>.policy.json` naming that every checked-in global policy uses
-(and that the project-local policies use too). Running it against a colocated
-suite fails with "cannot find policy under test".
+The direct runner previously rejected the `<stem>.policy.json` naming used by
+every checked-in global policy and by project-local policies. It now accepts a
+`.test.ts` suite, a `.json`/`.mjs` policy source, or a `.scope.md` document as
+the requested path, resolving the single colocated suite and policy; naming a
+policy or scope document also warns which suite it runs. That limitation is
+resolved.
 
 Add a pre-commit hook check that discovers and runs each project-local
 `<policy_name>.test.ts` explicitly (and `safety-core policy validate` for each
 project-local policy), so a policy edit cannot pass the hook with its colocated
 suite unexecuted and without relying on a manually maintained import list.
-Consider teaching the `safety-core test` runner the `<stem>.policy.json` naming
-as part of the same change, since that is the extension the checked-in sources
-already use.
 
 ## Relative-PATH command resolution after a directory change
 
@@ -97,3 +95,18 @@ directory model that distinguishes the cwd used for command resolution/identity
 from the unproved cwd used for relative file access, so both stay sound at once.
 Cover `PATH` known-absolute, known-relative, empty, and unknown, plus
 `CDPATH`/`HOME` interactions, with unit and property tests before relying on it.
+
+## Lint: a policy that can only ever defer
+
+A permission policy that can never produce an `allow` or a `deny` decision over
+its reachable states adds no authorization value: every selected event still
+reaches the operator prompt, so the policy only adds classification cost. The
+`safety-core` linting path should reject such a policy and report the violation
+the way other validation errors are reported, including a policy with no
+reachable `allow`/`deny` terminal at all.
+
+Before enabling the lint, resolve the intent for the existing defer-only
+permission policies (for example `github/gh-read-only.policy.json`, described in
+`policies/dsl/SCOPE.md`, and the `tea/open` scope whose `permit` set is empty):
+convert them to guards, give them at least one explicit `allow`/`deny`, or
+record an explicit, justified exemption in the lint.

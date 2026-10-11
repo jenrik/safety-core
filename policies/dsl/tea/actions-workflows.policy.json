@@ -1,0 +1,20 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "permission",
+  "select": [{ "executable": { "projection": "basename", "equals": "tea" } }],
+  "registers": {}, "folds": {},
+  "options": {
+    "login": { "names": ["--login"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["actions", "workflows"], "set": {} },
+    "repo": { "names": ["--repo"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["actions", "workflows"], "set": {} },
+    "output": { "names": ["--output", "-o"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["actions", "workflows"], "set": {} }
+  },
+  "fragments": {
+    "allowAtEnd": { "cases": [{ "when": { "all": [{ "call": "atEndOfArguments", "args": [] }, {"call":"executionTargetIs","args":["external-path"]},{ "call": "isDirectExecutable", "args": ["tea"] }, { "not": { "call": "hasAnyAssignment", "args": [] } }, { "not": { "call": "hasRedirect", "args": [] } }, { "not": { "call": "hasInheritedExecutableFunction", "args": ["tea"] } }] }, "action": { "decision": "allow", "reason": ["tea actions workflows default listing auto-allowed by the read-only route profile"], "audit": { "invocation": { "ref": "event" } } } }] }
+  },
+  "start": "start",
+  "states": {
+    "start": { "cases": [{ "when": { "not": { "all": [{ "call": "executionTargetIs", "args": ["external-path"] }, { "call": "isDirectExecutable", "args": ["tea"] }] } }, "action": { "decision": "defer" } }, { "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["actions", "action"]] }, "action": { "consume": "word", "next": "actions" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "actions": { "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["workflows", "workflow"]] }, "action": { "consume": "word", "next": "workflows" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "workflows": { "fragments": ["allowAtEnd"], "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["list", "ls", "view", "show", "get", "dispatch", "trigger", "run", "enable", "disable"]] }, "action": { "decision": "defer" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } }
+  }
+}

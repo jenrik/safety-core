@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "policies": [
+    "actions.policy.json", "actions-secrets.policy.json", "actions-secrets-list.policy.json", "actions-variables.policy.json", "actions-variables-list.policy.json", "actions-runs.policy.json", "actions-runs-list.policy.json", "actions-runs-view.policy.json", "actions-runs-logs.policy.json", "actions-workflows.policy.json", "actions-workflows-list.policy.json", "actions-workflows-view.policy.json",
+    "admin.policy.json", "admin-users.policy.json", "admin-users-list.policy.json", "branches.policy.json", "branches-list.policy.json", "comments-list.policy.json",
+    "completion.policy.json", "completion-bash.policy.json", "completion-zsh.policy.json", "completion-fish.policy.json", "completion-pwsh.policy.json",
+    "help.policy.json", "issues.policy.json", "issues-list.policy.json", "labels.policy.json", "labels-list.policy.json",
+    "logins.policy.json", "logins-list.policy.json", "logins-default.policy.json", "logins-helper.policy.json", "logins-helper-store.policy.json", "logins-helper-get.policy.json", "logins-status.policy.json",
+    "man.policy.json", "milestones.policy.json", "milestones-list.policy.json", "milestones-issues.policy.json", "notifications.policy.json", "notifications-ls.policy.json", "open.policy.json",
+    "organizations.policy.json", "organizations-list.policy.json", "pulls.policy.json", "pulls-list.policy.json", "pulls-review-comments.policy.json",
+    "releases.policy.json", "releases-list.policy.json", "releases-assets.policy.json", "releases-assets-list.policy.json", "repos.policy.json", "repos-list.policy.json", "repos-search.policy.json",
+    "ssh-keys.policy.json", "ssh-keys-list.policy.json", "times.policy.json", "times-list.policy.json", "webhooks.policy.json", "webhooks-list.policy.json", "whoami.policy.json",
+    "wiki.policy.json", "wiki-list.policy.json", "wiki-view.policy.json", "wiki-revisions.policy.json"
+  ],
+  "projectPolicies": { "mode": "disabled" },
+  "bashAnalysis": {
+    "maxFunctionDepth": 128,
+    "maxNestedScriptDepth": 64,
+    "maxSteps": 7500,
+    "maxWorkItems": 10000
+  },
+  "pi": { "autoApprove": false }
+}
