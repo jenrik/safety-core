@@ -84,6 +84,12 @@ positions without treating unknown flags as harmless. An accepted grammar
 should use `atEndOfArguments()` before allowing it; unconsumed words then defer
 instead of accidentally matching a prefix.
 
+The engine already distinguishes the separate form (`--option value`) from the
+equals-long form (`--option=value`): `separate` matches only the following-word
+shape and `equalsLong` matches only the `--option=value` shape. Declare each
+form the tool actually accepts rather than assuming one implies the other; an
+undeclared form defers instead of being inferred.
+
 For an endpoint grammar in v2, use `atEndOfWord()` before consuming the
 inspected argument when its entire spelling matters. `restOfWord` deliberately
 discards an unchecked suffix; use it only when the remaining characters truly

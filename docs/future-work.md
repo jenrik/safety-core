@@ -97,3 +97,18 @@ directory model that distinguishes the cwd used for command resolution/identity
 from the unproved cwd used for relative file access, so both stay sound at once.
 Cover `PATH` known-absolute, known-relative, empty, and unknown, plus
 `CDPATH`/`HOME` interactions, with unit and property tests before relying on it.
+
+## Lint: a policy that can only ever defer
+
+A permission policy that can never produce an `allow` or a `deny` decision over
+its reachable states adds no authorization value: every selected event still
+reaches the operator prompt, so the policy only adds classification cost. The
+`safety-core` linting path should reject such a policy and report the violation
+the way other validation errors are reported, including a policy with no
+reachable `allow`/`deny` terminal at all.
+
+Before enabling the lint, resolve the intent for the existing defer-only
+permission policies (for example `github/gh-read-only.policy.json`, described in
+`policies/dsl/SCOPE.md`, and the `tea/open` scope whose `permit` set is empty):
+convert them to guards, give them at least one explicit `allow`/`deny`, or
+record an explicit, justified exemption in the lint.

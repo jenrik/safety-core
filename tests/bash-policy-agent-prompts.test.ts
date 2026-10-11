@@ -38,3 +38,72 @@ test("property: both prompts retain co-located scope requirements for 1,024 poli
     }
   }
 });
+
+test("Bash policy author provides a scope-document template", () => {
+  expect(author).toContain("## Scope Document Template");
+  for (const section of [
+    "## Intent",
+    "## Tool identity and version",
+    "## Protected action and asset",
+    "## In scope",
+    "## Out of scope and threat-model exclusions",
+    "## Assumptions and non-goals",
+    "## Expected outcomes",
+  ]) {
+    expect(author, section).toContain(section);
+  }
+  for (const outcome of ["**permit:**", "**defer:**", "**deny:**"]) {
+    expect(author, outcome).toContain(outcome);
+  }
+  for (const phrase of [
+    "upstream source code",
+    "designed and tested against",
+    "previous breaking release",
+    "newer breaking release",
+    "forward-compatibility posture",
+    "shared scope document",
+    "fixture checksum",
+    "transparent wrappers are deconstructed",
+    "hidden, preview, or otherwise unreviewed routes",
+    "fails closed",
+    "persistent side effect",
+    "docs/known-bugs.md",
+  ]) {
+    expect(author, phrase).toContain(phrase);
+  }
+});
+
+test("Bash policy author opens with DSL-derived scoping questions", () => {
+  expect(author).toContain("## Scoping Questions");
+  for (const question of [
+    "upstream implementation",
+    "basename",
+    "selected-path",
+    "isDirectExecutable",
+    "environmentIndependent",
+    "executionTargetIs",
+    "hasInheritedExecutableFunction",
+    "environmentIsKnown",
+    "missingEnvironmentMayBePresent",
+    "routing, credential, or configuration gates",
+    "assignmentsAreSubset",
+    "exact synonyms",
+    "atEndOfArguments()",
+    "statically known and non-empty",
+    "restOfWord",
+    "atEndOfWord()",
+    "span",
+    "modeled events",
+    "equivalence classes",
+    "future-work.md",
+  ]) {
+    expect(author, question).toContain(question);
+  }
+});
+
+test("known-bugs and future-work record the wrapper and always-defer decisions", () => {
+  const futureWork = normalize(readFileSync(resolve(root, "docs/future-work.md"), "utf8"));
+  const knownBugs = normalize(readFileSync(resolve(root, "docs/known-bugs.md"), "utf8"));
+  expect(futureWork).toContain("## Lint: a policy that can only ever defer");
+  expect(knownBugs).toContain("## Transparent wrappers that the engine does not deconstruct");
+});

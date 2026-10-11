@@ -21,6 +21,18 @@ including any GNU-accepted unambiguous long-option prefixes, and emit no child
 invocation for those forms. Add parser and Bash-oracle regression tests that
 verify no child event is emitted.
 
+## `env -0` and `env --null` incorrectly dispatch a modeled child
+
+The structural `env` handler currently treats `-0` and `--null` as options that
+can continue to a child command. GNU `env` rejects `-0` when a command follows,
+so it does not execute that child. The analyzer nevertheless emits the child
+invocation.
+
+The resulting event and permission trace is safe-side but inaccurate: policy
+evaluation can include a command that GNU `env` would never start. The likely
+repair location is `src/bash/handlers/command-env.ts`; no implementation change
+has been made pending scope approval.
+
 ## Executable-basename selectors cannot also exclude shell-function declarations
 
 Permission-policy selection currently distinguishes an invocation by its modeled
@@ -217,3 +229,21 @@ the corresponding harness file checks.
 Extracting file accesses from command arguments is outside this session's
 scope. See [Known limitations](known-limitations.md) for that boundary and the
 possible future policy-declared file/directory effects interface.
+
+## Transparent wrappers that the engine does not deconstruct
+
+The Bash walker models a supported transparent wrapper with a structural wrapper
+handler so that both the wrapper and its wrapped child become separately
+authorized policy events. For example `strace foo` should model an `strace`
+event and a `foo` event, so a policy that permits each command on its own also
+permits the wrapped form and no command policy has to reason about `strace`.
+
+A transparent wrapper whose grammar the engine does not recognize is an engine
+limitation, not a policy concern. When such a wrapper is not deconstructed, the
+wrapped command may not be modeled as its own event, so automatic authorization
+must not depend on it. Policies must not encode wrapper-specific workarounds;
+affected scopes should state the wrapper as an accepted engine limitation and
+rely on aggregate `defer`. The core should extend
+`src/bash/handlers/wrappers.ts` and the individual `src/bash/handlers/command-*.ts`
+wrappers to cover each supported transparent wrapper, with Bash-oracle property
+tests showing that both the wrapper and the child are emitted.
