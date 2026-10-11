@@ -36,7 +36,18 @@ mock.module("@earendil-works/pi-tui", () => ({
     }
     invalidate() {}
   },
-  Text: class {},
+  Text: class {
+    constructor(
+      private readonly text = "",
+      _paddingX = 0,
+      _paddingY = 0,
+      private readonly background?: (text: string) => string,
+    ) {}
+    render(width: number) {
+      return this.text.split("\n").map((line) => this.background?.(line.padEnd(width)) ?? line.padEnd(width));
+    }
+    invalidate() {}
+  },
   SettingsList: class {
     items: any[];
     onChange: (id: string, value: string) => unknown;
@@ -783,6 +794,83 @@ test("property: Pi prompt embeds the exact command only when display is enabled"
   }
 });
 
+test("Pi permission prompt keeps command details distinct and shows centered scroll availability", async () => {
+  const { createPiExtension } = await import("../adapters/pi.ts");
+  const handlers = new Map<string, Function>();
+  const rendered: string[][] = [];
+  const customOptions: unknown[] = [];
+  createPiExtension(
+    {
+      on: (name: string, handler: Function) => handlers.set(name, handler),
+      registerTool() {},
+      registerCommand() {},
+      appendEntry() {},
+    } as never,
+    { runtime: Promise.resolve(runtime), evaluatePolicies: () => defer },
+  );
+  const command = Array.from({ length: 14 }, (_value, index) => `printf line-${index}`).join("\n");
+  const result = await handlers.get("tool_call")!(
+    { toolName: "bash", toolCallId: "defer", input: { command } },
+    {
+      cwd: "/workspace",
+      mode: "tui",
+      hasUI: true,
+      signal: undefined,
+      ui: {
+        notify() {},
+        confirm: async () => false,
+        custom: async (factory: Function, options: unknown) => {
+          customOptions.push(options);
+          const component = factory(
+            { requestRender() {} },
+            {
+              fg: (_color: string, text: string) => text,
+              bg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+              bold: (text: string) => text,
+            },
+            {},
+            () => {},
+          );
+          rendered.push(component.render(80));
+          component.handleInput("\u001b[B");
+          rendered.push(component.render(80));
+          component.handleInput("n");
+          return false;
+        },
+      },
+    },
+  );
+  expect(result).toEqual({ block: true, reason: "Command requires policy approval" });
+  expect(customOptions).toEqual([undefined]);
+  expect(rendered[0]!.join("\n")).toContain("<toolPendingBg>Command");
+  const downIndicator = rendered[0]!.find((line) => line.includes("⬇️ more ⬇️"))!;
+  const upIndicator = rendered[1]!.find((line) => line.includes("⬆️ more ⬆️"))!;
+  expect(downIndicator.trim()).toBe("⬇️ more ⬇️");
+  expect(upIndicator.trim()).toBe("⬆️ more ⬆️");
+  expect(downIndicator.indexOf("⬇️ more ⬇️")).toBe(36);
+  expect(upIndicator.indexOf("⬆️ more ⬆️")).toBe(36);
+  expect(rendered[1]!.find((line) => line.includes("⬇️ more ⬇️"))!.trim()).toBe("⬇️ more ⬇️");
+});
+
+test("property: Pi permission prompt scroll state remains bounded for every action", async () => {
+  const { nextPermissionPromptScrollTop, permissionPromptScrollState } = await import("../adapters/pi.ts");
+  for (let seed = 0; seed < 1_024; seed++) {
+    const contentHeight = seed % 193;
+    const viewportHeight = (seed % 17) + 1;
+    const initial = seed * 13 - 1_000;
+    const state = permissionPromptScrollState(contentHeight, initial, viewportHeight);
+    expect(state.scrollTop, `seed ${seed}`).toBeGreaterThanOrEqual(0);
+    expect(state.scrollTop, `seed ${seed}`).toBeLessThanOrEqual(state.maxScrollTop);
+    expect(state.canScrollUp, `seed ${seed}`).toBe(state.scrollTop > 0);
+    expect(state.canScrollDown, `seed ${seed}`).toBe(state.scrollTop < state.maxScrollTop);
+    for (const action of ["up", "down", "page-up", "page-down", "start", "end"] as const) {
+      const next = nextPermissionPromptScrollTop(state, action);
+      expect(next, `${action}, seed ${seed}`).toBeGreaterThanOrEqual(0);
+      expect(next, `${action}, seed ${seed}`).toBeLessThanOrEqual(state.maxScrollTop);
+    }
+  }
+});
+
 test("Pi settings tolerate entries written before the command-display option existed", async () => {
   const { resolvePiSessionSettings } = await import("../adapters/pi.ts");
   const entries = [
@@ -838,13 +926,21 @@ test("Pi persists showFullCommand to a writable config file without notifying", 
     hasUI: true,
     signal: undefined,
     ui: {
-      custom: async (factory: Function) =>
-        factory(
+      custom: async (factory: Function) => {
+        let result: boolean | undefined;
+        const component = factory(
           { requestRender() {} },
-          { fg: (_name: string, value: string) => value, bold: (value: string) => value },
+          {
+            fg: (_name: string, value: string) => value,
+            bg: (_name: string, value: string) => value,
+            bold: (value: string) => value,
+          },
           {},
-          () => {},
-        ),
+          (value: boolean) => (result = value),
+        );
+        component.handleInput?.("n");
+        return result;
+      },
       notify: (message: string, level: string) => notifications.push({ message, level }),
       confirm: async () => false,
     },
@@ -928,7 +1024,7 @@ test("Pi keeps showFullCommand runtime-only when the config file is not writable
     { toolName: "bash", toolCallId: "defer", input: { command: "printf hello" } },
     context,
   );
-  expect(prompts.at(-1)).toBe("The configured policy could not fully authorize this command. Allow it once?");
+  expect(prompts).toEqual([]);
 });
 
 function environmentPermissionPolicy(): Record<string, unknown> {

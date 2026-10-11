@@ -61,6 +61,58 @@ interface ModelRuntimeAccess {
 
 const PI_SETTINGS_ENTRY = "safety-core-pi-settings";
 const ACTIVE_MODEL = "active model";
+const PROMPT_COMMAND_VIEWPORT_LINES = 10;
+const PROMPT_PAGE_SCROLL_LINES = 8;
+
+interface PiPermissionPrompt {
+  readonly title: string;
+  readonly message: string;
+  readonly command?: string | undefined;
+  /** Plain confirmation fallback used by non-TUI Pi modes. */
+  readonly nativeMessage?: string | undefined;
+}
+
+type PermissionPromptScrollAction = "up" | "down" | "page-up" | "page-down" | "start" | "end";
+
+export interface PermissionPromptScrollState {
+  readonly scrollTop: number;
+  readonly maxScrollTop: number;
+  readonly canScrollUp: boolean;
+  readonly canScrollDown: boolean;
+}
+
+/** Keep permission detail scrolling bounded regardless of terminal size or command length. */
+export function permissionPromptScrollState(
+  contentHeight: number,
+  scrollTop: number,
+  viewportHeight = PROMPT_COMMAND_VIEWPORT_LINES,
+): PermissionPromptScrollState {
+  const content = Math.max(0, Math.floor(contentHeight));
+  const viewport = Math.max(1, Math.floor(viewportHeight));
+  const maxScrollTop = Math.max(0, content - viewport);
+  const top = Math.max(0, Math.min(maxScrollTop, Math.floor(scrollTop)));
+  return { scrollTop: top, maxScrollTop, canScrollUp: top > 0, canScrollDown: top < maxScrollTop };
+}
+
+export function nextPermissionPromptScrollTop(
+  state: PermissionPromptScrollState,
+  action: PermissionPromptScrollAction,
+): number {
+  switch (action) {
+    case "up":
+      return Math.max(0, state.scrollTop - 1);
+    case "down":
+      return Math.min(state.maxScrollTop, state.scrollTop + 1);
+    case "page-up":
+      return Math.max(0, state.scrollTop - PROMPT_PAGE_SCROLL_LINES);
+    case "page-down":
+      return Math.min(state.maxScrollTop, state.scrollTop + PROMPT_PAGE_SCROLL_LINES);
+    case "start":
+      return 0;
+    case "end":
+      return state.maxScrollTop;
+  }
+}
 
 let rootPromptServer: PermissionPromptServer | undefined;
 let rootPromptContext: ExtensionContext | undefined;
@@ -130,8 +182,12 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
     rootPromptContext = ctx;
     rootPromptServer ??= await createPermissionPromptServer(async ({ title, message }) => {
       const root = rootPromptContext;
-      return root?.hasUI && typeof root.ui.confirm === "function"
-        ? root.ui.confirm(title, message, root.signal === undefined ? {} : { signal: root.signal }).catch(() => false)
+      return root?.hasUI
+        ? showPiPermissionPrompt(root, {
+            title,
+            nativeMessage: message,
+            ...parsePermissionPromptMessage(message),
+          }).catch(() => false)
         : false;
     });
     process.env[SAFETY_CORE_PROMPT_SOCKET] = rootPromptServer.path;
@@ -149,10 +205,13 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
     };
     const forwarded = await forwardPermissionPrompt(request, ctx.signal === undefined ? {} : { signal: ctx.signal });
     if (forwarded !== undefined) return forwarded;
-    return ctx.hasUI && typeof ctx.ui.confirm === "function"
-      ? ctx.ui
-          .confirm(request.title, request.message, ctx.signal === undefined ? {} : { signal: ctx.signal })
-          .catch(() => false)
+    return ctx.hasUI
+      ? showPiPermissionPrompt(ctx, {
+          title: request.title,
+          message: permissionPromptSummary(reason),
+          command: settings.showFullCommand ? source : undefined,
+          nativeMessage: request.message,
+        }).catch(() => false)
       : false;
   };
 
@@ -342,12 +401,133 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
 
 /** Build the one-time approval message, embedding the defer reason and full command when available. */
 export function permissionPromptMessage(command: string, showFullCommand: boolean, reason?: string): string {
-  const request = reason
-    ? `The configured policy could not fully authorize this command: ${reason}`
-    : "The configured policy could not fully authorize this command.";
+  const request = permissionPromptSummary(reason);
   return showFullCommand && command.length > 0
     ? `${request}\n\n${command}\n\nAllow it once?`
     : `${request} Allow it once?`;
+}
+
+function permissionPromptSummary(reason?: string): string {
+  return reason
+    ? `The configured policy could not fully authorize this command: ${reason}`
+    : "The configured policy could not fully authorize this command.";
+}
+
+function parsePermissionPromptMessage(message: string): Pick<PiPermissionPrompt, "message" | "command"> {
+  const match = /^(.*?)\n\n([\s\S]+)\n\nAllow it once\?$/.exec(message);
+  return match === null ? { message } : { message: match[1]!, command: match[2]! };
+}
+
+async function showPiPermissionPrompt(ctx: ExtensionContext, prompt: PiPermissionPrompt): Promise<boolean> {
+  if (ctx.mode !== "tui" || typeof ctx.ui.custom !== "function") {
+    return typeof ctx.ui.confirm === "function"
+      ? ctx.ui.confirm(
+          prompt.title,
+          prompt.nativeMessage ?? prompt.message,
+          ctx.signal === undefined ? {} : { signal: ctx.signal },
+        )
+      : false;
+  }
+
+  return ctx.ui.custom((tui, theme, _keybindings, done) => {
+    const message = new Text(theme.fg("text", prompt.message), 1, 0);
+    const command =
+      prompt.command === undefined || prompt.command.length === 0
+        ? undefined
+        : new Text(
+            `${theme.fg("toolTitle", theme.bold("Command"))}\n${theme.fg("toolTitle", prompt.command)}`,
+            1,
+            0,
+            (text) => theme.bg("toolPendingBg", text),
+          );
+    const fallback =
+      command === undefined
+        ? new Text(theme.fg("customMessageText", prompt.message), 1, 0, (text) => theme.bg("customMessageBg", text))
+        : undefined;
+    let scrollTop = 0;
+    let detailsHeight = 0;
+
+    const scroll = (action: PermissionPromptScrollAction) => {
+      const current = permissionPromptScrollState(detailsHeight, scrollTop);
+      const next = nextPermissionPromptScrollTop(current, action);
+      if (next === scrollTop) return;
+      scrollTop = next;
+      tui.requestRender();
+    };
+
+    return {
+      render: (width: number) => {
+        const details = (command ?? fallback)!.render(width);
+        detailsHeight = details.length;
+        const state = permissionPromptScrollState(details.length, scrollTop);
+        scrollTop = state.scrollTop;
+        const visible = details.slice(scrollTop, scrollTop + PROMPT_COMMAND_VIEWPORT_LINES);
+        const lines = [
+          ...new Text(theme.fg("accent", theme.bold(prompt.title)), 1, 0).render(width),
+          ...(command === undefined ? [] : message.render(width)),
+          "",
+        ];
+        if (state.canScrollUp) lines.push(centeredPromptIndicator("⬆️ more ⬆️", width, theme));
+        lines.push(...visible);
+        if (state.canScrollDown) lines.push(centeredPromptIndicator("⬇️ more ⬇️", width, theme));
+        lines.push(
+          ...new Text(theme.fg("dim", "Up/Down or PgUp/PgDn scroll · Enter/y allow · Esc/n deny"), 1, 0).render(width),
+        );
+        return lines;
+      },
+      invalidate: () => {
+        message.invalidate();
+        command?.invalidate();
+        fallback?.invalidate();
+      },
+      handleInput: (data: string) => {
+        if (matchesPermissionPromptKey(data, "up")) return scroll("up");
+        if (matchesPermissionPromptKey(data, "down")) return scroll("down");
+        if (matchesPermissionPromptKey(data, "page-up")) return scroll("page-up");
+        if (matchesPermissionPromptKey(data, "page-down")) return scroll("page-down");
+        if (matchesPermissionPromptKey(data, "start")) return scroll("start");
+        if (matchesPermissionPromptKey(data, "end")) return scroll("end");
+        if (matchesPermissionPromptKey(data, "allow")) return done(true);
+        if (matchesPermissionPromptKey(data, "deny")) return done(false);
+      },
+    };
+  });
+}
+
+function centeredPromptIndicator(
+  text: string,
+  width: number,
+  theme: { fg(color: "muted", text: string): string },
+): string {
+  return `${" ".repeat(Math.max(0, Math.floor((width - promptDisplayWidth(text)) / 2)))}${theme.fg("muted", text)}`;
+}
+
+function matchesPermissionPromptKey(
+  data: string,
+  key: "up" | "down" | "page-up" | "page-down" | "start" | "end" | "allow" | "deny",
+): boolean {
+  switch (key) {
+    case "up":
+      return data === "\u001b[A" || data === "\u001bOA";
+    case "down":
+      return data === "\u001b[B" || data === "\u001bOB";
+    case "page-up":
+      return data === "\u001b[5~";
+    case "page-down":
+      return data === "\u001b[6~";
+    case "start":
+      return data === "\u001b[H" || data === "\u001bOH" || data === "\u001b[1~";
+    case "end":
+      return data === "\u001b[F" || data === "\u001bOF" || data === "\u001b[4~";
+    case "allow":
+      return data === "\r" || data === "\n" || data === "y" || data === "Y";
+    case "deny":
+      return data === "\u001b" || data === "n" || data === "N";
+  }
+}
+
+function promptDisplayWidth(text: string): number {
+  return [...text].reduce((width, character) => width + (character === "\ufe0f" ? 0 : 1), 0);
 }
 
 /** Reconstruct branch-local settings, accepting only entries emitted by this adapter. */
