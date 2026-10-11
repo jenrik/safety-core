@@ -103,4 +103,19 @@ describe("policy test runner", () => {
     expect(ambiguous.status).not.toBe(0);
     expect(ambiguous.stderr).toContain("policy test is ambiguous");
   }, 30_000);
+
+  test("accepts the policy and scope documents as aliases and warns which suite it ran", () => {
+    const { root } = fixture();
+    writeFileSync(join(root, "example.scope.md"), "# example policy scope\n");
+    for (const alias of ["example.policy.mjs", "example.scope.md"]) {
+      const result = spawnSync("bun", [join(process.cwd(), "src/cli.ts"), "test", join(root, alias)], {
+        cwd: root,
+        encoding: "utf8",
+        env: { ...process.env },
+      });
+      expect(result.status, `${alias}: ${result.stderr}`).toBe(0);
+      expect(result.stderr).toContain("warning");
+      expect(result.stderr).toContain("example.policy.test.ts");
+    }
+  }, 30_000);
 });

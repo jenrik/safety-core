@@ -11,7 +11,9 @@ Every policy DSL artifact must have a co-located `<policy_name>.scope.md`. Do no
 
 When several policies target the same tool through different subcommands, or one policy is decomposed or split, give the group a shared scope document in addition to each policy-specific `<policy_name>.scope.md`. Put shared intent, tool identity, threat model, and common decisions in the shared document, and reference it from each policy scope instead of duplicating it.
 
-The final deliverable is a `<policy_name>.policy.json` and a `<policy_name>.scope.md`. Do not modify any typescript only unless just receive a direct, explicit and *narrow* waiver from a human.
+The final deliverable is a `<policy_name>.policy.json`, a co-located `<policy_name>.test.ts`, and a `<policy_name>.scope.md`. Every policy must have a co-located `<policy_name>.test.ts` suite that contains both unit tests and property tests: unit tests for each declared `permit`, `defer`, and `deny` behavior, and property tests over the natural equivalent forms the scope declares. Build it with the `policyTestForFile` helper and run it with `safety-core test <path>`, where `<path>` may be the `<policy_name>.test.ts` suite or its colocated `<policy_name>.policy.json` or `<policy_name>.scope.md` document; naming a policy or scope document emits a warning identifying the suite it runs. Plain `bun test` also runs the suite.
+
+Do not modify any typescript except the co-located `<policy_name>.test.ts` policy tests; any other typescript change requires a direct, explicit and *narrow* waiver from a human.
 
 ## Scope Document Template
 
@@ -143,14 +145,16 @@ Transparent wrappers are an engine responsibility: structural handlers deconstru
 
 Before finalizing, invoke the `bash-policy-adversarial-reviewer` subagent with the policy, co-located `<policy_name>.scope.md`, CLI evidence, available testing evidence, and relevant implementation. Show every review finding to the operator. Do not edit in response to review findings until the operator explicitly directs which findings to address. After approved corrections, invoke the reviewer again and present the follow-up result.
 
+Also invoke the `bash-policy-questionnaire-reviewer` subagent with the policy, co-located `<policy_name>.scope.md`, and `<policy_name>.test.ts`. It confirms that every scoping question and default scope assumption is answered in the scope; treat an unanswered item the same as an adversarial finding, showing it to the operator before acting.
+
 Use of DSL-to-native-code escapes are forbidden unless explicitly allowed by a human.
 
-## Recommended Testing Approaches
+## Testing Requirements
 
-Use the following approaches as appropriate to build evidence for the policy; they do not replace repository-wide requirements from `AGENTS.md`.
+The co-located `<policy_name>.test.ts` suite is required, not optional, and must contain both unit tests and property tests. It does not replace the repository-wide requirements from `AGENTS.md`.
 
-- Consider direct examples that demonstrate the declared `permit`, `defer`, and `deny` behavior.
-- Consider property tests that vary natural command forms the scope declares equivalent.
+- Unit tests must demonstrate each declared `permit`, `defer`, and `deny` behavior with direct examples.
+- Property tests must vary the natural command forms the scope declares equivalent.
 - Include ordering, alias, and flag variants when they are relevant to the declared scope.
 - Exercise plausible gaps that could fail open.
 - Check examples that could become false positives or be over-blocked.
@@ -159,8 +163,8 @@ Use the following approaches as appropriate to build evidence for the policy; th
 
 State explicitly:
 
-- The policy artifact and its `<policy_name>.scope.md`.
+- The policy artifact, its co-located `<policy_name>.test.ts`, and its `<policy_name>.scope.md`.
 - CLI validation source paths and digests, plus the sanitized `explain --json` cases and their modeled decisions.
-- The testing evidence gathered, including any direct examples or property tests used, with results.
-- The adversarial review status, all findings, operator decisions, and whether approved corrections were re-reviewed.
+- The co-located `<policy_name>.test.ts` suite, with its unit and property test results.
+- The adversarial and questionnaire review status, all findings, operator decisions, and whether approved corrections were re-reviewed. State every scoping question and default scope assumption as answered or outstanding.
 - Any remaining scope limitations, assumptions, or unresolved findings.

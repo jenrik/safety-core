@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command, CommanderError, InvalidArgumentError } from "commander";
 import { PolicyStartupError } from "./policy/config.js";
@@ -12,6 +12,7 @@ import {
 } from "./policy/explain.js";
 import { nodeExecutableFilesystem } from "./policy/filesystem.js";
 import { evaluateLoadedPolicies, loadPolicyRuntime } from "./policy/runtime.js";
+import { resolvePolicyTestInvocation } from "./policy/test-invocation.js";
 import { createExplainTrace, renderExplainTrace } from "./policy/trace.js";
 import { initBundledBashParser } from "./shell.js";
 
@@ -72,18 +73,19 @@ export function createProgram(): Command {
 
   program
     .command("test")
-    .description("run a colocated <policy>.test.ts suite with its policy enabled")
-    .argument("<path>", "policy test source ending in .test.ts")
+    .description("run a colocated policy test suite, resolved from a test, policy, or scope document")
+    .argument("<path>", "a .test.ts suite or a colocated policy or scope document")
     .action((path: string) => {
-      const testPath = canonicalPolicyTestPath(path);
-      const policyPath = policyPathForTest(testPath);
+      const invocation = resolvePolicyTestInvocation(path);
+      if (invocation.aliased)
+        process.stderr.write(`safety-core: warning: running colocated policy test ${basename(invocation.testPath)}\n`);
       const preload = policyTestPreloadPath();
-      const result = spawnSync("bun", ["test", "--preload", preload, testPath], {
+      const result = spawnSync("bun", ["test", "--preload", preload, invocation.testPath], {
         stdio: "inherit",
         env: {
           ...process.env,
-          SAFETY_CORE_POLICY_TEST_FILE: testPath,
-          SAFETY_CORE_POLICY_TEST_POLICY: policyPath,
+          SAFETY_CORE_POLICY_TEST_FILE: invocation.testPath,
+          SAFETY_CORE_POLICY_TEST_POLICY: invocation.policyPath,
         },
       });
       if (result.error !== undefined) throw result.error;
@@ -199,30 +201,6 @@ function canonicalPolicyPath(path: string): string {
   } catch (error) {
     throw new PolicyStartupError(path, "cannot canonicalize policy source", error);
   }
-}
-
-function canonicalPolicyTestPath(path: string): string {
-  if (!path.endsWith(".test.ts"))
-    throw new PolicyStartupError(path, "policy test source must use the exact .test.ts extension");
-  try {
-    return realpathSync(path);
-  } catch (error) {
-    throw new PolicyStartupError(path, "cannot canonicalize policy test source", error);
-  }
-}
-
-function policyPathForTest(testPath: string): string {
-  const stem = testPath.slice(0, -".test.ts".length);
-  const candidates = [".json", ".mjs"].map((extension) => `${stem}${extension}`).filter(existsSync);
-  if (candidates.length !== 1) {
-    throw new PolicyStartupError(
-      testPath,
-      candidates.length === 0
-        ? `cannot find policy under test; expected ${stem}.json or ${stem}.mjs`
-        : `policy test is ambiguous; both ${stem}.json and ${stem}.mjs exist`,
-    );
-  }
-  return realpathSync(candidates[0]!);
 }
 
 function policyTestPreloadPath(): string {

@@ -6,6 +6,9 @@ const root = resolve(import.meta.dir, "..");
 const normalize = (text: string) => text.replace(/\s+/g, " ");
 const author = normalize(readFileSync(resolve(root, ".opencode/agents/bash-policy-author.md"), "utf8"));
 const reviewer = normalize(readFileSync(resolve(root, ".opencode/agents/bash-policy-adversarial-reviewer.md"), "utf8"));
+const questionnaireReviewer = normalize(
+  readFileSync(resolve(root, ".opencode/agents/bash-policy-questionnaire-reviewer.md"), "utf8"),
+);
 
 test("Bash policy author requires hermetic safety-core CLI evidence", () => {
   expect(author).toContain("safety-core validate");
@@ -99,6 +102,45 @@ test("Bash policy author opens with DSL-derived scoping questions", () => {
   ]) {
     expect(author, question).toContain(question);
   }
+});
+
+test("Bash policy author requires a co-located unit and property test suite", () => {
+  expect(author).toContain("<policy_name>.test.ts");
+  expect(author).toContain("unit tests and property tests");
+  expect(author).toContain("policyTestForFile");
+  expect(author).toContain("bun test");
+  expect(author).toContain("safety-core test");
+  expect(author).toContain("<policy_name>.policy.json");
+  expect(author).toContain("<policy_name>.scope.md");
+  expect(author).toContain("warning");
+  expect(author).toContain("except the co-located `<policy_name>.test.ts`");
+});
+
+test("Bash policy reviewer remarks on missing tests but continues", () => {
+  expect(reviewer).toContain("<policy_name>.test.ts");
+  expect(reviewer).toContain("remark on it as a gap");
+  expect(reviewer).toContain("continue the review");
+});
+
+test("property: author requires a co-located test suite for 1,024 policy names", () => {
+  for (let seed = 0; seed < 1024; seed++) {
+    const policyName = `policy-${seed.toString(36)}`;
+    expect(author.replaceAll("<policy_name>", policyName), `seed ${seed}`).toContain(`${policyName}.test.ts`);
+  }
+});
+
+test("Bash policy author invokes the questionnaire reviewer", () => {
+  expect(author).toContain("bash-policy-questionnaire-reviewer");
+});
+
+test("Bash policy questionnaire reviewer is read-only and checks the questionnaire", () => {
+  expect(questionnaireReviewer).toContain("mode: subagent");
+  expect(questionnaireReviewer).toContain("hidden: true");
+  expect(questionnaireReviewer).toContain('"*": deny');
+  expect(questionnaireReviewer).toContain("read: allow");
+  expect(questionnaireReviewer).toContain("Scoping Questions");
+  expect(questionnaireReviewer).toContain("default scope assumptions");
+  expect(questionnaireReviewer).toContain("<policy_name>.test.ts");
 });
 
 test("known-bugs and future-work record the wrapper and always-defer decisions", () => {

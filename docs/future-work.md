@@ -52,19 +52,17 @@ pre-commit `bun run test` hook runs that file. The remaining gap is fragility,
 not absent coverage: a newly added project-local suite silently receives no
 execution unless a human also adds it to the integration import list.
 
-A second limitation is the direct runner. `safety-core test <policy>.test.ts`
-resolves the policy under test as a sibling `<stem>.json` or `<stem>.mjs`, so it
-rejects the `<stem>.policy.json` naming that every checked-in global policy uses
-(and that the project-local policies use too). Running it against a colocated
-suite fails with "cannot find policy under test".
+The direct runner previously rejected the `<stem>.policy.json` naming used by
+every checked-in global policy and by project-local policies. It now accepts a
+`.test.ts` suite, a `.json`/`.mjs` policy source, or a `.scope.md` document as
+the requested path, resolving the single colocated suite and policy; naming a
+policy or scope document also warns which suite it runs. That limitation is
+resolved.
 
 Add a pre-commit hook check that discovers and runs each project-local
 `<policy_name>.test.ts` explicitly (and `safety-core policy validate` for each
 project-local policy), so a policy edit cannot pass the hook with its colocated
 suite unexecuted and without relying on a manually maintained import list.
-Consider teaching the `safety-core test` runner the `<stem>.policy.json` naming
-as part of the same change, since that is the extension the checked-in sources
-already use.
 
 ## Relative-PATH command resolution after a directory change
 

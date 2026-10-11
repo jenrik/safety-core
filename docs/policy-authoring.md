@@ -105,6 +105,20 @@ general templating language: no loops, recursion, includes, macros, dynamic
 lookup, user functions, ambient access, or collection traversal. They must be
 redesigned or explicitly expanded before accepting broader template features.
 
+## Policy tests
+
+Each declarative policy should have a co-located `<policy_name>.test.ts` suite
+that exercises its `permit`, `defer`, and `deny` outcomes with unit tests and
+repeated property cases. Build it with the `policyTestForFile` helper so plain
+`bun test` discovery loads the policy beside the suite.
+
+Run one suite with exactly its paired policy enabled using
+`safety-core test <path>`. The requested path may be the `.test.ts` suite itself
+or its colocated `.json`/`.mjs` policy source or `.scope.md` document; naming a
+policy or scope document emits a warning that identifies the suite it runs. The
+`test` command resolves the suite and policy and passes them to the same
+`policyTestForFile` helper through the preload environment.
+
 ## Why DCRM terminates
 
 Registers have fixed-size domains or immutable input references, fragments are acyclic compile-time
