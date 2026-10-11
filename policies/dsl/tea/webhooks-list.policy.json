@@ -1,0 +1,37 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "permission",
+  "select": [{ "executable": { "projection": "basename", "equals": "tea" }, "environmentIndependent": true }],
+  "registers": {},
+  "folds": {},
+  "options": {
+    "repo": { "names": ["--repo", "-r"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["webhooks", "list"], "set": {} },
+    "org": { "names": ["--org"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["webhooks", "list"], "set": {} },
+    "global": { "names": ["--global"], "value": "absent", "forms": [], "availableIn": ["webhooks", "list"], "set": {} },
+    "remote": { "names": ["--remote", "-R"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["webhooks", "list"], "set": {} },
+    "login": { "names": ["--login", "-l"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["webhooks", "list"], "set": {} },
+    "output": { "names": ["--output", "-o"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["webhooks", "list"], "set": {} },
+    "page": { "names": ["--page", "-p"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["webhooks", "list"], "set": {} },
+    "limit": { "names": ["--limit", "--lm", "-lm"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["webhooks", "list"], "set": {} }
+  },
+  "fragments": {
+    "allow": {
+      "cases": [{
+        "when": { "all": [{ "call": "atEndOfArguments", "args": [] }, { "call": "executionTargetIs", "args": ["external-path"] }, { "call": "isDirectExecutable", "args": ["tea"] }, { "not": { "call": "hasAnyAssignment", "args": [] } }, { "not": { "call": "hasRedirect", "args": [] } }, { "not": { "call": "hasInheritedExecutableFunction", "args": ["tea"] } }] },
+        "action": { "decision": "allow", "reason": ["tea webhooks list auto-allowed by the read-only profile"], "audit": { "invocation": { "ref": "event" } } }
+      }]
+    }
+  },
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["webhooks", "webhook", "hooks", "hook"]] }, "action": { "consume": "word", "next": "webhooks" } }],
+      "default": { "decision": "defer" }, "end": { "decision": "defer" }
+    },
+    "webhooks": {
+      "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["list", "ls"]] }, "action": { "consume": "word", "next": "list" } }],
+      "default": { "decision": "defer" }, "end": { "decision": "defer" }
+    },
+    "list": { "fragments": ["allow"], "cases": [], "default": { "decision": "defer" }, "end": { "decision": "defer" } }
+  }
+}

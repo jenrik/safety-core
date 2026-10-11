@@ -1,0 +1,17 @@
+{
+  "language": "safety-core/bash-policy-v1", "layer": "permission", "select": [{ "executable": { "projection": "basename", "equals": "tea" }, "environmentIndependent": true }], "registers": {}, "folds": {},
+  "options": {
+    "page": { "names": ["--page", "-p"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["organizations", "list"], "set": {} },
+    "limit": { "names": ["--limit", "--lm", "-lm"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["organizations", "list"], "set": {} },
+    "login": { "names": ["--login", "-l"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["organizations", "list"], "set": {} },
+    "repo": { "names": ["--repo", "-r"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["organizations", "list"], "set": {} },
+    "remote": { "names": ["--remote", "-R"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["organizations", "list"], "set": {} },
+    "output": { "names": ["--output", "-o"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["organizations", "list"], "set": {} }
+  },
+  "fragments": { "allow": { "cases": [{ "when": { "all": [{ "call": "atEndOfArguments", "args": [] }, { "call": "executionTargetIs", "args": ["external-path"] }, { "call": "isDirectExecutable", "args": ["tea"] }, { "not": { "call": "hasAnyAssignment", "args": [] } }, { "not": { "call": "hasRedirect", "args": [] } }, { "not": { "call": "hasInheritedExecutableFunction", "args": ["tea"] } }] }, "action": { "decision": "allow", "reason": ["tea organizations list auto-allowed by the read-only profile"], "audit": { "invocation": { "ref": "event" } } } }] } },
+  "start": "start", "states": {
+    "start": { "cases": [{ "when": { "not": { "all": [{ "call": "executionTargetIs", "args": ["external-path"] }, { "call": "isDirectExecutable", "args": ["tea"] }] } }, "action": { "decision": "defer" } }, { "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["organizations", "organization", "org"]] }, "action": { "consume": "word", "next": "organizations" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "organizations": { "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["list", "ls"]] }, "action": { "consume": "word", "next": "list" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "list": { "fragments": ["allow"], "cases": [], "default": { "decision": "defer" }, "end": { "decision": "defer" } }
+  }
+}

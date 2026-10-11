@@ -1,0 +1,18 @@
+{
+  "language": "safety-core/bash-policy-v1", "layer": "permission", "select": [{ "executable": { "projection": "basename", "equals": "tea" }, "environmentIndependent": true }], "registers": {}, "folds": {},
+  "options": {
+    "owner": { "names": ["--owner", "-O"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "list"], "set": {} },
+    "fields": { "names": ["--fields", "-f"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "list"], "set": {} },
+    "type": { "names": ["--type", "-T"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "list"], "set": {} },
+    "page": { "names": ["--page", "-p"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "list"], "set": {} },
+    "limit": { "names": ["--limit", "--lm", "-lm"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "list"], "set": {} },
+    "login": { "names": ["--login", "-l"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "list"], "set": {} },
+    "output": { "names": ["--output", "-o"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "list"], "set": {} }
+  },
+  "fragments": { "allow": { "cases": [{ "when": { "all": [{ "call": "atEndOfArguments", "args": [] }, { "call": "executionTargetIs", "args": ["external-path"] }, { "call": "isDirectExecutable", "args": ["tea"] }, { "not": { "call": "hasAnyAssignment", "args": [] } }, { "not": { "call": "hasRedirect", "args": [] } }, { "not": { "call": "hasInheritedExecutableFunction", "args": ["tea"] } }] }, "action": { "decision": "allow", "reason": ["tea repos list auto-allowed by the read-only profile"], "audit": { "invocation": { "ref": "event" } } } }] } },
+  "start": "start", "states": {
+    "start": { "cases": [{ "when": { "not": { "all": [{ "call": "executionTargetIs", "args": ["external-path"] }, { "call": "isDirectExecutable", "args": ["tea"] }] } }, "action": { "decision": "defer" } }, { "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["repos", "repo"]] }, "action": { "consume": "word", "next": "repos" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "repos": { "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["--watched", "-w", "--starred", "-s"]] }, "action": { "consume": "word", "next": "repos" } }, { "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["list", "ls"]] }, "action": { "consume": "word", "next": "list" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "list": { "fragments": ["allow"], "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["--watched", "-w", "--starred", "-s"]] }, "action": { "consume": "word", "next": "list" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } }
+  }
+}

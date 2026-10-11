@@ -1,0 +1,6 @@
+{
+  "language": "safety-core/bash-policy-v1", "layer": "permission", "select": [{ "executable": { "projection": "basename", "equals": "tea" }, "environmentIndependent": true }], "registers": {}, "folds": {},
+  "options": {},
+  "fragments": { "allowAtEnd": { "cases": [{ "when": { "all": [{ "call": "atEndOfArguments", "args": [] }, {"call":"executionTargetIs","args":["external-path"]},{ "call": "isDirectExecutable", "args": ["tea"] }, { "not": { "call": "hasAnyAssignment", "args": [] } }, { "not": { "call": "hasRedirect", "args": [] } }, { "not": { "call": "hasInheritedExecutableFunction", "args": ["tea"] } }] }, "action": { "decision": "allow", "reason": ["tea admin help auto-allowed by the read-only profile"], "audit": { "invocation": { "ref": "event" } } } }] } }, "start": "start",
+  "states": { "start": { "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["admin", "a"]] }, "action": { "consume": "word", "next": "admin" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } }, "admin": { "fragments": ["allowAtEnd"], "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["users", "u"]] }, "action": { "decision": "ignore" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } } }
+}

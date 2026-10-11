@@ -1,0 +1,26 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "permission",
+  "select": [{ "executable": { "projection": "basename", "equals": "tea" } }],
+  "registers": {}, "folds": {},
+  "options": {
+    "watched": { "names": ["--watched", "-w"], "value": "absent", "forms": [], "availableIn": ["repos", "detail"], "set": {} },
+    "starred": { "names": ["--starred", "-s"], "value": "absent", "forms": [], "availableIn": ["repos", "detail"], "set": {} },
+    "owner": { "names": ["--owner", "-O"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "detail"], "set": {} },
+    "fields": { "names": ["--fields", "-f"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "detail"], "set": {} },
+    "type": { "names": ["--type", "-T"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "detail"], "set": {} },
+    "page": { "names": ["--page", "-p"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "detail"], "set": {} },
+    "limit": { "names": ["--limit", "--lm", "-lm"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "detail"], "set": {} },
+    "login": { "names": ["--login", "-l"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "detail"], "set": {} },
+    "output": { "names": ["--output", "-o"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["repos", "detail"], "set": {} }
+  },
+  "fragments": {
+    "allowAtEnd": { "cases": [{ "when": { "all": [{ "call": "atEndOfArguments", "args": [] }, {"call":"executionTargetIs","args":["external-path"]},{ "call": "isDirectExecutable", "args": ["tea"] }, { "not": { "call": "hasAnyAssignment", "args": [] } }, { "not": { "call": "hasRedirect", "args": [] } }, { "not": { "call": "hasInheritedExecutableFunction", "args": ["tea"] } }] }, "action": { "decision": "allow", "reason": ["tea repos default inspection auto-allowed by the read-only route profile"], "audit": { "invocation": { "ref": "event" } } } }] }
+  },
+  "start": "start",
+  "states": {
+    "start": { "cases": [{ "when": { "not": { "all": [{ "call": "executionTargetIs", "args": ["external-path"] }, { "call": "isDirectExecutable", "args": ["tea"] }] } }, "action": { "decision": "defer" } }, { "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["repos", "repo"]] }, "action": { "consume": "word", "next": "repos" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "repos": { "fragments": ["allowAtEnd"], "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["list", "ls", "search", "s", "create", "c", "create-from-template", "ct", "fork", "f", "migrate", "m", "delete", "rm", "edit", "e"]] }, "action": { "decision": "defer" } }, { "when": { "not": { "call": "startsWith", "args": [{ "ref": "word" }, "-"] } }, "action": { "consume": "word", "next": "detail" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "detail": { "fragments": ["allowAtEnd"], "cases": [], "default": { "decision": "defer" }, "end": { "decision": "defer" } }
+  }
+}

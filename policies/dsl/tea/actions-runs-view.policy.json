@@ -1,0 +1,25 @@
+{
+  "language": "safety-core/bash-policy-v1",
+  "layer": "permission",
+  "select": [{ "executable": { "projection": "basename", "equals": "tea" } }],
+  "registers": {}, "folds": {},
+  "options": {
+    "loginLong": { "names": ["--login"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["actions", "runs", "id", "complete"], "set": {} },
+    "loginShort": { "names": ["-l"], "value": "required", "forms": ["separate"], "availableIn": ["id", "complete"], "set": {} },
+    "repoLong": { "names": ["--repo"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["actions", "runs", "id", "complete"], "set": {} },
+    "repoShort": { "names": ["-r"], "value": "required", "forms": ["separate"], "availableIn": ["id", "complete"], "set": {} },
+    "remote": { "names": ["--remote", "-R"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["id", "complete"], "set": {} },
+    "output": { "names": ["--output", "-o"], "value": "required", "forms": ["separate", "equalsLong"], "availableIn": ["actions", "runs", "id", "complete"], "set": {} }
+  },
+  "fragments": {
+    "allowAtEnd": { "cases": [{ "when": { "all": [{ "call": "atEndOfArguments", "args": [] }, {"call":"executionTargetIs","args":["external-path"]},{ "call": "isDirectExecutable", "args": ["tea"] }, { "not": { "call": "hasAnyAssignment", "args": [] } }, { "not": { "call": "hasRedirect", "args": [] } }, { "not": { "call": "hasInheritedExecutableFunction", "args": ["tea"] } }] }, "action": { "decision": "allow", "reason": ["tea actions runs view auto-allowed by the read-only route profile"], "audit": { "invocation": { "ref": "event" } } } }] }
+  },
+  "start": "start",
+  "states": {
+    "start": { "cases": [{ "when": { "not": { "all": [{ "call": "executionTargetIs", "args": ["external-path"] }, { "call": "isDirectExecutable", "args": ["tea"] }] } }, "action": { "decision": "defer" } }, { "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["actions", "action"]] }, "action": { "consume": "word", "next": "actions" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "actions": { "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["runs", "run"]] }, "action": { "consume": "word", "next": "runs" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "runs": { "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["view", "show", "get"]] }, "action": { "consume": "word", "next": "id" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "id": { "cases": [{ "when": { "not": { "call": "startsWith", "args": [{ "ref": "word" }, "-"] } }, "action": { "consume": "word", "next": "complete" } }], "default": { "decision": "defer" }, "end": { "decision": "defer" } },
+    "complete": { "fragments": ["allowAtEnd"], "cases": [], "default": { "decision": "defer" }, "end": { "decision": "defer" } }
+  }
+}
