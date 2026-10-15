@@ -236,8 +236,114 @@ export async function createOpenCodeV2Plugin(
   } satisfies Hooks;
 }
 
-export default async (input?: PluginInput) =>
-  createOpenCodeV2Plugin({}, input?.client, input?.directory, input?.worktree);
+/**
+ * The public V2 plugin API uses registrations on a definition object instead
+ * of V1's function that returns a map of hooks. Keep the map factory above as
+ * a narrow test seam, then translate the V2 lifecycle events at this boundary.
+ *
+ * Do not import `@opencode/plugin` at runtime here. OpenCode provides that
+ * package to plugins, but a packaged Nix plugin is intentionally otherwise
+ * self-contained. `Plugin.define()` is an identity helper; the structural
+ * `{ id, setup }` definition is the portable runtime representation.
+ */
+type OpenCodeV2ToolEvent = {
+  readonly tool: string;
+  readonly sessionID: string;
+  readonly id: string;
+  readonly input: unknown;
+};
+
+type OpenCodeV2PermissionEvent = {
+  readonly action: string;
+  readonly sessionID: string;
+  readonly source?: { readonly type?: string; readonly id?: string };
+  effect: "allow" | "ask" | "deny";
+};
+
+type OpenCodeV2Context = {
+  readonly location: { readonly directory: string };
+  readonly tool: {
+    hook(
+      name: "execute.before" | "execute.after",
+      callback: (event: OpenCodeV2ToolEvent) => Promise<void>,
+    ): Promise<unknown>;
+  };
+  readonly permission: {
+    hook(name: "evaluate", callback: (event: OpenCodeV2PermissionEvent) => Promise<void>): Promise<unknown>;
+  };
+  readonly event: { subscribe(options: { readonly signal: AbortSignal }): AsyncIterable<unknown> };
+};
+
+export function normalizeOpenCodeV2ToolName(tool: string): string {
+  return tool === "shell" ? "bash" : tool;
+}
+
+export default {
+  id: "safety-core",
+  async setup(context: OpenCodeV2Context) {
+    const legacy = await createOpenCodeV2Plugin({}, undefined, context.location.directory);
+    const before = legacy["tool.execute.before"] as unknown as (
+      input: { readonly tool: string; readonly sessionID: string; readonly callID: string },
+      output: { readonly args: Record<string, unknown> },
+    ) => Promise<void>;
+    const after = legacy["tool.execute.after"] as unknown as (
+      input: { readonly tool: string; readonly sessionID: string; readonly callID: string; readonly args: unknown },
+      output: Record<string, never>,
+    ) => Promise<void>;
+    const permissionAsked = legacy["permission.ask"] as unknown as (
+      input: { readonly type: string; readonly sessionID: string; readonly callID: string },
+      output: { status: "allow" | "ask" | "deny" },
+    ) => Promise<void>;
+    const dispatchEvent = legacy.event as unknown as (input: { readonly event: OpenCodeEvent }) => Promise<void>;
+    const args = (input: unknown): Record<string, unknown> =>
+      typeof input === "object" && input !== null ? (input as Record<string, unknown>) : {};
+
+    await context.tool.hook("execute.before", async (event) => {
+      await before(
+        { tool: normalizeOpenCodeV2ToolName(event.tool), sessionID: event.sessionID, callID: event.id },
+        { args: args(event.input) },
+      );
+    });
+    await context.tool.hook("execute.after", async (event) => {
+      await after(
+        {
+          tool: normalizeOpenCodeV2ToolName(event.tool),
+          sessionID: event.sessionID,
+          callID: event.id,
+          args: event.input,
+        },
+        {},
+      );
+    });
+    await context.permission.hook("evaluate", async (event) => {
+      if (event.action !== "shell" && event.action !== "bash") return;
+      const output = { status: event.effect };
+      await permissionAsked(
+        {
+          type: "bash",
+          sessionID: event.sessionID,
+          callID: event.source?.type === "tool" ? (event.source.id ?? "") : "",
+        },
+        output,
+      );
+      event.effect = output.status;
+    });
+
+    const events = new AbortController();
+    void (async () => {
+      for await (const event of context.event.subscribe({ signal: events.signal })) {
+        if (typeof event !== "object" || event === null || !("type" in event)) continue;
+        // V2's public stream contains more event variants than the legacy
+        // adapter understands. One unknown event must not stop policy reload
+        // and preflight cleanup for every later event.
+        try {
+          await dispatchEvent({ event: event as OpenCodeEvent });
+        } catch {}
+      }
+    })().catch(() => {});
+    return () => events.abort();
+  },
+};
 
 export function blockReason(result: BashPolicyEvaluation): string {
   if (result.filePermissionChecks?.some((check) => check.decision === "deny"))

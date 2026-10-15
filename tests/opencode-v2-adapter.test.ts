@@ -1,7 +1,7 @@
 import { beforeAll, expect, test } from "bun:test";
 
 import { createOpenCodePlugin } from "../adapters/opencode.ts";
-import { createOpenCodeV2Plugin } from "../adapters/opencode-v2.ts";
+import OpenCodeV2Plugin, { createOpenCodeV2Plugin, normalizeOpenCodeV2ToolName } from "../adapters/opencode-v2.ts";
 import {
   type BashPolicyEvaluation,
   createPermissionPromptServer,
@@ -11,6 +11,18 @@ import {
 } from "../src/index.ts";
 
 beforeAll(initBundledBashParser);
+
+test("OpenCode v2 exports a native plugin definition", () => {
+  expect(OpenCodeV2Plugin.id).toBe("safety-core");
+  expect(OpenCodeV2Plugin.setup).toBeInstanceOf(Function);
+});
+
+test("property: OpenCode v2 maps only the shell tool to the legacy bash policy across 1,024 names", () => {
+  for (let seed = 0; seed < 1_024; seed++) {
+    const tool = seed % 7 === 0 ? "shell" : `tool-${seed.toString(36)}`;
+    expect(normalizeOpenCodeV2ToolName(tool), `seed ${seed}`).toBe(tool === "shell" ? "bash" : tool);
+  }
+});
 
 const limits = { maxFunctionDepth: 8, maxNestedScriptDepth: 8, maxSteps: 100, maxWorkItems: 100 };
 const runtime = {

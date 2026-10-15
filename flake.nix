@@ -174,6 +174,7 @@
             test -f ${sc.opencodePlugin}/index.ts
             test -f ${sc.opencodeV2Plugin}/index.ts
             test -f ${sc.opencodeTuiPlugin}/index.ts
+            test -f ${sc.opencodeV2Plugin}/node_modules/@safety-core/core/package.json
             grep -q '@safety-core/core' ${sc.piExtensionDir}/index.ts
             grep -q 'completePolicyInitialEnvironment' ${sc.opencodePlugin}/index.ts
             grep -q 'completePolicyInitialEnvironment' ${sc.opencodeV2Plugin}/index.ts

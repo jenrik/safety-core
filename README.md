@@ -92,6 +92,18 @@ global by the runner. `config` resolves relative to the test file and loads its
 configured policies; `enabledPolicies` adds only the additional sources for
 that individual case.
 
+## OpenCode V2 E2E tests
+
+`bun run test:e2e:opencode-v2` builds the packaged V2 plugin, launches an
+isolated OpenCode V2 instance through `opencode-drive`, and uses its simulated
+deterministic model. The initial scenario proves that a `read` tool request for
+`credentials.json` activates the packaged plugin and returns the safety-policy
+rejection to the model without reading file contents. It never contacts an LLM
+provider; the runner clears optional OpenAI and Anthropic judge credentials.
+
+The runner defaults to `opencode2`; set `SAFETY_CORE_OPENCODE_V2_COMMAND` to an
+alternate V2 executable when testing another build.
+
 The Home Manager module exposes these same fields at
 `programs.safetyCorePermissions`, plus `completePolicySources`, `prCreate`,
 `installCli`, and `installClaudeBashHook`, plus Pi's `autoApprove`,

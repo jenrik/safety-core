@@ -11,7 +11,8 @@
     "build:native-packages": "bun scripts/build-native-node-packages.ts",
     "generate:prompt-proto": "bun scripts/generate-prompt-proto.ts",
     "typescheck": "tsc --noEmit",
-    "test": "bun run build:native-packages && bun test"
+    "test": "bun run build:native-packages && bun test",
+    "test:e2e:opencode-v2": "bun scripts/test-opencode-v2-e2e.ts"
   },
   "dependencies": {
     "@bufbuild/protobuf": "2.16.0",

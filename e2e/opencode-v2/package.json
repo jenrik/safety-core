@@ -1,0 +1,9 @@
+{
+  "name": "safety-core-opencode-v2-e2e",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "effect": "4.0.1",
+    "opencode-drive": "2.3.0"
+  }
+}

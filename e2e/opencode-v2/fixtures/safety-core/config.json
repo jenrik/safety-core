@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "policies": [
+    "../../../../policies/dsl/secret-read.policy.json"
+  ],
+  "projectPolicies": {
+    "mode": "disabled"
+  },
+  "bashAnalysis": {
+    "maxFunctionDepth": 8,
+    "maxNestedScriptDepth": 8,
+    "maxSteps": 100,
+    "maxWorkItems": 100
+  }
+}

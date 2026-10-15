@@ -157,7 +157,7 @@ let
   # OpenCode v1 and v2 receive independent extension directories. They share
   # behavior today but must remain separately packageable as their APIs evolve.
   opencodePlugin = mkExtensionDir "opencode" ./adapters/opencode.ts coreNodePackage;
-  opencodeV2Plugin = mkExtensionDir "opencode-v2" ./adapters/opencode-v2.ts "";
+  opencodeV2Plugin = mkExtensionDir "opencode-v2" ./adapters/opencode-v2.ts coreNodePackage;
   opencodeTuiPlugin = mkExtensionDir "opencode-tui" ./adapters/opencode-tui.ts coreNodePackage;
 
   # Trusted code policies are compiled independently. The loader rejects
