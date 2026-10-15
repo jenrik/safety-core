@@ -95,11 +95,23 @@ that individual case.
 ## OpenCode V2 E2E tests
 
 `bun run test:e2e:opencode-v2` builds the packaged V2 plugin, launches an
-isolated OpenCode V2 instance through `opencode-drive`, and uses its simulated
-deterministic model. The initial scenario proves that a `read` tool request for
-`credentials.json` activates the packaged plugin and returns the safety-policy
-rejection to the model without reading file contents. It never contacts an LLM
-provider; the runner clears optional OpenAI and Anthropic judge credentials.
+isolated OpenCode V2 instance through `opencode-drive`, and uses a deterministic
+simulated model. It covers:
+
+- protected `credentials.json` reads, which must return a policy rejection
+  without exposing file contents;
+- judge provider/model selection: Anthropic has precedence when both providers
+  are configured, otherwise OpenAI is selected, using a local deterministic
+  judge endpoint;
+- policy-deferred shell calls, which must trigger a one-time permission prompt
+  even though Drive's native permissions default to allow; and
+- a live project-policy update followed by the registered
+  `safety-core.policy.reload` command, which must change the next shell call
+  from automatically allowed to prompting.
+
+The runner never contacts an external LLM provider. It clears optional judge
+credentials in every non-judge scenario, and the judge-selection scenario uses
+an in-process loopback HTTP server with deterministic responses.
 
 The runner defaults to `opencode2`; set `SAFETY_CORE_OPENCODE_V2_COMMAND` to an
 alternate V2 executable when testing another build.

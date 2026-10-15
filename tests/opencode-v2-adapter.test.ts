@@ -1,7 +1,11 @@
 import { beforeAll, expect, test } from "bun:test";
 
 import { createOpenCodePlugin } from "../adapters/opencode.ts";
-import OpenCodeV2Plugin, { createOpenCodeV2Plugin, normalizeOpenCodeV2ToolName } from "../adapters/opencode-v2.ts";
+import OpenCodeV2Plugin, {
+  createOpenCodeV2Plugin,
+  normalizeOpenCodeV2ToolName,
+  registerOpenCodeV2ReloadCommand,
+} from "../adapters/opencode-v2.ts";
 import {
   type BashPolicyEvaluation,
   createPermissionPromptServer,
@@ -21,6 +25,57 @@ test("property: OpenCode v2 maps only the shell tool to the legacy bash policy a
   for (let seed = 0; seed < 1_024; seed++) {
     const tool = seed % 7 === 0 ? "shell" : `tool-${seed.toString(36)}`;
     expect(normalizeOpenCodeV2ToolName(tool), `seed ${seed}`).toBe(tool === "shell" ? "bash" : tool);
+  }
+});
+
+test("OpenCode v2 registers the policy reload command", async () => {
+  let registered: { name: string; description?: string; execute: (input: unknown) => Promise<void> } | undefined;
+  let disposed = false;
+  let reloads = 0;
+  const registration = await registerOpenCodeV2ReloadCommand(
+    {
+      transform: async (callback) => {
+        callback({ add: (command) => (registered = command) });
+        return {
+          dispose: async () => {
+            disposed = true;
+          },
+        };
+      },
+    },
+    async () => {
+      reloads++;
+    },
+  );
+
+  expect(registered).toMatchObject({
+    name: OPENCODE_POLICY_RELOAD_COMMAND,
+    description: "Reload safety-core policies",
+  });
+  await registered!.execute({});
+  expect(reloads).toBe(1);
+  await registration.dispose();
+  expect(disposed).toBe(true);
+});
+
+test("property: OpenCode v2 reload command ignores all 1,024 invocation payloads", async () => {
+  let execute: ((input: unknown) => Promise<void>) | undefined;
+  let reloads = 0;
+  await registerOpenCodeV2ReloadCommand(
+    {
+      transform: async (callback) => {
+        callback({ add: (command) => (execute = command.execute) });
+        return { dispose: async () => {} };
+      },
+    },
+    async () => {
+      reloads++;
+    },
+  );
+
+  for (let seed = 0; seed < 1_024; seed++) {
+    await execute!({ seed, text: `untrusted-${seed}` });
+    expect(reloads, `seed ${seed}`).toBe(seed + 1);
   }
 });
 

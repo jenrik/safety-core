@@ -1,16 +1,8 @@
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
-
 import { Effect, Stream } from "effect";
 import { Llm, OpenCodeDriver } from "opencode-drive";
 
-const root = process.env.SAFETY_CORE_E2E_ROOT;
-const plugin = process.env.SAFETY_CORE_OPENCODE_V2_PLUGIN;
-if (root === undefined || plugin === undefined)
-  throw new Error("Run this scenario through scripts/test-opencode-v2-e2e.ts");
-
-const configHome = resolve(root, "e2e/opencode-v2/fixtures");
-const executable = process.env.SAFETY_CORE_OPENCODE_V2_COMMAND ?? "opencode2";
+import { configHome, executable, isolatedEnvironment, plugin } from "./support.ts";
 
 export default OpenCodeDriver.use(
   {
@@ -24,11 +16,9 @@ export default OpenCodeDriver.use(
     opencode: {
       command: [executable],
       compatibility: "required",
-      // A simulated model must never initialize an optional network judge.
       env: {
-        SAFETY_CORE_CONFIG_HOME: configHome,
-        ANTHROPIC_API_KEY: "",
-        OPENAI_API_KEY: "",
+        SAFETY_CORE_CONFIG_HOME: configHome("default"),
+        ...isolatedEnvironment(),
       },
     },
   },

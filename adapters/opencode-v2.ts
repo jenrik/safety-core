@@ -262,6 +262,11 @@ type OpenCodeV2PermissionEvent = {
 
 type OpenCodeV2Context = {
   readonly location: { readonly directory: string };
+  readonly command: {
+    transform(
+      callback: (editor: { add(definition: OpenCodeV2Command): void }) => void,
+    ): Promise<OpenCodeV2Registration>;
+  };
   readonly tool: {
     hook(
       name: "execute.before" | "execute.after",
@@ -274,8 +279,31 @@ type OpenCodeV2Context = {
   readonly event: { subscribe(options: { readonly signal: AbortSignal }): AsyncIterable<unknown> };
 };
 
+type OpenCodeV2Command = {
+  readonly name: string;
+  readonly description?: string;
+  readonly execute: (input: unknown) => Promise<void>;
+};
+
+type OpenCodeV2Registration = {
+  dispose(): Promise<void>;
+};
+
 export function normalizeOpenCodeV2ToolName(tool: string): string {
   return tool === "shell" ? "bash" : tool;
+}
+
+export async function registerOpenCodeV2ReloadCommand(
+  command: OpenCodeV2Context["command"],
+  reloadPolicies: () => Promise<void>,
+): Promise<OpenCodeV2Registration> {
+  return command.transform((editor) => {
+    editor.add({
+      name: OPENCODE_POLICY_RELOAD_COMMAND,
+      description: "Reload safety-core policies",
+      execute: reloadPolicies,
+    });
+  });
 }
 
 export default {
@@ -297,6 +325,15 @@ export default {
     const dispatchEvent = legacy.event as unknown as (input: { readonly event: OpenCodeEvent }) => Promise<void>;
     const args = (input: unknown): Record<string, unknown> =>
       typeof input === "object" && input !== null ? (input as Record<string, unknown>) : {};
+    const reloadPolicies = () =>
+      dispatchEvent({
+        event: {
+          type: "tui.command.execute",
+          properties: { command: OPENCODE_POLICY_RELOAD_COMMAND },
+        } as OpenCodeEvent,
+      });
+
+    const reloadCommand = await registerOpenCodeV2ReloadCommand(context.command, reloadPolicies);
 
     await context.tool.hook("execute.before", async (event) => {
       await before(
@@ -341,7 +378,10 @@ export default {
         } catch {}
       }
     })().catch(() => {});
-    return () => events.abort();
+    return async () => {
+      events.abort();
+      await reloadCommand.dispose();
+    };
   },
 };
 

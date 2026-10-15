@@ -26,4 +26,5 @@ const environment = {
   SAFETY_CORE_E2E_ROOT: root,
   SAFETY_CORE_OPENCODE_V2_PLUGIN: plugin,
 };
-await run([drive, "run", "./secret-read.ts"], e2e, environment);
+for (const scenario of ["secret-read", "judge-model-selection", "permission-prompt", "policy-reload"])
+  await run([drive, "run", `./${scenario}.ts`], e2e, environment);
