@@ -21,6 +21,40 @@ test("OpenCode v2 exports a native plugin definition", () => {
   expect(OpenCodeV2Plugin.setup).toBeInstanceOf(Function);
 });
 
+test("OpenCode v2 setup registers native V2 hooks without a V1 hook map", async () => {
+  const hooks = new Map<string, (event: any) => Promise<void>>();
+  let command: { execute: (input: unknown) => Promise<void> } | undefined;
+  const cleanup = await OpenCodeV2Plugin.setup({
+    location: { directory: process.cwd() },
+    agent: { list: async () => [] },
+    session: { get: async () => ({}), context: async () => [] },
+    command: {
+      transform: async (callback) => {
+        callback({ add: (definition) => (command = definition) });
+        return { dispose: async () => {} };
+      },
+    },
+    tool: {
+      hook: async (name, callback) => {
+        hooks.set(`tool.${name}`, callback);
+      },
+    },
+    permission: {
+      hook: async (name, callback) => {
+        hooks.set(`permission.${name}`, callback);
+      },
+    },
+    event: { subscribe: async function* () {} },
+  });
+
+  expect([...hooks.keys()].sort()).toEqual(["permission.evaluate", "tool.execute.after", "tool.execute.before"]);
+  await expect(
+    hooks.get("tool.execute.before")!({ tool: "read", sessionID: "s", id: "c", input: { path: ".env" } }),
+  ).rejects.toThrow("Blocked by safety policy");
+  await command!.execute({ untrusted: true });
+  await cleanup!();
+});
+
 test("property: OpenCode v2 maps only the shell tool to the legacy bash policy across 1,024 names", () => {
   for (let seed = 0; seed < 1_024; seed++) {
     const tool = seed % 7 === 0 ? "shell" : `tool-${seed.toString(36)}`;
@@ -224,20 +258,24 @@ test("OpenCode reload action replaces the active runtime and keeps it on reload 
     await (plugin["tool.execute.before"] as Function)({ tool: "bash", ...identity }, { args: { command: "id" } });
     await (plugin["permission.ask"] as Function)({ type: "bash", pattern: "id", ...identity }, afterFailure);
     expect(afterFailure.status).toBe("allow");
-    expect(toasts).toEqual([
-      {
-        query: { directory: process.cwd() },
-        body: { title: "Safety policy reload", message: "Safety policies reloaded", variant: "success" },
-      },
-      {
-        query: { directory: process.cwd() },
-        body: {
-          title: "Safety policy reload",
-          message: "Safety policy reload failed: invalid replacement",
-          variant: "error",
+    // V2 has no V1 TUI-toast client. Reload state is still applied directly,
+    // while the V1 adapter keeps its legacy toast behavior.
+    if (create === createOpenCodePlugin)
+      expect(toasts).toEqual([
+        {
+          query: { directory: process.cwd() },
+          body: { title: "Safety policy reload", message: "Safety policies reloaded", variant: "success" },
         },
-      },
-    ]);
+        {
+          query: { directory: process.cwd() },
+          body: {
+            title: "Safety policy reload",
+            message: "Safety policy reload failed: invalid replacement",
+            variant: "error",
+          },
+        },
+      ]);
+    else expect(toasts).toEqual([]);
   }
 });
 
