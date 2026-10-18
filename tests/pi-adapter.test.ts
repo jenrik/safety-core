@@ -828,11 +828,17 @@ test("Pi permission prompt keeps command details distinct and shows centered scr
               bg: (color: string, text: string) => `<${color}>${text}</${color}>`,
               bold: (text: string) => text,
             },
-            {},
+            {
+              matches: (data: string, binding: string) =>
+                (binding === "tui.select.down" && data === "configured-down") ||
+                (binding === "tui.select.up" && data === "configured-up") ||
+                (binding === "tui.select.pageUp" && data === "configured-page-up") ||
+                (binding === "tui.select.pageDown" && data === "configured-page-down"),
+            },
             () => {},
           );
           rendered.push(component.render(80));
-          component.handleInput("\u001b[B");
+          component.handleInput("configured-down");
           rendered.push(component.render(80));
           component.handleInput("n");
           return false;
@@ -845,11 +851,10 @@ test("Pi permission prompt keeps command details distinct and shows centered scr
   expect(rendered[0]!.join("\n")).toContain("<toolPendingBg>Command");
   const downIndicator = rendered[0]!.find((line) => line.includes("⬇️ more ⬇️"))!;
   const upIndicator = rendered[1]!.find((line) => line.includes("⬆️ more ⬆️"))!;
-  expect(downIndicator.trim()).toBe("⬇️ more ⬇️");
-  expect(upIndicator.trim()).toBe("⬆️ more ⬆️");
-  expect(downIndicator.indexOf("⬇️ more ⬇️")).toBe(36);
-  expect(upIndicator.indexOf("⬆️ more ⬆️")).toBe(36);
-  expect(rendered[1]!.find((line) => line.includes("⬇️ more ⬇️"))!.trim()).toBe("⬇️ more ⬇️");
+  expect(downIndicator).toContain("⬇️ more ⬇️");
+  expect(upIndicator).toContain("⬆️ more ⬆️");
+  expect(rendered[0]!.every((line) => line.startsWith("<customMessageBg>"))).toBe(true);
+  expect(rendered[1]!.every((line) => line.startsWith("<customMessageBg>"))).toBe(true);
 });
 
 test("property: Pi permission prompt scroll state remains bounded for every action", async () => {

@@ -429,7 +429,7 @@ async function showPiPermissionPrompt(ctx: ExtensionContext, prompt: PiPermissio
       : false;
   }
 
-  return ctx.ui.custom((tui, theme, _keybindings, done) => {
+  return ctx.ui.custom((tui, theme, keybindings, done) => {
     const message = new Text(theme.fg("text", prompt.message), 1, 0);
     const command =
       prompt.command === undefined || prompt.command.length === 0
@@ -447,6 +447,32 @@ async function showPiPermissionPrompt(ctx: ExtensionContext, prompt: PiPermissio
     let scrollTop = 0;
     let detailsHeight = 0;
 
+    const renderSurface = (width: number) => {
+      const details = (command ?? fallback)!.render(width);
+      detailsHeight = details.length;
+      const state = permissionPromptScrollState(details.length, scrollTop);
+      scrollTop = state.scrollTop;
+      const visible = details.slice(scrollTop, scrollTop + PROMPT_COMMAND_VIEWPORT_LINES);
+      const lines = [
+        ...new Text(theme.fg("accent", theme.bold(prompt.title)), 0, 0).render(width),
+        ...(command === undefined ? [] : message.render(width)),
+        "",
+      ];
+      if (state.canScrollUp) lines.push(centeredPromptIndicator("⬆️ more ⬆️", width, theme));
+      lines.push(...visible);
+      if (state.canScrollDown) lines.push(centeredPromptIndicator("⬇️ more ⬇️", width, theme));
+      lines.push(
+        ...new Text(theme.fg("dim", "Up/Down or PgUp/PgDn scroll · Enter/y allow · Esc/n deny"), 0, 0).render(width),
+      );
+      const background = (text: string) => theme.bg("customMessageBg", text);
+      // Text applies its background across the full terminal line, preserving
+      // nested command styling while making the prompt a distinct surface.
+      const surfaceLines = lines.flatMap((line) =>
+        line === "" ? [background(" ".repeat(width))] : new Text(line, 1, 0, background).render(width),
+      );
+      return [background(" ".repeat(width)), ...surfaceLines, background(" ".repeat(width))];
+    };
+
     const scroll = (action: PermissionPromptScrollAction) => {
       const current = permissionPromptScrollState(detailsHeight, scrollTop);
       const next = nextPermissionPromptScrollTop(current, action);
@@ -456,39 +482,21 @@ async function showPiPermissionPrompt(ctx: ExtensionContext, prompt: PiPermissio
     };
 
     return {
-      render: (width: number) => {
-        const details = (command ?? fallback)!.render(width);
-        detailsHeight = details.length;
-        const state = permissionPromptScrollState(details.length, scrollTop);
-        scrollTop = state.scrollTop;
-        const visible = details.slice(scrollTop, scrollTop + PROMPT_COMMAND_VIEWPORT_LINES);
-        const lines = [
-          ...new Text(theme.fg("accent", theme.bold(prompt.title)), 1, 0).render(width),
-          ...(command === undefined ? [] : message.render(width)),
-          "",
-        ];
-        if (state.canScrollUp) lines.push(centeredPromptIndicator("⬆️ more ⬆️", width, theme));
-        lines.push(...visible);
-        if (state.canScrollDown) lines.push(centeredPromptIndicator("⬇️ more ⬇️", width, theme));
-        lines.push(
-          ...new Text(theme.fg("dim", "Up/Down or PgUp/PgDn scroll · Enter/y allow · Esc/n deny"), 1, 0).render(width),
-        );
-        return lines;
-      },
+      render: renderSurface,
       invalidate: () => {
         message.invalidate();
         command?.invalidate();
         fallback?.invalidate();
       },
       handleInput: (data: string) => {
-        if (matchesPermissionPromptKey(data, "up")) return scroll("up");
-        if (matchesPermissionPromptKey(data, "down")) return scroll("down");
-        if (matchesPermissionPromptKey(data, "page-up")) return scroll("page-up");
-        if (matchesPermissionPromptKey(data, "page-down")) return scroll("page-down");
-        if (matchesPermissionPromptKey(data, "start")) return scroll("start");
-        if (matchesPermissionPromptKey(data, "end")) return scroll("end");
-        if (matchesPermissionPromptKey(data, "allow")) return done(true);
-        if (matchesPermissionPromptKey(data, "deny")) return done(false);
+        if (matchesPermissionPromptKey(data, "up", keybindings)) return scroll("up");
+        if (matchesPermissionPromptKey(data, "down", keybindings)) return scroll("down");
+        if (matchesPermissionPromptKey(data, "page-up", keybindings)) return scroll("page-up");
+        if (matchesPermissionPromptKey(data, "page-down", keybindings)) return scroll("page-down");
+        if (matchesPermissionPromptKey(data, "start", keybindings)) return scroll("start");
+        if (matchesPermissionPromptKey(data, "end", keybindings)) return scroll("end");
+        if (matchesPermissionPromptKey(data, "allow", keybindings)) return done(true);
+        if (matchesPermissionPromptKey(data, "deny", keybindings)) return done(false);
       },
     };
   });
@@ -505,7 +513,25 @@ function centeredPromptIndicator(
 function matchesPermissionPromptKey(
   data: string,
   key: "up" | "down" | "page-up" | "page-down" | "start" | "end" | "allow" | "deny",
+  keybindings?: { matches(data: string, keybinding: string): boolean },
 ): boolean {
+  const binding =
+    key === "up"
+      ? "tui.select.up"
+      : key === "down"
+        ? "tui.select.down"
+        : key === "page-up"
+          ? "tui.select.pageUp"
+          : key === "page-down"
+            ? "tui.select.pageDown"
+            : key === "start"
+              ? "tui.editor.cursorLineStart"
+              : key === "end"
+                ? "tui.editor.cursorLineEnd"
+                : key === "allow"
+                  ? "tui.select.confirm"
+                  : "tui.select.cancel";
+  if (keybindings?.matches(data, binding)) return true;
   switch (key) {
     case "up":
       return data === "\u001b[A" || data === "\u001bOA";
