@@ -20,6 +20,14 @@ repos:
 
   - repo: local
     hooks:
+      - id: safety-core-lint-policy-collection
+        name: Lint safety policy collection
+        entry: >-
+          bash -c 'for policy in "$@"; do safety-core policy validate "$policy" || exit $?; done' --
+        language: system
+        files: \.policy\.json$
+        require_serial: true
+
       - id: typescript-typescheck
         name: TypeScript type check
         entry: bun run typescheck

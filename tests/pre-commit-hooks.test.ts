@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 
 const manifestPath = resolve(import.meta.dir, "../.pre-commit-hooks.yaml");
 const manifest = readFileSync(manifestPath, "utf8");
+const config = readFileSync(resolve(import.meta.dir, "../.pre-commit-config.yaml"), "utf8");
 
 function hookBlock(id: string): string {
   const block = manifest.split(/(?=^- id: )/m).find((candidate) => candidate.startsWith(`- id: ${id}\n`));
@@ -27,6 +28,13 @@ describe("published pre-commit hooks", () => {
     expect(hook).toContain("policy validate");
     expect(hook).toContain("language: node");
     expect(hook).toContain("require_serial: true");
+  });
+
+  test("installs the collection lint hook in this repository's pre-commit configuration", () => {
+    expect(config).toContain("- id: safety-core-lint-policy-collection");
+    expect(config).toContain("entry: >-");
+    expect(config).toContain("safety-core policy validate");
+    expect(config).toContain("language: system");
   });
 
   test("property: the collection hook selects only declarative policy filenames", () => {
