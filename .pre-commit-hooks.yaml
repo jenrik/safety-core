@@ -1,0 +1,16 @@
+- id: safety-core-validate-project-policies
+  name: Validate project safety policies
+  description: Load and validate the safety-core policy configuration for the current project.
+  entry: safety-core validate
+  language: node
+  pass_filenames: false
+  always_run: true
+
+- id: safety-core-lint-policy-collection
+  name: Lint safety policy collection
+  description: Validate every changed declarative safety-core policy source.
+  entry: >-
+    bash -c 'for policy in "$@"; do safety-core policy validate "$policy" || exit $?; done' --
+  language: node
+  files: \.policy\.json$
+  require_serial: true
