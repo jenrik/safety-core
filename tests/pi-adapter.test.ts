@@ -262,6 +262,100 @@ test("Pi surfaces and de-duplicates defer reasons in the one-time permission pro
   expect(calls[0]!.message).toContain("curl example");
 });
 
+test("Pi root auto-approves nested deferred permissions when configured", async () => {
+  const { createPiExtension } = await import("../adapters/pi.ts");
+  const handlers = new Map<string, Function>();
+  const prompts: string[] = [];
+  const configured = {
+    ...runtime,
+    config: { ...runtime.config, pi: { autoApprove: true, showFullCommand: true } },
+  } as LoadedPolicyRuntime;
+  createPiExtension(
+    {
+      on: (name: string, handler: Function) => handlers.set(name, handler),
+      registerTool() {},
+      registerCommand() {},
+      appendEntry() {},
+    } as never,
+    { runtime: Promise.resolve(configured) },
+  );
+  await handlers.get("session_start")!(
+    {},
+    {
+      cwd: "/workspace",
+      hasUI: true,
+      model: undefined,
+      modelRegistry: { getAvailable: () => [], getAll: () => [] },
+      sessionManager: { getBranch: () => [] },
+      ui: {
+        notify() {},
+        confirm: async (_title: string, message: string) => {
+          prompts.push(message);
+          return false;
+        },
+      },
+    },
+  );
+  await expect(
+    forwardPermissionPrompt(
+      { title: "Nested permission", message: "nested deferred command" },
+      { environment: { SAFETY_CORE_PROMPT_SOCKET: process.env.SAFETY_CORE_PROMPT_SOCKET! } },
+    ),
+  ).resolves.toBe(true);
+  expect(prompts).toEqual([]);
+});
+
+test("property: Pi root applies the latest auto-approve setting to every nested prompt", async () => {
+  const { createPiExtension } = await import("../adapters/pi.ts");
+  const handlers = new Map<string, Function>();
+  let prompted = 0;
+  createPiExtension(
+    {
+      on: (name: string, handler: Function) => handlers.set(name, handler),
+      registerTool() {},
+      registerCommand() {},
+      appendEntry() {},
+    } as never,
+    { runtime: Promise.resolve(runtime) },
+  );
+  for (let seed = 0; seed < 1_024; seed++) {
+    const autoApprove = seed % 2 === 0;
+    await handlers.get("session_start")!(
+      {},
+      {
+        cwd: "/workspace",
+        hasUI: true,
+        model: undefined,
+        modelRegistry: { getAvailable: () => [], getAll: () => [] },
+        sessionManager: {
+          getBranch: () => [
+            {
+              type: "custom",
+              customType: "safety-core-pi-settings",
+              data: { autoApprove, judgeModel: null, showFullCommand: true },
+            },
+          ],
+        },
+        ui: {
+          notify() {},
+          confirm: async () => {
+            prompted++;
+            return false;
+          },
+        },
+      },
+    );
+    await expect(
+      forwardPermissionPrompt(
+        { title: `Nested permission ${seed}`, message: `nested deferred command ${seed}` },
+        { environment: { SAFETY_CORE_PROMPT_SOCKET: process.env.SAFETY_CORE_PROMPT_SOCKET! } },
+      ),
+      `seed ${seed}`,
+    ).resolves.toBe(autoApprove);
+  }
+  expect(prompted).toBe(512);
+});
+
 test("Pi synthesizes a defer reason for uncovered invocations and unmodelled constructs", async () => {
   const { createPiExtension } = await import("../adapters/pi.ts");
   const uncovered: BashPolicyEvaluation = {

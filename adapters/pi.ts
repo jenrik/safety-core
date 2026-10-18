@@ -116,6 +116,9 @@ export function nextPermissionPromptScrollTop(
 
 let rootPromptServer: PermissionPromptServer | undefined;
 let rootPromptContext: ExtensionContext | undefined;
+// The socket is process-wide, so keep the root session's current setting next
+// to its context rather than capturing whichever extension created it first.
+let rootPromptAutoApprove = false;
 
 export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDependencies = {}) {
   const parserReady = initBundledBashParser();
@@ -138,6 +141,7 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
   const restoreSettings = async (ctx: ExtensionContext) => {
     const runtime = await ensureRuntime(ctx.cwd);
     settings = resolvePiSessionSettings(sessionEntries(ctx), runtime.config.pi);
+    rootPromptAutoApprove = settings.autoApprove;
     activeModel = ctx.model;
     modelRegistry = ctx.modelRegistry;
     await refreshJudge();
@@ -181,6 +185,9 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
     }
     rootPromptContext = ctx;
     rootPromptServer ??= await createPermissionPromptServer(async ({ title, message }) => {
+      // Nested harnesses only forward policy defers. Apply the same session
+      // setting as Pi's direct Bash path before falling back to the root UI.
+      if (rootPromptAutoApprove) return true;
       const root = rootPromptContext;
       return root?.hasUI
         ? showPiPermissionPrompt(root, {
@@ -314,7 +321,10 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
               await reloadPolicies(ctx);
               return;
             }
-            if (id === "auto-approve") settings = { ...settings, autoApprove: value === "enabled" };
+            if (id === "auto-approve") {
+              settings = { ...settings, autoApprove: value === "enabled" };
+              rootPromptAutoApprove = settings.autoApprove;
+            }
             if (id === "show-full-command") {
               const showFullCommand = value === "enabled";
               settings = { ...settings, showFullCommand };
