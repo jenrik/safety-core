@@ -21,7 +21,7 @@ import {
   inheritedBashFunctionFact,
 } from "../policy-environment.js";
 
-export type ReadOnlyPolicy = "generic-read-only" | "gh-read-only" | "strict-read-only";
+export type ReadOnlyPolicy = "generic-read-only" | "strict-read-only";
 
 const UNSAFE_CONFIGURATION_BINDINGS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   docker: ["DOCKER_CONFIG"],

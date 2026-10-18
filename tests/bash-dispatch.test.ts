@@ -12,14 +12,13 @@ import {
   preflightCommand,
 } from "../src/bash/dispatch.ts";
 import { fromInitialEnvironment, fromVerifiedInitialEnvironment, unknown } from "../src/bash/environment.ts";
-import { httpHandlers } from "../src/bash/handlers/http.ts";
 import { readerHandlers } from "../src/bash/handlers/readers.ts";
 import { structuralHandlers } from "../src/bash/handlers/registry.ts";
 import { safe } from "../src/bash/outcome.ts";
 import { runSteps } from "../src/bash/runner.ts";
 import { type BashDispatchRequest, type BashDispatchResult, walkProgram } from "../src/bash/walker.ts";
 import { initBashParser, parseBashProgram } from "../src/index.ts";
-import { HTTP_TOOLS, READING_COMMANDS } from "../src/patterns.ts";
+import { READING_COMMANDS } from "../src/patterns.ts";
 
 const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-bash-dispatch-"));
 
@@ -95,7 +94,6 @@ describe("named Bash command dispatch", () => {
 
   test("property: command-policy facades cover exactly their configured command sets", () => {
     expect(new Set(readerHandlers.map((handler) => handler.name))).toEqual(new Set(READING_COMMANDS));
-    expect(new Set(httpHandlers.map((handler) => handler.name))).toEqual(new Set(HTTP_TOOLS));
   });
 
   test("composes a caller policy handler with mandatory wrapper recursion", () => {

@@ -27,7 +27,6 @@ export type StrictBashProfile = (typeof STRICT_BASH_PROFILE_EXECUTABLES)[number]
 export interface BashProfileSnapshot {
   readonly readOnlyBash: boolean;
   readonly ghApiReadOnly: boolean;
-  readonly ghReadOnly: boolean;
   readonly strictProfiles: Readonly<Record<StrictBashProfile, boolean>>;
   readonly ghPrCreate: {
     readonly enabled: boolean;

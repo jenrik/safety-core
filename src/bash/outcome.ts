@@ -43,7 +43,6 @@ export interface PolicyEvidence {
     | "gh-api"
     | "gh-pr-create"
     | "generic-read-only"
-    | "gh-read-only"
     | "strict-read-only";
   readonly decision: "allow" | "deny" | "defer";
   readonly reason?: string;

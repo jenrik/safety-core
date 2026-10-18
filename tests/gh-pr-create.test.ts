@@ -42,7 +42,6 @@ function decision(command: string, activePolicy: GhPrCreatePolicy = policy): str
   const profileSnapshot: BashProfileSnapshot = Object.freeze({
     readOnlyBash: false,
     ghApiReadOnly: false,
-    ghReadOnly: false,
     strictProfiles: Object.freeze(
       Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false])),
     ) as BashProfileSnapshot["strictProfiles"],

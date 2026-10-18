@@ -43,7 +43,6 @@ function snapshot(overrides: Partial<BashProfileSnapshot> = {}): BashProfileSnap
   return Object.freeze({
     readOnlyBash: false,
     ghApiReadOnly: false,
-    ghReadOnly: false,
     strictProfiles: Object.freeze(
       Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false])),
     ) as BashProfileSnapshot["strictProfiles"],
@@ -74,10 +73,6 @@ function ghPrCreate(source: string, activePolicy: GhPrCreatePolicy = policy): st
     .permission.kind;
 }
 
-function ghReadOnly(source: string): string {
-  return configured(source, snapshot({ ghReadOnly: true })).permission.kind;
-}
-
 function strictReadOnly(source: string, profile: "dockerReadOnly" | "kubectlReadOnly"): string {
   return configured(
     source,
@@ -93,7 +88,6 @@ describe("walker-backed gh policy compatibility", () => {
       "strace -o trace.log gh api user -X POST",
       snapshot({
         ghApiReadOnly: true,
-        ghReadOnly: true,
         ghPrCreate: Object.freeze(policy),
       }),
       { GH_PAGER: "", GH_PROMPT_DISABLED: "1" },
@@ -107,7 +101,6 @@ describe("walker-backed gh policy compatibility", () => {
   test("property: opaque shell routes defer every enabled GitHub profile", () => {
     const profiles = snapshot({
       ghApiReadOnly: true,
-      ghReadOnly: true,
       ghPrCreate: Object.freeze(policy),
     });
     const staticRoutes = [
@@ -379,7 +372,6 @@ describe("walker-backed gh policy compatibility", () => {
   });
 
   test("does not activate unrelated credential-safe profiles", () => {
-    expect(ghReadOnly("gh label list; docker image ls")).toBe("defer");
     expect(strictReadOnly("docker image ls; gh label list", "dockerReadOnly")).toBe("defer");
     expect(strictReadOnly("docker image ls; kubectl get pods", "dockerReadOnly")).toBe("defer");
   });
@@ -541,20 +533,14 @@ describe("walker-backed gh policy compatibility", () => {
     expect(strictReadOnly("TOOL=docker; $TOOL image ls; docker volume ls", "dockerReadOnly")).toBe("allow");
   });
 
-  test("migrates gh read-only profiles through assignments and wrappers", () => {
-    expect(ghReadOnly("TOOL=gh; strace $TOOL version")).toBe("defer");
-  });
-
   test("defers credential-safe profiles after persisted credential configuration bindings", () => {
     expect(strictReadOnly("KUBECONFIG=/tmp/kubeconfig; kubectl get pods", "kubectlReadOnly")).toBe("defer");
     expect(strictReadOnly("DOCKER_CONFIG=/tmp/docker-config; docker image ls", "dockerReadOnly")).toBe("defer");
-    expect(ghReadOnly("GH_CONFIG_DIR=/tmp/gh-config; gh label list")).toBe("defer");
   });
 
   test("preserves credential-safe allows for unrelated persisted bindings", () => {
     expect(strictReadOnly("LABEL=stable; kubectl get pods", "kubectlReadOnly")).toBe("allow");
     expect(strictReadOnly("TOOL=docker; $TOOL image ls", "dockerReadOnly")).toBe("allow");
-    expect(ghReadOnly("LABEL=stable; gh version")).toBe("defer");
   });
 
   test("enforces verified, empty, inherited, unavailable, and shell-overridden gh environment facts", () => {
@@ -849,13 +835,6 @@ describe("walker-backed gh policy compatibility", () => {
         const args = [...render(left, "GET"), ...render(right, "GET"), "user"];
         expect(ghApi(`strace gh api ${args.join(" ")}`), args.join(" ")).toBe("defer");
       }
-    }
-  });
-
-  test("property: common gh startup forms compose only to a defer", () => {
-    const ghReads = ["gh --version", "gh version", "gh help environment"];
-    for (const left of ghReads) {
-      for (const right of ghReads) expect(ghReadOnly(`${left}; ${right}`)).toBe("defer");
     }
   });
 

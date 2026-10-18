@@ -37,7 +37,6 @@ function snapshot(overrides: Partial<BashProfileSnapshot> = {}): BashProfileSnap
   return Object.freeze({
     readOnlyBash: false,
     ghApiReadOnly: false,
-    ghReadOnly: false,
     strictProfiles: Object.freeze(
       Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false])),
     ) as BashProfileSnapshot["strictProfiles"],
@@ -58,15 +57,14 @@ function evaluate(source: string, profileSnapshot: BashProfileSnapshot) {
 describe("configured Bash permissions", () => {
   test("auto-allows only one profile's complete coverage", () => {
     const profiles = snapshot({
-      ghReadOnly: true,
       strictProfiles: Object.freeze({ ...snapshot().strictProfiles, dockerReadOnly: true }),
     });
 
-    expect(evaluate("gh version", profiles).permission).toEqual({ kind: "defer" });
-    expect(evaluate("gh --version; gh version", profiles).permission).toEqual({ kind: "defer" });
+    expect(evaluate("gh version", profiles).permission).toEqual({ kind: "ignore" });
+    expect(evaluate("gh --version; gh version", profiles).permission).toEqual({ kind: "ignore" });
     expect(evaluate("gh label list; docker image ls", profiles).permission).toEqual({ kind: "defer" });
     expect(evaluate("docker image ls; gh label list", profiles).permission).toEqual({ kind: "defer" });
-    expect(evaluate("gh label list; unknown-command", profiles).permission).toEqual({ kind: "defer" });
+    expect(evaluate("gh label list; unknown-command", profiles).permission).toEqual({ kind: "ignore" });
     expect(evaluate("gh api user; cat README.md", snapshot({ ghApiReadOnly: true })).permission).toEqual({
       kind: "defer",
     });
@@ -86,7 +84,6 @@ describe("configured Bash permissions", () => {
 
   test("keeps gh ownership deterministic while ghPrCreate is active", () => {
     const profiles = snapshot({
-      ghReadOnly: true,
       ghApiReadOnly: true,
       ghPrCreate: Object.freeze({
         enabled: true,
@@ -100,7 +97,7 @@ describe("configured Bash permissions", () => {
     ).toEqual({ kind: "defer" });
     expect(evaluate("gh api user", profiles).permission).toMatchObject({ kind: "deny", profile: "ghPrCreate" });
     expect(evaluate("gh api user", profiles).guards).toMatchObject({ kind: "block", policy: { name: "gh-pr-create" } });
-    expect(evaluate("gh version", profiles).permission).toEqual({ kind: "defer" });
+    expect(evaluate("gh version", profiles).permission).toEqual({ kind: "ignore" });
   });
 
   test("keeps guard, permission, failure, and audit views separate and redacted", () => {
@@ -139,7 +136,7 @@ describe("configured Bash permissions", () => {
     });
 
     const serialized = JSON.stringify(
-      evaluate("CANARY_VALUE=never-emit; gh label list", snapshot({ ghReadOnly: true })),
+      evaluate("CANARY_VALUE=never-emit; gh api user", snapshot({ ghApiReadOnly: true })),
     );
     expect(serialized).not.toContain("CANARY_VALUE");
     expect(serialized).not.toContain("never-emit");
@@ -148,16 +145,15 @@ describe("configured Bash permissions", () => {
     expect(Object.isFrozen(kubectl.audit.events[0]!)).toBe(true);
   });
 
-  test("preserves wrapper coverage and native deferral for incomplete analysis", () => {
-    const gh = snapshot({ ghReadOnly: true });
-    expect(evaluate("TOOL=gh; strace $TOOL version", gh).permission).toEqual({ kind: "defer" });
-    expect(evaluate("strace -o trace.log gh label list", gh).permission).toEqual({ kind: "defer" });
-    expect(evaluate("if then", gh).permission.kind).not.toBe("allow");
+  test("preserves native deferral for incomplete analysis", () => {
+    const api = snapshot({ ghApiReadOnly: true });
+    expect(evaluate("TOOL=gh; strace $TOOL api user", api).permission).toEqual({ kind: "defer" });
+    expect(evaluate("strace -o trace.log gh api user", api).permission).toEqual({ kind: "defer" });
+    expect(evaluate("if then", api).permission.kind).not.toBe("allow");
 
     const exhausted = evaluate(
       "gh label list",
       snapshot({
-        ghReadOnly: true,
         limits: Object.freeze({ ...limits, maxSteps: 0 }),
       }),
     );
@@ -215,7 +211,6 @@ describe("configured Bash permissions", () => {
 
   test("property: source and profile order cannot turn mixed ownership into an allow", () => {
     const profiles = snapshot({
-      ghReadOnly: true,
       strictProfiles: Object.freeze({ ...snapshot().strictProfiles, dockerReadOnly: true }),
     });
     const gh = ["gh --version", "gh version", "gh help environment"];

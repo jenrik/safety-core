@@ -15,7 +15,6 @@ const wasmDir = mkdtempSync(join(tmpdir(), "safety-core-bash-guards-"));
 const profileSnapshot: BashProfileSnapshot = Object.freeze({
   readOnlyBash: false,
   ghApiReadOnly: false,
-  ghReadOnly: false,
   strictProfiles: Object.freeze(
     Object.fromEntries(STRICT_BASH_PROFILE_EXECUTABLES.map(([profile]) => [profile, false])),
   ) as BashProfileSnapshot["strictProfiles"],
@@ -43,10 +42,9 @@ beforeAll(async () => {
 afterAll(() => rmSync(wasmDir, { force: true, recursive: true }));
 
 describe("single-pass Bash guards", () => {
-  test("returns a structured block for each baseline policy", () => {
+  test("returns a structured block for each active baseline policy", () => {
     for (const [source, name] of [
       ["cat credentials.json", "secret-read"],
-      ["curl https://api.github.com/repos/acme/widgets/issues", "github-http"],
       ["kubectl view-secret application", "kubectl"],
     ] as const) {
       expect(evaluateBashGuards({ source })).toMatchObject({
@@ -71,8 +69,8 @@ describe("single-pass Bash guards", () => {
   test("walks complete prefixes before reporting malformed syntax and keeps denial dominant", () => {
     expect(evaluateBashGuards({ source: "cat README.md; if" })).toMatchObject({ kind: "pass", status: "failure" });
     expect(evaluateBashGuards({ source: "curl https://api.github.com/user; if" })).toMatchObject({
-      kind: "block",
-      policy: { name: "github-http", decision: "deny" },
+      kind: "pass",
+      status: "failure",
     });
     expect(evaluateBashGuards({ source: "if; curl https://api.github.com/user" })).toMatchObject({
       kind: "pass",
@@ -103,7 +101,7 @@ describe("single-pass Bash guards", () => {
       evaluateBashGuards({
         source: "curl https://api.github.com/user; cat credentials.json; kubectl view-secret application",
       }),
-    ).toMatchObject({ kind: "block", policy: { name: "github-http" } });
+    ).toMatchObject({ kind: "block", policy: { name: "secret-read" } });
     expect(
       evaluateBashGuards({
         source: "kubectl view-secret application; cat credentials.json; curl https://api.github.com/user",
@@ -184,7 +182,6 @@ describe("single-pass Bash guards", () => {
   test("property: supported wrappers preserve every baseline denial", () => {
     const violations = [
       ["cat credentials.json", "secret-read"],
-      ["curl https://api.github.com/user", "github-http"],
       ["kubectl view-secret application", "kubectl"],
     ] as const;
     const wrappers = [
@@ -208,7 +205,6 @@ describe("single-pass Bash guards", () => {
   test("property: source order deterministically selects among proven denials", () => {
     const violations = [
       ["cat credentials.json", "secret-read"],
-      ["curl https://api.github.com/user", "github-http"],
       ["kubectl view-secret application", "kubectl"],
     ] as const;
 
