@@ -1,0 +1,79 @@
+{
+  "language": "safety-core/bash-policy-v2",
+  "layer": "permission",
+  "select": [{ "executable": { "projection": "basename", "equals": "sed" } }],
+  "registers": {},
+  "folds": {},
+  "options": {},
+  "fragments": {},
+  "start": "start",
+  "states": {
+    "start": {
+      "cases": [
+        { "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["-n", "--quiet", "--silent"]] }, "action": { "consume": "word", "next": "afterQuiet" } },
+        { "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["-s", "--separate"]] }, "action": { "consume": "word", "next": "afterSeparate" } }
+      ],
+      "default": { "decision": "defer" }, "end": { "decision": "defer" }
+    },
+    "afterQuiet": {
+      "cases": [
+        { "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["-s", "--separate"]] }, "action": { "consume": "word", "next": "program" } },
+        { "when": { "call": "inStringSet", "args": [{ "ref": "byte" }, ["1", "2", "3", "4", "5", "6", "7", "8", "9"]] }, "action": { "consume": "byte", "next": "firstDigits" } }
+      ],
+      "default": { "decision": "defer" }, "end": { "decision": "defer" }
+    },
+    "afterSeparate": {
+      "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "word" }, ["-n", "--quiet", "--silent"]] }, "action": { "consume": "word", "next": "program" } }],
+      "default": { "decision": "defer" }, "end": { "decision": "defer" }
+    },
+    "program": {
+      "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "byte" }, ["1", "2", "3", "4", "5", "6", "7", "8", "9"]] }, "action": { "consume": "byte", "next": "firstDigits" } }],
+      "default": { "decision": "defer" }, "end": { "decision": "defer" }
+    },
+    "firstDigits": {
+      "cases": [
+        { "when": { "call": "inStringSet", "args": [{ "ref": "byte" }, ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]] }, "action": { "consume": "byte", "next": "firstDigits" } },
+        { "when": { "call": "equals", "args": [{ "ref": "byte" }, "p"] }, "action": { "consume": "byte", "next": "programEnd" } },
+        { "when": { "call": "equals", "args": [{ "ref": "byte" }, ","] }, "action": { "consume": "byte", "next": "secondNumber" } }
+      ],
+      "default": { "decision": "defer" }, "end": { "decision": "defer" }
+    },
+    "secondNumber": {
+      "cases": [{ "when": { "call": "inStringSet", "args": [{ "ref": "byte" }, ["1", "2", "3", "4", "5", "6", "7", "8", "9"]] }, "action": { "consume": "byte", "next": "secondDigits" } }],
+      "default": { "decision": "defer" }, "end": { "decision": "defer" }
+    },
+    "secondDigits": {
+      "cases": [
+        { "when": { "call": "inStringSet", "args": [{ "ref": "byte" }, ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]] }, "action": { "consume": "byte", "next": "secondDigits" } },
+        { "when": { "call": "equals", "args": [{ "ref": "byte" }, "p"] }, "action": { "consume": "byte", "next": "programEnd" } }
+      ],
+      "default": { "decision": "defer" }, "end": { "decision": "defer" }
+    },
+    "programEnd": {
+      "cases": [{ "when": { "call": "atEndOfWord", "args": [] }, "action": { "consume": "word", "next": "fileOrTerminator" } }],
+      "default": { "decision": "defer" }, "end": { "decision": "defer" }
+    },
+    "fileOrTerminator": {
+      "cases": [
+        { "when": { "call": "equals", "args": [{ "ref": "word" }, "--"] }, "action": { "consume": "word", "next": "afterTerminator" } },
+        { "when": { "all": [{ "not": { "call": "equals", "args": [{ "ref": "word" }, ""] } }, { "not": { "call": "startsWith", "args": [{ "ref": "word" }, "-"] } }, { "call": "executionTargetIs", "args": ["external-path"] }, { "call": "isDirectExecutable", "args": ["sed"] }, { "call": "assignmentsAreSubset", "args": [["LC_ADDRESS", "LC_ALL", "LC_COLLATE", "LC_CTYPE", "LC_IDENTIFICATION", "LC_MEASUREMENT", "LC_MESSAGES", "LC_MONETARY", "LC_NAME", "LC_NUMERIC", "LC_PAPER", "LC_TELEPHONE", "LC_TIME", "POSIXLY_CORRECT"]] }] }, "action": { "consume": "word", "next": "filesBeforeTerminator" } }
+      ],
+      "default": { "decision": "defer" }, "end": { "decision": "defer" }
+    },
+    "afterTerminator": {
+      "cases": [{ "when": { "all": [{ "not": { "call": "equals", "args": [{ "ref": "word" }, ""] } }, { "not": { "call": "equals", "args": [{ "ref": "word" }, "-"] } }, { "call": "executionTargetIs", "args": ["external-path"] }, { "call": "isDirectExecutable", "args": ["sed"] }, { "call": "assignmentsAreSubset", "args": [["LC_ADDRESS", "LC_ALL", "LC_COLLATE", "LC_CTYPE", "LC_IDENTIFICATION", "LC_MEASUREMENT", "LC_MESSAGES", "LC_MONETARY", "LC_NAME", "LC_NUMERIC", "LC_PAPER", "LC_TELEPHONE", "LC_TIME", "POSIXLY_CORRECT"]] }] }, "action": { "consume": "word", "next": "filesAfterTerminator" } }],
+      "default": { "decision": "defer" }, "end": { "decision": "defer" }
+    },
+    "filesBeforeTerminator": {
+      "cases": [
+        { "when": { "call": "equals", "args": [{ "ref": "word" }, "--"] }, "action": { "consume": "word", "next": "filesAfterTerminator" } },
+        { "when": { "all": [{ "not": { "call": "equals", "args": [{ "ref": "word" }, ""] } }, { "not": { "call": "startsWith", "args": [{ "ref": "word" }, "-"] } }] }, "action": { "consume": "word", "next": "filesBeforeTerminator" } }
+      ],
+      "default": { "decision": "defer" }, "end": { "decision": "allow", "reason": ["GNU sed quiet line-range print is auto-allowed"] }
+    },
+    "filesAfterTerminator": {
+      "cases": [{ "when": { "all": [{ "not": { "call": "equals", "args": [{ "ref": "word" }, ""] } }, { "not": { "call": "equals", "args": [{ "ref": "word" }, "-"] } }] }, "action": { "consume": "word", "next": "filesAfterTerminator" } }],
+      "default": { "decision": "defer" }, "end": { "decision": "allow", "reason": ["GNU sed quiet line-range print is auto-allowed"] }
+    }
+  }
+}
