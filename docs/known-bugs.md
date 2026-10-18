@@ -247,3 +247,9 @@ rely on aggregate `defer`. The core should extend
 `src/bash/handlers/wrappers.ts` and the individual `src/bash/handlers/command-*.ts`
 wrappers to cover each supported transparent wrapper, with Bash-oracle property
 tests showing that both the wrapper and the child are emitted.
+
+## Nested harness prompt socket should be set at core initialization
+
+Running test from agent causes all defers from tests to propagate up to the user.
+Suggestion solution is to use a dependency injection pattern to set the prompt socket,
+and to not set the prompt socket for tests. This should free us from side-effect from environment variables.
