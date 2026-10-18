@@ -11,7 +11,12 @@
         "x86_64-linux"
         "aarch64-linux"
       ];
-      pkgsFor = system: nixpkgs.legacyPackages.${system};
+      pkgsFor =
+        system:
+        import nixpkgs {
+          inherit system;
+          config.allowUnfreePredicate = pkg: lib.getName pkg == "webstorm";
+        };
       scFor = system: (pkgsFor system).callPackage ./package.nix { };
       mkDevelopmentCli =
         pkgs:
@@ -320,9 +325,7 @@
         system:
         let
           pkgs = pkgsFor system;
-        in
-        {
-          default = pkgs.mkShell {
+          defaultDevShell = pkgs.mkShell {
             packages = [
               pkgs.bun
               pkgs.nodejs_22
@@ -342,6 +345,13 @@
                 pre-commit install >/dev/null
               fi
             '';
+          };
+        in
+        {
+          default = defaultDevShell;
+          webstorm = pkgs.mkShell {
+            inputsFrom = [ defaultDevShell ];
+            packages = [ pkgs.jetbrains.webstorm ];
           };
         }
       );
