@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { BUILTINS_V1, BUILTINS_V2 } from "../src/policy/dsl/builtins.ts";
 import { compilePolicyDocument } from "../src/policy/dsl/compile.ts";
 import {
   POLICY_LANGUAGE_V1,
   POLICY_LANGUAGE_V2,
   parsePolicyDocument,
+  validatePolicyDecisionReachability,
   validatePolicyDocument,
   validatePolicyStateReachability,
 } from "../src/policy/dsl/validate.ts";
@@ -152,6 +155,55 @@ describe("DCRM JSON policy validation", () => {
     fragment.states.command.fragments = ["move"];
     fragment.states.orphan = { cases: [], default: { decision: "ignore" }, end: { decision: "ignore" } };
     expect(() => validatePolicyStateReachability(validatePolicyDocument(fragment))).not.toThrow();
+  });
+
+  test("rejects a permission policy with no reachable allow or deny decision", () => {
+    const document = policy();
+    document.states.tail.default = { decision: "defer" };
+    document.states.tail.end = { decision: "defer" };
+    expect(() => validatePolicyDecisionReachability(validatePolicyDocument(document))).toThrow(
+      "$.states: permission policy has no reachable allow or deny decision and can only defer",
+    );
+  });
+
+  test("ignores allow and deny terminals that are unreachable from start", () => {
+    const document = policy();
+    document.states.command.cases = [];
+    expect(() => validatePolicyDecisionReachability(validatePolicyDocument(document))).toThrow(
+      "permission policy has no reachable allow or deny decision",
+    );
+  });
+
+  test("accepts reachable deny terminals and guard policies without allow", () => {
+    const denied = policy();
+    denied.states.tail.end = { decision: "deny", reason: ["blocked"] };
+    expect(() => validatePolicyDecisionReachability(validatePolicyDocument(denied))).not.toThrow();
+
+    const guard = policy();
+    guard.layer = "guard";
+    guard.states.tail.end = { decision: "defer" };
+    expect(() => validatePolicyDecisionReachability(validatePolicyDocument(guard))).not.toThrow();
+  });
+
+  test("counts allow and deny terminals contributed by reachable fragments", () => {
+    const reachable = policy();
+    reachable.states.tail.end = { decision: "defer" };
+    reachable.fragments = {
+      permit: { cases: [{ when: true, action: { decision: "deny", reason: ["fragment rejection"] } }] },
+    };
+    reachable.states.command.fragments = ["permit"];
+    expect(() => validatePolicyDecisionReachability(validatePolicyDocument(reachable))).not.toThrow();
+
+    const unreachable = policy();
+    unreachable.states.command.cases = [];
+    unreachable.states.tail.end = { decision: "defer" };
+    unreachable.fragments = {
+      permit: { cases: [{ when: true, action: { decision: "allow", reason: ["unreachable fragment"] } }] },
+    };
+    unreachable.states.tail.fragments = ["permit"];
+    expect(() => validatePolicyDecisionReachability(validatePolicyDocument(unreachable))).toThrow(
+      "permission policy has no reachable allow or deny decision",
+    );
   });
 
   test("enforces action and expression typing and guard capabilities", () => {
@@ -355,6 +407,55 @@ describe("DCRM JSON policy validation", () => {
     }
   });
 
+  test("property: decision reachability accepts exactly when a reachable terminal allows or denies", () => {
+    const decisions = ["ignore", "defer", "allow", "deny"] as const;
+    const terminal = (decision: (typeof decisions)[number]) =>
+      decision === "allow" || decision === "deny" ? { decision, reason: ["authorization"] } : { decision };
+    for (let seed = 0; seed < 256; seed++) {
+      const document = policy();
+      const stateCount = 1 + (seed % 8);
+      const reachableCount = 1 + (seed % stateCount);
+      document.states = Object.fromEntries(
+        Array.from({ length: stateCount }, (_, index) => [
+          `state${index}`,
+          {
+            cases: [
+              {
+                when: true,
+                action: {
+                  consume: "word",
+                  next:
+                    index < reachableCount ? `state${index + 1 < reachableCount ? index + 1 : index}` : `state${index}`,
+                },
+              },
+            ],
+            default: terminal(decisions[(seed >> (index * 2)) & 3]!),
+            end: terminal(decisions[(seed >> (index * 2 + 1)) & 3]!),
+          },
+        ]),
+      );
+      document.start = "state0";
+      const fragmentDecision = decisions[(seed >> 4) & 3]!;
+      const useFragment = seed % 3 === 0;
+      document.fragments = { gate: { cases: [{ when: true, action: terminal(fragmentDecision) }] } };
+      if (useFragment) document.states.state0.fragments = ["gate"];
+
+      const authorized = (decision: (typeof decisions)[number]) => decision === "allow" || decision === "deny";
+      const expected =
+        (useFragment && authorized(fragmentDecision)) ||
+        Array.from({ length: reachableCount }, (_, index) => `state${index}`).some((name) => {
+          const state = document.states[name] as Record<string, any>;
+          return authorized(state.default.decision) || authorized(state.end.decision);
+        });
+      const validation = () => validatePolicyDecisionReachability(validatePolicyDocument(document));
+      if (expected) expect(validation, `seed ${seed}`).not.toThrow();
+      else
+        expect(validation, `seed ${seed}`).toThrow(
+          "permission policy has no reachable allow or deny decision and can only defer",
+        );
+    }
+  });
+
   test("property: validation work grows linearly with source node count", () => {
     const measures: number[] = [];
     const work: number[] = [];
@@ -461,6 +562,21 @@ describe("DCRM JSON policy validation", () => {
           .length,
         `depth ${depth}`,
       ).toBe(2 ** depth);
+    }
+  });
+
+  test("every packaged policy passes state and decision reachability", () => {
+    const root = fileURLToPath(new URL("../policies/dsl/", import.meta.url));
+    const paths = readdirSync(root, { recursive: true })
+      .map((path) => String(path))
+      .filter((path) => path.endsWith(".policy.json"))
+      .sort();
+    expect(paths.length).toBeGreaterThan(0);
+    for (const path of paths) {
+      const policyPath = join(root, path);
+      const document = parsePolicyDocument(readFileSync(policyPath, "utf8"));
+      expect(() => validatePolicyStateReachability(document), policyPath).not.toThrow();
+      expect(() => validatePolicyDecisionReachability(document), policyPath).not.toThrow();
     }
   });
 });

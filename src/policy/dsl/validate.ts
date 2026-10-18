@@ -653,6 +653,59 @@ function validateStates(
 export function validatePolicyStateReachability(
   document: Pick<PolicyDocument, "states" | "fragments" | "start">,
 ): void {
+  const reachable = reachablePolicyStates(document);
+  for (const state of Object.keys(document.states)) {
+    if (!reachable.has(state))
+      fail(`$.states.${state}`, `state ${state} is unreachable from start state ${document.start}`);
+  }
+}
+
+/**
+ * Reject a permission policy whose reachable states cannot return allow or
+ * deny. Such a policy only classifies events that defer anyway, so it adds no
+ * authorization value over letting the harness prompt.
+ */
+export function validatePolicyDecisionReachability(
+  document: Pick<PolicyDocument, "layer" | "states" | "fragments" | "start">,
+): void {
+  if (document.layer !== "permission") return;
+  const reachable = reachablePolicyStates(document);
+  const reachableFragments = new Set<string>();
+  for (const stateName of reachable) {
+    for (const fragment of document.states[stateName]!.fragments)
+      collectFragments(fragment, document.fragments, reachableFragments);
+  }
+  const canAuthorize = (stateName: string): boolean => {
+    const state = document.states[stateName]!;
+    return (
+      isAuthorizationDecision(state.default) ||
+      isAuthorizationDecision(state.end) ||
+      state.cases.some((entry) => entry.action.kind === "terminal" && isAuthorizationDecision(entry.action))
+    );
+  };
+  const fragmentAuthorizes = (fragmentName: string): boolean =>
+    document.fragments[fragmentName]!.cases.some(
+      (entry) => entry.action.kind === "terminal" && isAuthorizationDecision(entry.action),
+    );
+  if ([...reachable].some(canAuthorize) || [...reachableFragments].some(fragmentAuthorizes)) return;
+  fail("$.states", "permission policy has no reachable allow or deny decision and can only defer");
+}
+
+function collectFragments(
+  name: string,
+  fragments: Readonly<Record<string, FragmentDeclaration>>,
+  collected: Set<string>,
+): void {
+  if (collected.has(name)) return;
+  collected.add(name);
+  for (const used of fragments[name]!.uses) collectFragments(used, fragments, collected);
+}
+
+function isAuthorizationDecision(action: TerminalAction): boolean {
+  return action.decision === "allow" || action.decision === "deny";
+}
+
+function reachablePolicyStates(document: Pick<PolicyDocument, "states" | "fragments" | "start">): ReadonlySet<string> {
   const { states, fragments, start } = document;
   const fragmentTransitions = new Map<string, readonly string[]>();
   const visiting = new Set<string>();
@@ -687,10 +740,7 @@ export function validatePolicyStateReachability(
       pending.push(next);
     }
   }
-
-  for (const state of Object.keys(states)) {
-    if (!reachable.has(state)) fail(`$.states.${state}`, `state ${state} is unreachable from start state ${start}`);
-  }
+  return reachable;
 }
 
 function validateCase(policyCase: PolicyCase, layer: string, names: Names, pointer: string): void {

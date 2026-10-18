@@ -168,7 +168,13 @@ test("packed packages install and expose the OpenCode v1 server and TUI forms; p
         select: [{ kind: "invocation" }],
         registers: {},
         start: "start",
-        states: { start: { cases: [], default: { decision: "ignore" }, end: { decision: "ignore" } } },
+        states: {
+          start: {
+            cases: [],
+            default: { decision: "ignore" },
+            end: { decision: "allow", reason: ["standalone allow"] },
+          },
+        },
       }),
     );
     const standaloneValidation = spawnSync(

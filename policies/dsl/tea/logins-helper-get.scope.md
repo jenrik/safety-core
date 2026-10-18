@@ -4,7 +4,9 @@
 
 ## Intent and protected asset
 
-`logins-helper-get.policy.json` protects stored and refreshed access tokens by never auto-permitting credential retrieval.
+`logins-helper-get.policy.json` is a guard policy that protects stored and
+refreshed access tokens by classifying credential retrieval as deferred. It
+never grants the route.
 
 ## Exact scope and aliases
 
@@ -20,4 +22,7 @@ This policy neither parses stdin nor attempts credential redaction.
 
 ## Permit/defer/deny behavior
 
-There is no permit path and no deny path. Exact and mismatched routes both defer to the native permission system.
+This guard policy has no permit path and no deny path. Exact and mismatched
+routes both defer. The parent `logins-helper.policy.json` permission policy also
+defers the `get` subcommand, so no Tea permission policy covers the credential
+retrieval route.

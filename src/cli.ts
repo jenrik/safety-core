@@ -4,7 +4,11 @@ import { basename, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Command, CommanderError, InvalidArgumentError } from "commander";
 import { PolicyStartupError } from "./policy/config.js";
-import { parsePolicyDocument, validatePolicyStateReachability } from "./policy/dsl/validate.js";
+import {
+  parsePolicyDocument,
+  validatePolicyDecisionReachability,
+  validatePolicyStateReachability,
+} from "./policy/dsl/validate.js";
 import {
   buildExplainEnvironment,
   type ExplainEnvironmentAssignment,
@@ -57,12 +61,14 @@ export function createProgram(): Command {
     .command("policy")
     .description("inspect standalone declarative policy sources")
     .command("validate")
-    .description("validate a declarative policy schema and state reachability")
+    .description("validate a declarative policy schema, state reachability, and permission authorization reachability")
     .argument("<path>", "declarative .policy.json source")
     .action((path: string) => {
       const canonicalPath = canonicalPolicyPath(path);
       try {
-        validatePolicyStateReachability(parsePolicyDocument(readFileSync(canonicalPath, "utf8")));
+        const document = parsePolicyDocument(readFileSync(canonicalPath, "utf8"));
+        validatePolicyStateReachability(document);
+        validatePolicyDecisionReachability(document);
       } catch (error) {
         if (error instanceof PolicyStartupError) throw error;
         const detail = error instanceof Error ? `invalid DSL policy: ${error.message}` : "invalid DSL policy";

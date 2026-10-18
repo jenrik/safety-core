@@ -17,11 +17,11 @@ not treat launching that opener as a read-only operation.
 
 ## In scope
 
-The permission policy selects only modeled invocation events whose executable
+The guard policy selects only modeled invocation events whose executable
 basename is exact, case-sensitive `tea`. It recognizes only the first argument
 routes `open` and `o`. Either route immediately returns `defer`, before parsing
 any later flags or operands, so `tea open`, `tea o`, and every variant with
-arguments are never automatically permitted by this policy.
+arguments are never granted by this policy.
 
 Every other first argument, an argument-less `tea` invocation, and a basename
 other than exact lowercase `tea` defer immediately. This keeps route selection
@@ -46,11 +46,13 @@ opener is outside the non-adversarial agent threat model.
 ## Expected outcomes
 
 - **permit:** none. `tea open`/`tea o` has no automatically permitted form.
-- **defer:** exact `open`/`o` routes defer with the full invocation audit. The
-  DSL does not support a reason on a defer terminal; this scope records that the
-  route launches a browser or URL opener. Empty, unsupported, or unrelated
-  routes also defer, without authorizing any other Tea path.
-- **deny:** this permission policy has no deny rule. A separate guard policy may
+- **defer:** this guard classifies exact `open`/`o` routes as defer with the
+  full invocation audit, and no Tea permission policy covers the route, so the
+  aggregate decision is prompt-gated. The DSL does not support a reason on a
+  defer terminal; this scope records that the route launches a browser or URL
+  opener. Empty, unsupported, or unrelated routes also defer, without
+  authorizing any other Tea path.
+- **deny:** this guard policy has no deny rule. A separate guard policy may
   deny the invocation, and such a decision dominates a defer from this policy.
 
 ## Upstream source

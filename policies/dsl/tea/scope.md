@@ -46,3 +46,7 @@ or deliberate policy-evasion transports.
 Tea permission policies return `allow` only for their complete documented
 grammar and otherwise return `defer`; they have no `deny` rules. A separate
 guard policy may deny an invocation, and that deny dominates a Tea allow.
+
+The `open` and `logins helper get` routes have no permitted form. Their sources
+are guard policies that recognize the routes and return `defer`; both routes
+remain prompt-gated because no Tea permission policy covers them.

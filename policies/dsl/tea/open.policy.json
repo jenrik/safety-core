@@ -1,6 +1,6 @@
 {
   "language": "safety-core/bash-policy-v1",
-  "layer": "permission",
+  "layer": "guard",
   "select": [
     {
       "executable": {

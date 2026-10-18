@@ -275,7 +275,7 @@ describe("safety-core CLI", () => {
     expect(result.stdout).toContain(`  ${policy}\n`);
   });
 
-  test("policy validate checks a standalone declarative policy schema and state reachability", () => {
+  test("policy validate checks a standalone declarative policy schema, state reachability, and authorization reachability", () => {
     const home = fixture();
     const policy = join(home, "standalone.policy.json");
     writeFileSync(
@@ -286,7 +286,13 @@ describe("safety-core CLI", () => {
         select: [{ kind: "invocation" }],
         registers: {},
         start: "start",
-        states: { start: { cases: [], default: { decision: "ignore" }, end: { decision: "ignore" } } },
+        states: {
+          start: {
+            cases: [],
+            default: { decision: "ignore" },
+            end: { decision: "allow", reason: ["standalone allow"] },
+          },
+        },
       }),
     );
     const valid = cli(home, ["policy", "validate", policy]);
@@ -311,6 +317,27 @@ describe("safety-core CLI", () => {
     expect(invalid.status).not.toBe(0);
     expect(invalid.stderr).toContain(
       `${policy}: invalid DSL policy: $.states.orphan: state orphan is unreachable from start state start`,
+    );
+  });
+
+  test("policy validate rejects a permission policy that can only defer or ignore", () => {
+    const home = fixture();
+    const policy = join(home, "defer-only.policy.json");
+    writeFileSync(
+      policy,
+      JSON.stringify({
+        language: "safety-core/bash-policy-v1",
+        layer: "permission",
+        select: [{ kind: "invocation" }],
+        registers: {},
+        start: "start",
+        states: { start: { cases: [], default: { decision: "defer" }, end: { decision: "defer" } } },
+      }),
+    );
+    const invalid = cli(home, ["policy", "validate", policy]);
+    expect(invalid.status).not.toBe(0);
+    expect(invalid.stderr).toContain(
+      `${policy}: invalid DSL policy: $.states: permission policy has no reachable allow or deny decision and can only defer`,
     );
   });
 

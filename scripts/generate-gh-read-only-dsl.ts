@@ -18,7 +18,7 @@ emit(root, "start");
 
 const document = {
   language: "safety-core/bash-policy-v1",
-  layer: "permission",
+  layer: "guard",
   select: [{ executable: { projection: "basename", equals: "gh" } }],
   registers: {},
   folds: {},

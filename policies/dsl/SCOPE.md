@@ -92,6 +92,7 @@ leave their executable selectors without `environmentIndependent`, so they defer
 when executable resolution is unresolved. This applies to `cat`, `find`, `tee`,
 and `timeout` (all documented in their own scope files).
 
-`github/gh-read-only.policy.json` is a defer-only permission policy: it has no
-`allow` decisions at all, so an `environmentIndependent` selector would be inert
-and it is intentionally left unset.
+`github/gh-read-only.policy.json` is a guard policy. It recognizes every
+audited `gh` route so each unowned route explicitly defers, and uses `ignore`
+to leave `gh api` and `gh pr create` to their own policies. It has no `allow`
+decisions, so no `environmentIndependent` permission selector applies.

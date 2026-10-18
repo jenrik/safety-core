@@ -41,8 +41,9 @@ harnesses after editing sources.
 
 Use `safety-core policy validate /absolute/path/source.policy.json` while
 authoring a declarative source without selecting a full runtime configuration.
-It checks the closed document schema and rejects any state without a possible
-transition path from `start`.
+It checks the closed document schema, rejects any state without a possible
+transition path from `start`, and rejects a permission policy whose reachable
+states cannot produce an `allow` or `deny` decision.
 
 ### Claude code-policy dependency boundary
 

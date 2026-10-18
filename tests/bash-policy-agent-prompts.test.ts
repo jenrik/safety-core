@@ -143,9 +143,11 @@ test("Bash policy questionnaire reviewer is read-only and checks the questionnai
   expect(questionnaireReviewer).toContain("<policy_name>.test.ts");
 });
 
-test("known-bugs and future-work record the wrapper and always-defer decisions", () => {
-  const futureWork = normalize(readFileSync(resolve(root, "docs/future-work.md"), "utf8"));
+test("known-bugs records the wrapper decision and policy-authoring documents the always-defer lint", () => {
+  const authoring = normalize(readFileSync(resolve(root, "docs/policy-authoring.md"), "utf8"));
   const knownBugs = normalize(readFileSync(resolve(root, "docs/known-bugs.md"), "utf8"));
-  expect(futureWork).toContain("## Lint: a policy that can only ever defer");
+  expect(authoring).toContain(
+    "rejects a permission policy whose reachable states cannot produce an `allow` or `deny` decision",
+  );
   expect(knownBugs).toContain("## Transparent wrappers that the engine does not deconstruct");
 });
