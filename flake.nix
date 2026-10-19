@@ -77,6 +77,10 @@
                     type = lib.types.attrsOf lib.types.anything;
                     default = { };
                   };
+                  assertions = lib.mkOption {
+                    type = lib.types.listOf lib.types.attrs;
+                    default = [ ];
+                  };
                   programs.claude-code.settings = lib.mkOption {
                     type = lib.types.anything;
                     default = { };

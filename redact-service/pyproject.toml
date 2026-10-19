@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "safety-core-redact"
 version = "0.1.0"
-description = "Local Presidio tool-output redaction service"
+description = "Local Presidio tool-output redaction service with Titus detection"
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "presidio-analyzer==2.2.362",

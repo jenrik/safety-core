@@ -89,7 +89,7 @@ in
       };
     };
     redact.opencode = {
-      enable = mkEnableOption "redact OpenCode tool results using the local Presidio socket service";
+      enable = mkEnableOption "redact OpenCode tool results using the local Presidio/Titus socket service";
       socketPath = mkOption {
         type = types.nullOr types.str;
         default = null;
@@ -99,12 +99,18 @@ in
   };
 
   config = {
-    assertions = [{
-      assertion = !cfg.redact.opencode.enable || (cfg.redact.opencode.socketPath != null
-        && hasPrefix "/" cfg.redact.opencode.socketPath
-        && builtins.stringLength cfg.redact.opencode.socketPath <= 100);
-      message = "programs.safetyCorePermissions.redact.opencode.socketPath must be a short absolute path when redaction is enabled";
-    }];
+    assertions = [
+      {
+        assertion =
+          !cfg.redact.opencode.enable
+          || (
+            cfg.redact.opencode.socketPath != null
+            && hasPrefix "/" cfg.redact.opencode.socketPath
+            && builtins.stringLength cfg.redact.opencode.socketPath <= 100
+          );
+        message = "programs.safetyCorePermissions.redact.opencode.socketPath must be a short absolute path when redaction is enabled";
+      }
+    ];
     home.packages = optional cfg.installCli safetyCore.safetyCoreCli;
     xdg.configFile."safety-core/claude/bash_policy.mjs" = mkIf cfg.installClaudeBashHook {
       source = "${safetyCore.claudeCodeHooks}/bash_policy.mjs";
@@ -129,8 +135,10 @@ in
       // optionalAttrs (cfg.pi.judgeModel != null) {
         judgeModel = cfg.pi.judgeModel;
       };
-      redact.opencode = { enabled = cfg.redact.opencode.enable; }
-        // optionalAttrs cfg.redact.opencode.enable { socketPath = cfg.redact.opencode.socketPath; };
+      redact.opencode = {
+        enabled = cfg.redact.opencode.enable;
+      }
+      // optionalAttrs cfg.redact.opencode.enable { socketPath = cfg.redact.opencode.socketPath; };
     };
     programs.claude-code.settings.hooks.PreToolUse = mkIf cfg.installClaudeBashHook (mkAfter [
       {

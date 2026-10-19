@@ -1,18 +1,21 @@
-# safety-core-redact: first slice
+# safety-core-redact
 
 This local service accepts tool-output text over a Unix domain socket and sends
-it through a minimal [Presidio](https://github.com/data-privacy-stack/presidio)
-AnalyzerEngine → AnonymizerEngine pipeline. Only classic `ghp_` GitHub PATs are
-recognized for now; other secrets are **not** detected. A blank English spaCy
-tokenizer avoids downloading a language model. The OpenCode tool-result hook
-uses this service when enabled in the safety-core configuration.
+it through a [Presidio](https://github.com/microsoft/presidio)
+AnalyzerEngine → AnonymizerEngine pipeline. A custom Titus recognizer obtains
+UTF-8 byte spans from [Titus](https://github.com/praetorian-inc/titus), converts
+them to Presidio character offsets, and returns them as `TITUS_SECRET` findings.
+Presidio then replaces every finding with `<REDACTED>`. The recognizer uses only
+Titus's `scan` operation: it never requests credential validation, so detected
+values never trigger outbound API calls. The OpenCode tool-result hook uses this
+service when enabled in the safety-core configuration.
 
 From the repository root on NixOS:
 
 ```sh
 nix develop .#redact
 cd redact-service
-uv run --python python3.12 --locked safety-core-redact-service --socket /tmp/safety-core-redact.sock
+uv run --python python3.12 --locked safety-core-redact-service --socket /tmp/safety-core-redact.sock --titus /path/to/titus
 ```
 
 The socket's parent directory must already exist; use a private directory for
@@ -48,9 +51,11 @@ options `programs.safetyCorePermissions.redact.opencode.enable = true` and
 The existing OpenCode safety-core plugin loads these from the generated global
 `safety-core/config.json`. Restart OpenCode after changing its configuration.
 The tool-result hook scans text output, title, and JSON metadata. It withholds
-binary attachments and replaces the entire result if the service fails. This
-first iteration's narrow recognizer does **not** guarantee removal of other
-secrets.
+binary attachments and replaces the entire result if the service fails. Titus
+must be installed separately and is started once by the service with
+`titus serve`; its rules are loaded once and reused for every socket request.
+If Titus is unavailable or returns malformed spans, the Presidio pipeline fails
+closed.
 
 Run `uv run --python python3.12 --locked --extra test pytest` for service tests.
 Regenerate protobuf messages from the repository root with

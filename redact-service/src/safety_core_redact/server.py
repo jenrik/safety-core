@@ -46,29 +46,43 @@ def negotiate(raw: bytes) -> handshake_pb2.ServerHello:
     try:
         hello.ParseFromString(raw)
     except DecodeError:
-        return handshake_pb2.ServerHello(failure=handshake_pb2.ServerHello.INVALID_HANDSHAKE)
+        return handshake_pb2.ServerHello(
+            failure=handshake_pb2.ServerHello.INVALID_HANDSHAKE
+        )
     if hello.protocol_id != PROTOCOL_ID:
-        return handshake_pb2.ServerHello(failure=handshake_pb2.ServerHello.INVALID_HANDSHAKE)
+        return handshake_pb2.ServerHello(
+            failure=handshake_pb2.ServerHello.INVALID_HANDSHAKE
+        )
     common = SUPPORTED_VERSIONS.intersection(hello.supported_versions)
     if not common:
-        return handshake_pb2.ServerHello(failure=handshake_pb2.ServerHello.NO_COMMON_VERSION)
+        return handshake_pb2.ServerHello(
+            failure=handshake_pb2.ServerHello.NO_COMMON_VERSION
+        )
     return handshake_pb2.ServerHello(selected_version=max(common))
 
 
-def process_request(raw: bytes, pipeline: RedactionPipeline) -> redact_v1_pb2.RedactResponse:
+def process_request(
+    raw: bytes, pipeline: RedactionPipeline
+) -> redact_v1_pb2.RedactResponse:
     """Only called after v1 negotiation; no input is reflected in errors."""
     request = redact_v1_pb2.RedactRequest()
     try:
         request.ParseFromString(raw)
     except DecodeError:
-        return redact_v1_pb2.RedactResponse(error=redact_v1_pb2.RedactResponse.INVALID_REQUEST)
+        return redact_v1_pb2.RedactResponse(
+            error=redact_v1_pb2.RedactResponse.INVALID_REQUEST
+        )
     if not request.HasField("text"):
-        return redact_v1_pb2.RedactResponse(error=redact_v1_pb2.RedactResponse.INVALID_REQUEST)
+        return redact_v1_pb2.RedactResponse(
+            error=redact_v1_pb2.RedactResponse.INVALID_REQUEST
+        )
     try:
         return redact_v1_pb2.RedactResponse(text=pipeline.redact(request.text))
-    except Exception:
-        # Presidio errors may include the supplied text; keep them off the wire and logs.
-        return redact_v1_pb2.RedactResponse(error=redact_v1_pb2.RedactResponse.PROCESSING_FAILED)
+    except Exception:  # noqa: BLE001 - no scanner exception may expose request text.
+        # Titus failures may include the supplied text; keep them off the wire and logs.
+        return redact_v1_pb2.RedactResponse(
+            error=redact_v1_pb2.RedactResponse.PROCESSING_FAILED
+        )
 
 
 class RedactionHandler(socketserver.StreamRequestHandler):
@@ -78,7 +92,9 @@ class RedactionHandler(socketserver.StreamRequestHandler):
             try:
                 raw = read_frame(self.rfile, MAX_HANDSHAKE_BYTES)
             except ValueError:
-                hello = handshake_pb2.ServerHello(failure=handshake_pb2.ServerHello.INVALID_HANDSHAKE)
+                hello = handshake_pb2.ServerHello(
+                    failure=handshake_pb2.ServerHello.INVALID_HANDSHAKE
+                )
             else:
                 if raw is None:
                     return
@@ -93,7 +109,9 @@ class RedactionHandler(socketserver.StreamRequestHandler):
                 try:
                     raw = read_frame(self.rfile, MAX_REQUEST_BYTES)
                 except ValueError:
-                    error = redact_v1_pb2.RedactResponse(error=redact_v1_pb2.RedactResponse.INVALID_REQUEST)
+                    error = redact_v1_pb2.RedactResponse(
+                        error=redact_v1_pb2.RedactResponse.INVALID_REQUEST
+                    )
                     write_frame(self.wfile, error.SerializeToString())
                     return
                 if raw is None:
@@ -131,21 +149,34 @@ class RedactionServer(socketserver.UnixStreamServer):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Presidio tool-output redaction on a local Unix socket")
-    parser.add_argument("--socket", type=Path, required=True, help="path to the Unix socket")
+    parser = argparse.ArgumentParser(
+        description="Titus tool-output redaction on a local Unix socket"
+    )
+    parser.add_argument(
+        "--socket", type=Path, required=True, help="path to the Unix socket"
+    )
+    parser.add_argument(
+        "--titus", default="titus", help="absolute path to the Titus executable"
+    )
     args = parser.parse_args()
     if not args.socket.is_absolute():
         parser.error("--socket must be an absolute path")
-    pipeline = RedactionPipeline()  # Fail startup rather than serving without Presidio.
+    pipeline = RedactionPipeline(
+        (args.titus, "serve")
+    )  # Fail startup rather than serving without Titus.
+
     def stop(_signum: int, _frame: object) -> None:
         raise SystemExit(0)
 
     signal.signal(signal.SIGTERM, stop)
-    with RedactionServer(args.socket, pipeline) as server:
-        try:
-            server.serve_forever()
-        except KeyboardInterrupt:
-            pass
+    try:
+        with RedactionServer(args.socket, pipeline) as server:
+            try:
+                server.serve_forever()
+            except KeyboardInterrupt:
+                pass
+    finally:
+        pipeline.close()
 
 
 if __name__ == "__main__":
