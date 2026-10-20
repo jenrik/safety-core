@@ -14,10 +14,40 @@ spec:
       value: "{{ repo_url }}"
     - name: revision
       value: "{{ revision }}"
+    - name: repo-owner
+      value: "{{ repo_owner }}"
+    - name: repo-name
+      value: "{{ repo_name }}"
   pipelineSpec:
     params:
       - name: repo-url
       - name: revision
+      - name: repo-owner
+      - name: repo-name
+      - name: lint-ids
+        type: array
+        default:
+          - check-added-large-files
+          - check-case-conflict
+          - check-json
+          - check-merge-conflict
+          - check-symlinks
+          - check-yaml
+          - check-toml
+          - detect-private-key
+          - end-of-file-fixer
+          - mixed-line-ending
+          - trailing-whitespace
+          - safety-core-lint-policy-collection
+          - typescript-typescheck
+          - typescript-test
+          - nix-flake-check
+          - biome-format
+          - biome-lint
+          - nixfmt
+          - markdownlint
+          - ruff-check
+          - ruff-format
     workspaces:
       - name: source
       - name: basic-auth
@@ -35,24 +65,100 @@ spec:
             workspace: source
           - name: basic-auth
             workspace: basic-auth
-      - name: verify
+      # A matrix creates one TaskRun per hook, allowing every hook to publish
+      # an independent Forgejo commit status while running in parallel.
+      - name: lint
         runAfter: [checkout]
+        matrix:
+          params:
+            - name: lint-id
+              value: $(params.lint-ids[*])
+        params:
+          - name: lint-id
+            value: $(params.lint-id)
+          - name: repo-url
+            value: $(params.repo-url)
+          - name: repo-owner
+            value: $(params.repo-owner)
+          - name: repo-name
+            value: $(params.repo-name)
+          - name: revision
+            value: $(params.revision)
         taskSpec:
+          params:
+            - name: lint-id
+            - name: repo-url
+            - name: repo-owner
+            - name: repo-name
+            - name: revision
           workspaces:
             - name: source
           steps:
-            - name: test
+            - name: run
               image: docker.io/nixos/nix:2.32.8
               workingDir: $(workspaces.source.path)
+              env:
+                - name: FORGEJO_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: "{{ git_auth_secret }}"
+                      key: git-provider-token
               script: |
                 #!/usr/bin/env sh
-                set -eu
-                nix --extra-experimental-features 'nix-command flakes' develop .#default --command sh -c '
-                  npm ci --ignore-scripts
-                  bun run typescheck
-                  bun run test
-                  nix --extra-experimental-features "nix-command flakes" flake check
-                '
+                set -u
+
+                lint_id='$(params.lint-id)'
+                repo_url='$(params.repo-url)'
+                repo_path='/$(params.repo-owner)/$(params.repo-name)'
+                repo_base="${repo_url%/}"
+                repo_base="${repo_base%.git}"
+                case "$repo_base" in
+                  *"$repo_path") forgejo_url="${repo_base%"$repo_path"}" ;;
+                  *)
+                    echo "Cannot derive the Forgejo URL from $repo_url" >&2
+                    exit 2
+                    ;;
+                esac
+                endpoint="$forgejo_url/api/v1/repos/$(params.repo-owner)/$(params.repo-name)/statuses/$(params.revision)"
+
+                post_status() {
+                  state="$1"
+                  description="$2"
+                  curl --fail --silent --show-error --request POST \
+                    --header 'Accept: application/json' \
+                    --header "Authorization: token $FORGEJO_TOKEN" \
+                    --header 'Content-Type: application/json' \
+                    --data "{\"state\":\"$state\",\"context\":\"lint/$lint_id\",\"description\":\"$description\"}" \
+                    "$endpoint" >/dev/null
+                }
+
+                post_status pending "Running $lint_id"
+
+                output="$(mktemp)"
+                nix --extra-experimental-features 'nix-command flakes' develop .#default --command \
+                  pre-commit run "$lint_id" --all-files >"$output" 2>&1
+                lint_exit=$?
+                cat "$output"
+
+                if [ "$lint_exit" -eq 0 ]; then
+                  # Forgejo's commit-status API accepts only pending, success,
+                  # error, and failure. Represent a pre-commit skip as success
+                  # with an explicit skipped description.
+                  if grep -Eq '[[:space:]]Skipped$' "$output"; then
+                    post_status success "Skipped: no matching files"
+                  else
+                    post_status success "Passed $lint_id"
+                  fi
+                elif [ "$lint_exit" -eq 1 ]; then
+                  post_status failure "Failed $lint_id"
+                else
+                  post_status error "Could not run $lint_id"
+                fi
+
+                exit "$lint_exit"
+        workspaces:
+          - name: source
+            workspace: source
   workspaces:
     - name: source
       emptyDir: {}
