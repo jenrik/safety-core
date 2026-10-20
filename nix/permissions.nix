@@ -108,6 +108,11 @@ in
   };
 
   config = {
+    # The kernel limits a Unix-domain socket path to ~108 bytes including the
+    # trailing NUL terminator; 100 is a conservative cap that leaves headroom.
+    # `builtins.stringLength` counts bytes (Nix strings are byte strings, not
+    # Unicode characters), which matches the byte-exact `Buffer.byteLength`
+    # check in src/policy/config.ts, so both validators enforce the same cap.
     assertions = [
       {
         assertion =

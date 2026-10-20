@@ -176,14 +176,29 @@ function parseRedact(value: unknown, path: string): RedactConfig {
   requireOnlyKeys(record, new Set(["opencode"]), path);
   const opencode = requireRecord(record.opencode, path, "redact.opencode must be an object");
   requireOnlyKeys(opencode, new Set(["enabled", "socketPath"]), path);
-  if (typeof opencode.enabled !== "boolean") throw new PolicyStartupError(path, "redact.opencode.enabled must be a boolean");
+  if (typeof opencode.enabled !== "boolean")
+    throw new PolicyStartupError(path, "redact.opencode.enabled must be a boolean");
   const rawSocketPath = opencode.socketPath;
-  if (opencode.enabled && (typeof rawSocketPath !== "string" || !isAbsolute(rawSocketPath) || Buffer.byteLength(rawSocketPath) > 100)) {
-    throw new PolicyStartupError(path, "redact.opencode.socketPath must be an absolute Unix socket path of at most 100 bytes");
+  // The kernel limits a Unix-domain socket path to ~108 bytes including the
+  // trailing NUL terminator; 100 is a conservative cap that leaves headroom.
+  // `Buffer.byteLength` measures UTF-8 bytes, matching the byte-exact
+  // `builtins.stringLength` check in nix/permissions.nix (Nix strings are byte
+  // strings), so both validators enforce the same cap.
+  if (
+    opencode.enabled &&
+    (typeof rawSocketPath !== "string" || !isAbsolute(rawSocketPath) || Buffer.byteLength(rawSocketPath) > 100)
+  ) {
+    throw new PolicyStartupError(
+      path,
+      "redact.opencode.socketPath must be an absolute Unix socket path of at most 100 bytes",
+    );
   }
-  if (!opencode.enabled && rawSocketPath !== undefined) throw new PolicyStartupError(path, "redact.opencode.socketPath requires enabled=true");
+  if (!opencode.enabled && rawSocketPath !== undefined)
+    throw new PolicyStartupError(path, "redact.opencode.socketPath requires enabled=true");
   const socketPath = typeof rawSocketPath === "string" ? rawSocketPath : undefined;
-  return Object.freeze({ opencode: Object.freeze({ enabled: opencode.enabled, ...(socketPath === undefined ? {} : { socketPath }) }) });
+  return Object.freeze({
+    opencode: Object.freeze({ enabled: opencode.enabled, ...(socketPath === undefined ? {} : { socketPath }) }),
+  });
 }
 
 function parsePiAdapter(value: unknown, path: string): PiAdapterConfig {
