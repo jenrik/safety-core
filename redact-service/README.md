@@ -71,6 +71,12 @@ of a large page) that exceeds the cap is replaced with the placeholder title
 rather than shown raw. This is intentional: oversized output is never
 forwarded unredacted.
 
+Metadata is JSON-serialized before redaction, so it must be plain JSON: values
+such as `Date`, `Map`, `Set`, `Buffer`, `Uint8Array`, class instances,
+functions, or cyclic structures are rejected. Because redaction is fail-closed,
+non-JSON metadata causes the entire tool result to be withheld, so tool authors
+should keep metadata JSON-plain when redaction is enabled.
+
 Run `uv run --python python3.12 --locked --extra test pytest` for service tests.
 Regenerate protobuf messages from the repository root with
 `npm run generate:redact-proto` (requires Bun, `protoc`, and installed npm dependencies).
