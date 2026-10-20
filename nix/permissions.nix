@@ -89,7 +89,16 @@ in
       };
     };
     redact.opencode = {
-      enable = mkEnableOption "redact OpenCode tool results using the local Presidio/Titus socket service";
+      enable = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Whether to enable redaction of OpenCode tool results using the local
+          Presidio/Titus socket service. Redaction is fail-closed: a title,
+          body, or metadata payload larger than the 1 MiB wire cap is withheld
+          in its entirety, even when it contains no secrets.
+        '';
+      };
       socketPath = mkOption {
         type = types.nullOr types.str;
         default = null;

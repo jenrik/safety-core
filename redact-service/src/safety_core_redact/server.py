@@ -13,6 +13,9 @@ from google.protobuf.message import DecodeError
 from .gen import handshake_pb2, redact_v1_pb2
 from .pipeline import RedactionPipeline
 
+# 1 MiB wire-contract cap, shared with the TS client's MAX_MESSAGE_BYTES in
+# src/redact/opencode.ts. Frames over this limit are rejected; because
+# redaction is fail-closed, the client withholds the whole result.
 MAX_REQUEST_BYTES = 1024 * 1024
 MAX_HANDSHAKE_BYTES = 4096
 SUPPORTED_VERSIONS = frozenset({1})

@@ -38,10 +38,16 @@ version before sending a versioned request.
 After successful negotiation, the connection accepts multiple
 `RedactRequest` / `RedactResponse` pairs from
 [`proto/redact_v1.proto`](proto/redact_v1.proto). A response contains either
-`text` (including an empty string) or a generic `error` enum. Request frames
-are capped at 1 MiB, handshake frames at 4 KiB. Clients must treat any error,
-timeout, or socket failure as failed redaction rather than forwarding raw text.
-No raw request or detection spans are logged or returned in errors.
+`text` (including an empty string) or a generic `error` enum.
+
+Every message on the wire is capped at **1 MiB** (handshake frames at 4 KiB).
+This is a single wire-contract limit enforced identically by both peers: the
+client's `MAX_MESSAGE_BYTES` (`src/redact/opencode.ts`) and the server's
+`MAX_REQUEST_BYTES` (`redact-service/src/safety_core_redact/server.py`) name the
+same 1 MiB value. A frame larger than the cap is rejected outright, and clients
+must treat any error, timeout, socket failure, or oversized frame as failed
+redaction rather than forwarding raw text. No raw request or detection spans
+are logged or returned in errors.
 
 ## OpenCode
 
@@ -56,6 +62,14 @@ must be installed separately and is started once by the service with
 `titus serve`; its rules are loaded once and reused for every socket request.
 If Titus is unavailable or returns malformed spans, the Presidio pipeline fails
 closed.
+
+Because redaction is fail-closed, a title, body, or metadata payload larger
+than the 1 MiB message cap also withholds the **entire** tool result — even
+when it contains no secrets. Large-but-benign output (big log dumps, `webfetch`
+of a large page) that exceeds the cap is replaced with the placeholder title
+`Tool result withheld` and body `[Tool result withheld: redaction unavailable]`
+rather than shown raw. This is intentional: oversized output is never
+forwarded unredacted.
 
 Run `uv run --python python3.12 --locked --extra test pytest` for service tests.
 Regenerate protobuf messages from the repository root with

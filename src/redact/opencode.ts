@@ -8,6 +8,9 @@ import type { RedactConfig } from "../policy/config.js";
 const VERSION = 1;
 const PROTOCOL_ID = "safety-core-redact";
 const MAX_HANDSHAKE_BYTES = 4096;
+// 1 MiB wire-contract cap, shared with the service's MAX_REQUEST_BYTES in
+// redact-service/src/safety_core_redact/server.py. Frames over this limit are
+// rejected and, because redaction is fail-closed, withhold the whole result.
 const MAX_MESSAGE_BYTES = 1024 * 1024;
 const TIMEOUT_MS = 5000;
 const WITHHELD = "[Tool result withheld: redaction unavailable]";
