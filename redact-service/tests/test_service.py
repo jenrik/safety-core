@@ -6,16 +6,19 @@ import stat
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from safety_core_redact import pipeline as pipeline_module
 from safety_core_redact.gen import handshake_pb2, redact_v1_pb2
 from safety_core_redact.pipeline import (
     TITUS_ENTITY,
     RedactionPipeline,
     TitusError,
+    TitusScanner,
     byte_spans_to_character_spans,
 )
 from safety_core_redact.server import (
@@ -87,6 +90,72 @@ def test_titus_utf8_spans_become_presidio_character_offsets(pipeline):
     for spans in [[(-1, 1)], [(0, 0)], [(0, 99)], [(1, 3)]]:
         with pytest.raises(TitusError):
             byte_spans_to_character_spans("é", spans)
+
+
+def _titus_scanner(tmp_path, script_body):
+    """A ``TitusScanner`` backed by a fake ``titus serve`` script."""
+    script = tmp_path / "serve.py"
+    script.write_text(script_body)
+    return TitusScanner((sys.executable, str(script)))
+
+
+def test_titus_scanner_reads_full_line_response(tmp_path):
+    scanner = _titus_scanner(
+        tmp_path,
+        """import json
+import sys
+
+print(json.dumps({"success": True, "type": "ready", "data": {"version": "1.0.0"}}), flush=True)
+for line in sys.stdin:
+    text = json.loads(line)["payload"]["content"]
+    matches = []
+    if "ghp_" in text:
+        start = text.index("ghp_")
+        matches.append({"Location": {"Offset": {"Start": start, "End": start + 40}}})
+    print(json.dumps({"success": True, "type": "scan", "data": {"matches": matches}}), flush=True)
+""",
+    )
+    try:
+        assert scanner.scan(f"before {TOKEN} after") == [(7, 47)]
+    finally:
+        scanner.close()
+
+
+def test_titus_scanner_partial_line_without_newline_times_out(tmp_path, monkeypatch):
+    scanner = _titus_scanner(
+        tmp_path,
+        """import json
+import sys
+import time
+
+print(json.dumps({"success": True, "type": "ready", "data": {"version": "1.0.0"}}), flush=True)
+for line in sys.stdin:
+    sys.stdout.write('{"success": true, "type": "scan", "data": {"matches": []}}')
+    sys.stdout.flush()
+    time.sleep(60)
+""",
+    )
+    # Shrink the timeout so the test stays fast; the read is bounded by the
+    # queue's ``get(timeout=...)`` regardless of the value.
+    monkeypatch.setattr(pipeline_module, "TITUS_RESPONSE_TIMEOUT_SECONDS", 0.5)
+    errors = []
+
+    def run():
+        try:
+            scanner.scan("hello")
+        except TitusError as error:
+            errors.append(str(error))
+
+    try:
+        started = time.monotonic()
+        thread = threading.Thread(target=run)
+        thread.start()
+        thread.join(timeout=5)
+        assert not thread.is_alive(), "scan() hung on a partial line without a newline"
+        assert errors == ["Titus scanner timed out"]
+        assert time.monotonic() - started < 5.0
+    finally:
+        scanner.close()
 
 
 def test_negotiation_selects_highest_shared_version_and_rejects_other_versions():

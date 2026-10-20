@@ -1,7 +1,7 @@
 """Titus-backed secret detection and byte-accurate redaction."""
 
 import json
-import select
+import queue
 import subprocess
 import threading
 from collections.abc import Sequence
@@ -53,6 +53,14 @@ class TitusScanner:
             raise TitusError("Titus scanner unavailable")
         self.stdin = self.process.stdin
         self.stdout = self.process.stdout
+        # A dedicated reader thread drains ``stdout`` line by line so callers can
+        # bound their wait on a full line without relying on ``readline()``,
+        # which blocks past any timeout on a partial line lacking a newline.
+        self._responses: queue.Queue[str | None] = queue.Queue()
+        self._reader = threading.Thread(
+            target=self._read_lines, name="titus-stdout-reader", daemon=True
+        )
+        self._reader.start()
         try:
             ready = self._read_response()
         except TitusError:
@@ -84,11 +92,22 @@ class TitusScanner:
             raise TitusError("Titus scan returned invalid findings")
         return [_span(match) for match in data["matches"]]
 
+    def _read_lines(self) -> None:
+        """Drain ``stdout`` onto the response queue, signalling EOF with ``None``."""
+        try:
+            for line in self.stdout:
+                self._responses.put(line)
+        except (OSError, ValueError):
+            pass
+        finally:
+            self._responses.put(None)
+
     def _read_response(self) -> dict[str, Any]:
-        if not select.select([self.stdout], [], [], TITUS_RESPONSE_TIMEOUT_SECONDS)[0]:
-            raise TitusError("Titus scanner timed out")
-        line = self.stdout.readline()
-        if not line:
+        try:
+            line = self._responses.get(timeout=TITUS_RESPONSE_TIMEOUT_SECONDS)
+        except queue.Empty:
+            raise TitusError("Titus scanner timed out") from None
+        if line is None:
             raise TitusError("Titus scanner closed")
         try:
             response = json.loads(line)
