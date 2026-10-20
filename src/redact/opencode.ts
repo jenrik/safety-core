@@ -23,24 +23,27 @@ export class RedactClient {
   private readonly chunks: AsyncIterator<Buffer>;
   private pending = Buffer.alloc(0);
 
-  private constructor(private readonly socket: Socket, private readonly deadline: ReturnType<typeof setTimeout>) {
+  private constructor(private readonly socket: Socket) {
     this.chunks = socket[Symbol.asyncIterator]();
   }
 
   static async connect(path: string): Promise<RedactClient> {
     const socket = createConnection({ path });
+    // Bound only the connect + handshake phase. Once negotiation succeeds the
+    // timer is cleared so it never tears down a slow-but-valid redaction.
     const deadline = setTimeout(() => socket.destroy(), TIMEOUT_MS);
     try {
       await new Promise<void>((resolve, reject) => {
         socket.once("connect", resolve);
         socket.once("error", reject);
       });
-      const client = new RedactClient(socket, deadline);
+      const client = new RedactClient(socket);
       socket.write(frame(toBinary(ClientHelloSchema, create(ClientHelloSchema, { protocolId: PROTOCOL_ID, supportedVersions: [VERSION] }))));
       const hello = fromBinary(ServerHelloSchema, await client.read(MAX_HANDSHAKE_BYTES));
       if (hello.failure !== ServerHello_Failure.FAILURE_UNSPECIFIED || hello.selectedVersion !== VERSION) {
         throw new Error("redaction protocol negotiation failed");
       }
+      clearTimeout(deadline);
       return client;
     } catch {
       clearTimeout(deadline);
@@ -59,7 +62,6 @@ export class RedactClient {
   }
 
   close(): void {
-    clearTimeout(this.deadline);
     this.socket.destroy();
   }
 

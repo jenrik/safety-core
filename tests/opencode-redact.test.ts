@@ -9,7 +9,7 @@ import { createOpenCodePlugin } from "../adapters/opencode.ts";
 import { createOpenCodeV2Plugin } from "../adapters/opencode-v2.ts";
 import { ClientHelloSchema, ServerHelloSchema, ServerHello_Failure } from "../src/redact/gen/handshake_pb.ts";
 import { RedactRequestSchema, RedactResponseSchema, RedactResponse_ErrorCode } from "../src/redact/gen/redact_v1_pb.ts";
-import { redactOpenCodeToolResult } from "../src/redact/opencode.ts";
+import { RedactClient, redactOpenCodeToolResult } from "../src/redact/opencode.ts";
 import type { LoadedPolicyRuntime } from "../src/index.ts";
 
 const TOKEN = "ghp_" + "A".repeat(36);
@@ -132,6 +132,44 @@ test("binary or cyclic metadata cannot bypass text redaction", async () => {
     expect(output.title).toBe("Tool result withheld");
     expect(output.output).toContain("withheld");
     expect(output.metadata).toEqual({});
+  }
+});
+
+test("slow-but-successful redaction is not torn down by the connect deadline", async () => {
+  const socket = await startServer();
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
+  const pending = new Map<unknown, () => void>();
+  let counter = 0;
+  let client: RedactClient | undefined;
+  try {
+    // Fake timers so we can deterministically model time passing beyond the
+    // 5s connect deadline without sleeping. Networking (node:net) does not use
+    // globalThis.setTimeout, so the real socket server keeps working.
+    globalThis.setTimeout = ((handler: (...args: unknown[]) => void, _timeout?: number) => {
+      const id = { fake: ++counter };
+      pending.set(id, () => handler());
+      return id as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout;
+    globalThis.clearTimeout = ((id?: Parameters<typeof clearTimeout>[0]) => {
+      pending.delete(id);
+    }) as typeof clearTimeout;
+
+    client = await RedactClient.connect(socket.path);
+
+    // The deadline only guards connect + handshake. Once they succeed it must be
+    // disarmed, so nothing remains to destroy the socket later.
+    expect(pending.size).toBe(0);
+
+    // Simulate a redaction that completes after more than TIMEOUT_MS would have
+    // allowed: fire anything still pending (with the fix, nothing), then confirm
+    // the request still resolves.
+    for (const fire of [...pending.values()]) fire();
+    expect(await client.redact(`slow ${TOKEN}`)).toBe("slow <REDACTED>");
+  } finally {
+    client?.close();
+    globalThis.setTimeout = realSetTimeout;
+    globalThis.clearTimeout = realClearTimeout;
   }
 });
 
