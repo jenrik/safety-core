@@ -51,6 +51,14 @@ export type OpenCodeV2ToolEvent = {
   readonly input: unknown;
 };
 
+/** Tool-result payload the harness passes to the `execute.after` hook. */
+export type OpenCodeV2ToolResult = {
+  readonly title: string;
+  readonly output: string;
+  readonly metadata: unknown;
+  readonly attachments?: unknown;
+};
+
 export type OpenCodeV2PermissionEvent = {
   readonly action: string;
   readonly sessionID: string;
@@ -75,7 +83,7 @@ export type OpenCodeV2Context = {
   readonly tool: {
     hook(
       name: "execute.before" | "execute.after",
-      callback: (event: OpenCodeV2ToolEvent) => Promise<void>,
+      callback: (event: OpenCodeV2ToolEvent, output?: OpenCodeV2ToolResult) => Promise<void>,
     ): Promise<unknown>;
   };
   readonly permission: {
@@ -190,12 +198,7 @@ export async function createOpenCodeV2PolicyRuntime(
       if (normalizeOpenCodeV2ToolName(event.tool) === "bash")
         preflights.finish({ sessionID: event.sessionID, callID: event.id }, event.input);
       if (output !== undefined)
-        await redactOpenCodeToolResult(output as {
-          title: string;
-          output: string;
-          metadata: unknown;
-          attachments?: unknown;
-        }, runtime.current()?.config.redact);
+        await redactOpenCodeToolResult(output as OpenCodeV2ToolResult, runtime.current()?.config.redact);
     },
     async evaluatePermission(event) {
       if (event.action !== "shell" && event.action !== "bash") return;
@@ -271,12 +274,15 @@ export async function createOpenCodeV2Plugin(
         input: output.args,
       }),
     "tool.execute.after": async (input: Record<string, unknown>, output: unknown) =>
-      policy.after({
-        tool: String(input.tool ?? ""),
-        sessionID: String(input.sessionID ?? ""),
-        id: String(input.callID ?? ""),
-        input: input.args,
-      }, output),
+      policy.after(
+        {
+          tool: String(input.tool ?? ""),
+          sessionID: String(input.sessionID ?? ""),
+          id: String(input.callID ?? ""),
+          input: input.args,
+        },
+        output,
+      ),
     "permission.ask": async (input: Record<string, unknown>, output: { status: "allow" | "ask" | "deny" }) => {
       const event: OpenCodeV2PermissionEvent = {
         action: String(input.type ?? ""),
@@ -332,7 +338,7 @@ export default {
     const policy = await createOpenCodeV2PolicyRuntime({}, context);
     const reloadCommand = await registerOpenCodeV2ReloadCommand(context.command, () => policy.reload());
     await context.tool.hook("execute.before", (event) => policy.before(event));
-    await context.tool.hook("execute.after", async (event) => policy.after(event));
+    await context.tool.hook("execute.after", async (event, output) => policy.after(event, output));
     await context.permission.hook("evaluate", (event) => policy.evaluatePermission(event));
 
     const events = new AbortController();

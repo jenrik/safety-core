@@ -1,4 +1,5 @@
-import { beforeAll, expect, test } from "bun:test";
+import { beforeAll, expect, mock, test } from "bun:test";
+import { fileURLToPath } from "node:url";
 
 import { createOpenCodePlugin } from "../adapters/opencode.ts";
 import OpenCodeV2Plugin, {
@@ -13,6 +14,20 @@ import {
   type LoadedPolicyRuntime,
   OPENCODE_POLICY_RELOAD_COMMAND,
 } from "../src/index.ts";
+
+// The real `redactOpenCodeToolResult` is exercised in opencode-redact.test.ts.
+// Here we stub it so the `setup()` wiring can be verified without standing up
+// the Python socket service. Pre-fix, `setup()` forwarded only `event` and this
+// stub was never reached for a tool result.
+const REDACT_TOKEN = "ghp_" + "A".repeat(36);
+const redactCalls: Array<{ output: unknown; config: unknown }> = [];
+mock.module(fileURLToPath(new URL("../src/redact/opencode.ts", import.meta.url)), () => ({
+  redactOpenCodeToolResult: async (output: { title?: string; output?: string }, config: unknown) => {
+    redactCalls.push({ output, config });
+    if (typeof output.title === "string") output.title = output.title.replaceAll(REDACT_TOKEN, "<REDACTED>");
+    if (typeof output.output === "string") output.output = output.output.replaceAll(REDACT_TOKEN, "<REDACTED>");
+  },
+}));
 
 beforeAll(initBundledBashParser);
 
@@ -52,6 +67,45 @@ test("OpenCode v2 setup registers native V2 hooks without a V1 hook map", async 
     hooks.get("tool.execute.before")!({ tool: "read", sessionID: "s", id: "c", input: { path: ".env" } }),
   ).rejects.toThrow("Blocked by safety policy");
   await command!.execute({ untrusted: true });
+  await cleanup!();
+});
+
+test("OpenCode v2 setup forwards the tool result output into redaction", async () => {
+  redactCalls.length = 0;
+  const hooks = new Map<string, (event: any, output?: any) => Promise<void>>();
+  const cleanup = await OpenCodeV2Plugin.setup({
+    location: { directory: process.cwd() },
+    agent: { list: async () => [] },
+    session: { get: async () => ({}), context: async () => [] },
+    command: {
+      transform: async (callback) => {
+        callback({ add: () => {} });
+        return { dispose: async () => {} };
+      },
+    },
+    tool: {
+      hook: async (name, callback) => {
+        hooks.set(`tool.${name}`, callback);
+      },
+    },
+    permission: {
+      hook: async (name, callback) => {
+        hooks.set(`permission.${name}`, callback);
+      },
+    },
+    event: { subscribe: async function* () {} },
+  });
+
+  const output = {
+    title: `title ${REDACT_TOKEN}`,
+    output: `output ${REDACT_TOKEN}`,
+    metadata: { token: REDACT_TOKEN },
+  };
+  await hooks.get("tool.execute.after")!({ tool: "read", sessionID: "s", id: "c", input: {} }, output);
+
+  expect(redactCalls).toHaveLength(1);
+  expect(redactCalls[0]!.output).toBe(output);
+  expect(output.output).toBe("output <REDACTED>");
   await cleanup!();
 });
 
