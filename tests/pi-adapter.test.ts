@@ -8,6 +8,7 @@ import {
   completePolicyInitialEnvironment,
   evaluateLoadedPolicies,
   forwardPermissionPrompt,
+  getJudgeVerdict,
   initBundledBashParser,
   type LoadedPolicyRuntime,
   loadPolicyRuntime,
@@ -196,6 +197,48 @@ test("Pi blocks generic denial and prompts only generic defer", async () => {
     { hasUI: true, signal: undefined, ui: { confirm: async () => false, notify() {} } },
   );
   expect(deferred).toEqual({ block: true, reason: "Command requires policy approval" });
+});
+
+test("Pi consumes Bash judge verdicts when rendered, completed, or shut down", async () => {
+  const { createPiExtension } = await import("../adapters/pi.ts");
+  const handlers = new Map<string, Function>();
+  let bashTool: { renderCall: Function } | undefined;
+  createPiExtension(
+    {
+      on: (name: string, handler: Function) => handlers.set(name, handler),
+      registerTool: (tool: { name: string; renderCall: Function }) => {
+        if (tool.name === "bash") bashTool = tool;
+      },
+      registerCommand() {},
+      appendEntry() {},
+    } as never,
+    { runtime: Promise.resolve(runtime), evaluatePolicies: () => deny },
+  );
+
+  await handlers.get("tool_call")!(
+    { toolName: "bash", toolCallId: "rendered", input: { command: "deny" } },
+    { ui: { notify() {} } },
+  );
+  bashTool!.renderCall(
+    { command: "deny" },
+    { italic: (text: string) => text, fg: (_: string, text: string) => text, bold: (text: string) => text },
+    { toolCallId: "rendered" },
+  );
+  expect(getJudgeVerdict("rendered")).toBeUndefined();
+
+  await handlers.get("tool_call")!(
+    { toolName: "bash", toolCallId: "completed", input: { command: "deny" } },
+    { ui: { notify() {} } },
+  );
+  handlers.get("tool_result")!({ toolName: "bash", toolCallId: "completed" });
+  expect(getJudgeVerdict("completed")).toBeUndefined();
+
+  await handlers.get("tool_call")!(
+    { toolName: "bash", toolCallId: "shutdown", input: { command: "deny" } },
+    { ui: { notify() {} } },
+  );
+  handlers.get("session_shutdown")!({});
+  expect(getJudgeVerdict("shutdown")).toBeUndefined();
 });
 
 test("Pi surfaces and de-duplicates defer reasons in the one-time permission prompt", async () => {

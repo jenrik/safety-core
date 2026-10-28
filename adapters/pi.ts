@@ -5,6 +5,8 @@ import { Container, type SettingItem, SettingsList, Text } from "@earendil-works
 import {
   type BashPolicyEvaluation,
   checkWebfetchUrl,
+  clearJudgeVerdict,
+  clearJudgeVerdicts,
   completePolicyInitialEnvironment,
   createCompletionJudge,
   createPermissionPromptServer,
@@ -391,6 +393,14 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
     setJudgeVerdict(event.toolCallId, { safe: true, reasoning: "Safety policy passed" });
   });
 
+  pi.on("tool_result", (event) => {
+    if (event.toolName === "bash") clearJudgeVerdict(event.toolCallId);
+  });
+
+  pi.on("session_shutdown", () => {
+    clearJudgeVerdicts();
+  });
+
   pi.registerTool({
     name: "bash",
     label: "Bash",
@@ -402,6 +412,7 @@ export function createPiExtension(pi: ExtensionAPI, dependencies: PiExtensionDep
     renderCall(args, theme, context) {
       const container = new Container();
       const verdict = getJudgeVerdict(context.toolCallId);
+      clearJudgeVerdict(context.toolCallId);
       if (verdict && !verdict.safe) container.addChild(new Text(theme.italic(verdict.reasoning), 0, 0));
       container.addChild(new Text(theme.fg("toolTitle", theme.bold(`$ ${args.command || "..."}`)), 0, 0));
       return container;

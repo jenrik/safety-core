@@ -86,6 +86,11 @@ export function clearJudgeVerdict(toolCallId: string): void {
   verdicts.delete(toolCallId);
 }
 
+/** Remove all verdicts when the harness session ends. */
+export function clearJudgeVerdicts(): void {
+  verdicts.clear();
+}
+
 // ── Judge trigger patterns ──────────────────────────────────────────────────
 
 /** Substring patterns that trigger the LLM judge for a Bash command.
