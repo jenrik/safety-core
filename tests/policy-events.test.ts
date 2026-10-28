@@ -67,6 +67,55 @@ describe("Bash generic policy events", () => {
     expect(result.decision).toBe("defer");
   });
 
+  test("carries output-capture assignments into nested command substitutions", () => {
+    const result = analyzeBashWithPolicies({
+      source: 'out=$(printf "$(nix-prefetch-url https://example.test/source)")',
+      initialEnvironment: { kind: "verified", values: {} },
+      policies: [
+        policy("guard", (event) =>
+          event.kind === "invocation" && "out" in event.assignments ? deny : { kind: "ignore" },
+        ),
+      ],
+    });
+
+    expect(nestedInvocation(result.events, "nix-prefetch-url")).toMatchObject({
+      assignments: { out: { kind: "unknown" } },
+    });
+    expect(result.decision).toBe("deny");
+  });
+
+  test("does not apply output-capture assignments to sibling substitutions", () => {
+    const result = analyzeBashWithPolicies({
+      source:
+        "out=$(nix-prefetch-url https://example.test/output); printf $(nix-prefetch-url https://example.test/argument)",
+      initialEnvironment: { kind: "verified", values: {} },
+      policies: [policy("permission", () => allow)],
+    });
+    const invocations = result.events.filter(
+      (event) =>
+        event.kind === "invocation" &&
+        event.executable?.kind === "known" &&
+        event.executable.value === "nix-prefetch-url",
+    );
+
+    expect(invocations).toMatchObject([{ assignments: { out: { kind: "unknown" } } }, { assignments: {} }]);
+  });
+
+  test("property: nested output capture retains every assignment spelling", () => {
+    for (let index = 0; index < 64; index++) {
+      const name = `capture_${index}`;
+      const result = analyzeBashWithPolicies({
+        source: `${name}=$(nix-prefetch-url https://example.test/source-${index})`,
+        initialEnvironment: { kind: "verified", values: {} },
+        policies: [policy("permission", () => allow)],
+      });
+
+      expect(nestedInvocation(result.events, "nix-prefetch-url"), name).toMatchObject({
+        assignments: { [name]: { kind: "unknown" } },
+      });
+    }
+  });
+
   test("retains core denials that occur before dispatch as an invocation event and request deny", () => {
     const result = analyzeBashWithPolicies({
       source: "gh < credentials.json",
@@ -517,4 +566,11 @@ function onlyInvocation(events: readonly BashPolicyEvent[]) {
   );
   if (!event || event.kind !== "invocation") throw new Error("Expected a gh invocation event");
   return event;
+}
+
+function nestedInvocation(events: readonly BashPolicyEvent[], executable: string) {
+  return events.find(
+    (event) =>
+      event.kind === "invocation" && event.executable?.kind === "known" && event.executable.value === executable,
+  );
 }

@@ -159,6 +159,7 @@ export function dispatchCommand(
     provenance: request.provenance,
     inPipeline: request.inPipeline,
     processEffect: request.processEffect,
+    ...(request.assignmentContext !== undefined ? { assignments: request.assignmentContext } : {}),
     ...(request.cwd !== undefined ? { cwd: request.cwd } : {}),
     ...(request.executableFilesystem !== undefined ? { executableFilesystem: request.executableFilesystem } : {}),
     executionTarget: request.executionTarget,

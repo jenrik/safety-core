@@ -6,6 +6,7 @@ import type { BashCommand, BashFunction, BashProgram, BashStatement, BashWord, S
 import {
   assignBinding,
   assignLocalBinding,
+  type BindingValue,
   type Environment,
   endCommandOverlay,
   hasBinding,
@@ -109,6 +110,8 @@ export interface BashDispatchRequest {
   readonly inPipeline: boolean;
   readonly provenance: BashExecutionProvenance;
   readonly processEffect: ProcessEffect;
+  /** Prefix assignments enclosing a nested command substitution. */
+  readonly assignmentContext?: Readonly<Record<string, BindingValue>>;
   readonly executionTarget: BashExecutionTargetKind;
   readonly cwd?: string;
   readonly executableFilesystem?: ExecutableFilesystem;
@@ -227,6 +230,13 @@ interface Path {
   readonly sourceSpanOverride?: SourceSpan;
   readonly io: BashIoContext;
   readonly inheritedRedirects: readonly NormalizedRedirect[];
+  /** Prefix assignments enclosing a command substitution currently being evaluated. */
+  readonly assignmentContext: Readonly<Record<string, BindingValue>>;
+}
+
+interface RetainedStatement {
+  readonly statement: BashStatement;
+  readonly fromAssignment: boolean;
 }
 
 interface StatementWork {
@@ -669,9 +679,10 @@ function executeCommand(
         false,
         input.nestedScriptDepth + 1,
       );
-      scheduleNested(
+      scheduleRetained(
         retained,
         child,
+        assignmentContextFor(preflightCommand, input.assignmentContext),
         (finished) => {
           const nested = withEnvironment(
             input,
@@ -997,6 +1008,7 @@ function dispatchNormalized(
     inPipeline,
     provenance: input.provenance,
     processEffect: input.processEffect,
+    assignmentContext: input.assignmentContext,
     executionTarget,
     ...((command.cwd ?? input.state.cwd) ? { cwd: command.cwd ?? input.state.cwd! } : {}),
     ...(context.executableFilesystem !== undefined ? { executableFilesystem: context.executableFilesystem } : {}),
@@ -1503,6 +1515,32 @@ function scheduleNested(
   schedule({ kind: "statements", statements, index: 0, path: input, complete, inPipeline });
 }
 
+function scheduleRetained(
+  retained: readonly RetainedStatement[],
+  input: Path,
+  assignmentContext: Readonly<Record<string, BindingValue>>,
+  complete: (path: Path) => void,
+  schedule: (work: Work) => void,
+  inPipeline = false,
+): void {
+  const advance = (index: number, current: Path): void => {
+    const next = retained[index];
+    if (!next) {
+      complete(current);
+      return;
+    }
+    const child = next.fromAssignment ? withAssignmentContext(current, assignmentContext) : current;
+    scheduleNested(
+      [next.statement],
+      child,
+      (finished) => advance(index + 1, withAssignmentContext(finished, current.assignmentContext)),
+      schedule,
+      inPipeline,
+    );
+  };
+  advance(0, input);
+}
+
 function schedulePipeline(
   statements: readonly BashStatement[],
   input: Path,
@@ -1697,6 +1735,7 @@ function path(
     ...(sourceSpanOverride ? { sourceSpanOverride } : {}),
     io: inheritedBashIo(),
     inheritedRedirects: freeze([]),
+    assignmentContext: freeze({}),
   });
 }
 
@@ -1770,6 +1809,26 @@ function withSourceSpanOverride(input: Path, sourceSpanOverride?: SourceSpan): P
   return freeze(withoutSourceSpanOverride);
 }
 
+function withAssignmentContext(input: Path, assignmentContext: Readonly<Record<string, BindingValue>>): Path {
+  return freeze({ ...input, assignmentContext });
+}
+
+function assignmentContextFor(
+  command: NormalizedCommand,
+  parent: Readonly<Record<string, BindingValue>>,
+): Readonly<Record<string, BindingValue>> {
+  if (command.assignmentPatch.writes.size === 0) return parent;
+  return freeze({
+    ...parent,
+    ...Object.fromEntries(
+      [...command.assignmentPatch.writes].map((name) => [
+        name,
+        lookupBinding(command.assignmentPatch.environment, name).value,
+      ]),
+    ),
+  });
+}
+
 function recordInvocationEvent(
   command: NormalizedCommand,
   input: Path,
@@ -1784,6 +1843,7 @@ function recordInvocationEvent(
     provenance: input.provenance,
     inPipeline,
     processEffect: input.processEffect,
+    assignments: input.assignmentContext,
     ...(input.state.cwd !== null ? { cwd: input.state.cwd } : {}),
     ...(context.executableFilesystem !== undefined ? { executableFilesystem: context.executableFilesystem } : {}),
     executionTarget,
@@ -1838,29 +1898,29 @@ function statementSpan(work: Work): SourceSpan | undefined {
 }
 
 /** Finds command substitutions and retained unsupported syntax in source order. */
-function retainedStatements(command: BashCommand): readonly BashStatement[] {
-  const ordered: Array<{ readonly statement: BashStatement; readonly index: number }> = [];
+function retainedStatements(command: BashCommand): readonly RetainedStatement[] {
+  const ordered: Array<RetainedStatement & { readonly index: number }> = [];
   let index = 0;
-  const collect = (word: BashWord): void => {
+  const collect = (word: BashWord, fromAssignment: boolean): void => {
     switch (word.kind) {
       case "command-substitution":
       case "expansion":
       case "unsupported-word":
-        for (const statement of word.statements) ordered.push({ statement, index: index++ });
+        for (const statement of word.statements) ordered.push({ statement, fromAssignment, index: index++ });
         break;
       case "concatenation":
-        for (const part of word.parts) collect(part);
+        for (const part of word.parts) collect(part, fromAssignment);
         break;
       case "word":
         break;
     }
   };
-  for (const assignment of command.assignments) if (assignment.value) collect(assignment.value);
-  for (const word of command.words) collect(word);
-  for (const redirect of command.redirects) for (const word of redirect.words) collect(word);
+  for (const assignment of command.assignments) if (assignment.value) collect(assignment.value, true);
+  for (const word of command.words) collect(word, false);
+  for (const redirect of command.redirects) for (const word of redirect.words) collect(word, false);
   return ordered
     .sort((left, right) => left.statement.span.start - right.statement.span.start || left.index - right.index)
-    .map(({ statement }) => statement);
+    .map(({ statement, fromAssignment }) => ({ statement, fromAssignment }));
 }
 
 function retainedRedirectStatements(statement: Exclude<BashStatement, BashCommand>): readonly BashStatement[] {

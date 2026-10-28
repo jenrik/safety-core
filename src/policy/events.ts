@@ -21,19 +21,22 @@ export interface BashPolicyEventContext {
   readonly cwd?: string;
   readonly executableFilesystem?: ExecutableFilesystem;
   readonly executionTarget?: BashExecutionTargetKind;
+  /** Prefix assignments enclosing a nested command substitution. */
+  readonly assignments?: Readonly<Record<string, import("../bash/environment.js").BindingValue>>;
 }
 
 /** Project the walker model into a complete, immutable policy-facing event. */
 export function projectInvocationEvent(command: NormalizedCommand, context: BashPolicyEventContext): InvocationView {
   const environment = modeledBindings(command.environment);
-  const assignments = immutableBindings(
-    Object.fromEntries(
+  const assignments = immutableBindings({
+    ...context.assignments,
+    ...Object.fromEntries(
       [...command.assignmentPatch.writes].map((name) => [
         name,
         lookupBinding(command.assignmentPatch.environment, name).value,
       ]),
     ),
-  );
+  });
   return Object.freeze({
     kind: "invocation",
     executable: command.executable,
