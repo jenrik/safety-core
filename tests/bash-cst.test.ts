@@ -50,6 +50,31 @@ describe("parseBashProgram", () => {
     expect(program.statements[0]?.span).toEqual({ start: 0, end: source.length });
   });
 
+  test("property: explicit descriptor-zero redirects never become command words", () => {
+    for (let index = 0; index < 64; index++) {
+      const command = `command-${index}`;
+      const argument = `${index + 64}`;
+      for (const source of [
+        `0<<<prefix-${index} ${command} ${argument}`,
+        `${command} ${argument} 0<<<suffix-${index}`,
+        `0<<<first-${index} ${command} ${argument} 0<<<second-${index}`,
+      ]) {
+        const statement = programFor(source).statements[0];
+        expect(statement, source).toMatchObject({ kind: "command" });
+        if (statement?.kind !== "command") continue;
+        expect(
+          statement.words.map((word) => word.text),
+          source,
+        ).toEqual([command, argument]);
+        expect(statement.redirects, source).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ descriptor: 0, descriptorExplicit: true, kind: "here-string" }),
+          ]),
+        );
+      }
+    }
+  });
+
   test("projects functions, lists, subshells, brace groups, pipelines, and if statements", () => {
     expect(programFor("fn() { echo function; }").statements[0]).toMatchObject({
       kind: "function",

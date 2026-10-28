@@ -426,7 +426,7 @@ function projectList(node: SyntaxNode): BashList {
 }
 
 function projectRedirectedStatement(node: SyntaxNode): BashStatement {
-  const redirects = node.namedChildren.filter(isRedirectNode).map(projectRedirect);
+  const redirects = node.namedChildren.filter(isRedirectNode).map((redirect) => projectRedirect(redirect));
   const body = node.childForFieldName("body") ?? node.namedChildren.find((child) => !isRedirectNode(child));
   if (!body) {
     return {
@@ -445,19 +445,34 @@ function projectRedirectedStatement(node: SyntaxNode): BashStatement {
 function projectCommand(node: SyntaxNode, redirects: readonly BashRedirect[]): BashCommand {
   const nameNode = node.childForFieldName("name");
   const commandName = nameNode?.namedChildren[0] ?? null;
+  const commandRedirectNodes = node.namedChildren.filter(isRedirectNode);
+  // tree-sitter-bash represents an explicit descriptor as the adjacent command
+  // number, rather than as a child of the redirect.
+  const explicitDescriptors = new Map(
+    commandRedirectNodes.flatMap((redirect) => {
+      const descriptor = node.children.find(
+        (child) => child.endIndex === redirect.startIndex && /^\d+$/.test(child.text),
+      );
+      return descriptor ? [[redirect, descriptor] as const] : [];
+    }),
+  );
+  const descriptorEnds = new Set([...explicitDescriptors.values()].map((descriptor) => descriptor.endIndex));
+  const words = [commandName, ...node.childrenForFieldName("argument")].filter(
+    (word): word is SyntaxNode => word !== null && !(descriptorEnds.has(word.endIndex) && /^\d+$/.test(word.text)),
+  );
   const command: BashCommand = {
     kind: "command",
     assignments: node.namedChildren.filter((child) => child.type === "variable_assignment").map(projectAssignment),
-    words: [
-      ...(commandName ? [projectWord(commandName)] : []),
-      ...node.childrenForFieldName("argument").map(projectWord),
-    ],
+    words: words.map(projectWord),
     redirects: [],
     span: span(node),
   };
   return withCommandRedirects(
     command,
-    [...redirects, ...node.namedChildren.filter(isRedirectNode).map(projectRedirect)],
+    [
+      ...redirects,
+      ...commandRedirectNodes.map((redirect) => projectRedirect(redirect, explicitDescriptors.get(redirect)?.text)),
+    ],
     span(node),
   );
 }
@@ -472,9 +487,9 @@ function projectAssignment(node: SyntaxNode): BashAssignment {
   };
 }
 
-function projectRedirect(node: SyntaxNode): BashRedirect {
+function projectRedirect(node: SyntaxNode, explicitDescriptor?: string): BashRedirect {
   const operator = node.children.find((child) => !child.isNamed && /^(?:[<>]|&>)/.test(child.text))?.text ?? "";
-  const descriptorText = node.childForFieldName("descriptor")?.text;
+  const descriptorText = node.childForFieldName("descriptor")?.text ?? explicitDescriptor;
   const descriptor =
     descriptorText === undefined
       ? operator.startsWith("<")
@@ -540,7 +555,7 @@ function projectFunction(node: SyntaxNode): BashFunction {
     kind: "function",
     name: name?.text ?? "",
     body,
-    redirects: node.namedChildren.filter(isRedirectNode).map(projectRedirect),
+    redirects: node.namedChildren.filter(isRedirectNode).map((redirect) => projectRedirect(redirect)),
     span: span(node),
   };
 }

@@ -160,6 +160,14 @@ test("matches generated supported programs from a deterministic grammar", async 
   );
 });
 
+test.each([
+  ["prefix", "0<<<accepted record-command prefix"],
+  ["suffix", "record-command suffix 0<<<accepted"],
+  ["duplicated", "0<<<first record-command duplicated 0<<<second"],
+])("matches Bash when descriptor-zero redirects appear at the %s", async (_position, source) => {
+  await expectEquivalent(source, {}, []);
+});
+
 test("keeps unsupported mutation neutral and taints subsequent expansion", () => {
   const invocations: InvocationCursor[] = [];
   const result = analyzeBashAuthorization({
