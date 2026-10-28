@@ -11,8 +11,6 @@
 // Harness adapters inject a JudgeProvider — a function that knows how to
 // call a model using that harness's native provider configuration.
 // Claude Code uses its native `type: "prompt"` hook instead of this module.
-// TODO: Keep only triggering, prompt construction, and strict result handling
-// here; adapters must inject native judge execution instead of core HTTP clients.
 //
 // Harness adapters store a verdict per tool call in the `tool_call` /
 // `PreToolUse` event handler, and the TUI reads it back in `renderCall`.
@@ -150,148 +148,9 @@ export function buildJudgeUserPrompt(command: string): string {
   return `<hook_input>\n${input}\n</hook_input>\n\nRespond with exactly this JSON and nothing else:\n{"ok": <true unless this command's own output would plausibly contain a secret VALUE or exfiltrate one>, "reason": "<one or two sentences: what made it safe or unsafe, and a safer alternative command if you're denying>"}`;
 }
 
-// ── JudgeProvider factories ─────────────────────────────────────────────────
-//
-// Each factory takes API credentials (from the harness's own config) and
-// returns a JudgeProvider.  Adapters pick the appropriate factory based on
-// ctx.model.provider or env.  The core never reads process.env itself.
-
-/**
- * Create a judge backed by Pi's native model runtime. The completion callback
- * owns authentication and provider-specific request serialization.
- */
-export function createCompletionJudge(
-  complete: (systemPrompt: string, userPrompt: string, signal?: AbortSignal) => Promise<string>,
-): JudgeProvider {
-  return async (command: string, signal?: AbortSignal): Promise<JudgeVerdict> => {
-    try {
-      return parseJudgeResponse(await complete(JUDGE_SYSTEM_PROMPT, buildJudgeUserPrompt(command), signal));
-    } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === "AbortError") throw err;
-      return { safe: true, reasoning: "Judge error; allowing by default", fromLLM: true };
-    }
-  };
-}
-
-export interface AnthropicJudgeOptions {
-  apiKey: string;
-  /** Model to use (default: claude-haiku-4-5). */
-  model?: string;
-  /** Base URL override (default: ANTHROPIC_BASE_URL env or api.anthropic.com). */
-  baseUrl?: string;
-}
-
-const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5";
-
-/**
- * Create a JudgeProvider backed by the Anthropic Messages API.
- */
-export function createAnthropicJudge(options: AnthropicJudgeOptions): JudgeProvider {
-  const baseUrl = options.baseUrl ?? process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com/v1";
-  const hasAuthToken = Boolean(process.env.ANTHROPIC_AUTH_TOKEN);
-
-  return async (command: string, signal?: AbortSignal): Promise<JudgeVerdict> => {
-    try {
-      const resp = await fetch(`${baseUrl}/messages`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-api-key": options.apiKey,
-          "anthropic-version": "2023-06-01",
-          ...(hasAuthToken ? { authorization: `Bearer ${options.apiKey}` } : {}),
-        },
-        body: JSON.stringify({
-          model: options.model ?? DEFAULT_ANTHROPIC_MODEL,
-          max_tokens: 256,
-          system: JUDGE_SYSTEM_PROMPT,
-          messages: [{ role: "user", content: buildJudgeUserPrompt(command) }],
-        }),
-        ...(signal === undefined ? {} : { signal }),
-      });
-
-      if (!resp.ok) {
-        return {
-          safe: true,
-          reasoning: `Judge unavailable (HTTP ${resp.status}); allowing by default`,
-          fromLLM: true,
-        };
-      }
-
-      const body = (await resp.json()) as {
-        content?: Array<{ type: string; text?: string }>;
-      };
-      const text =
-        body.content
-          ?.filter((c) => c.type === "text")
-          .map((c) => c.text ?? "")
-          .join("") ?? "";
-
-      return parseJudgeResponse(text);
-    } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === "AbortError") throw err;
-      return { safe: true, reasoning: "Judge error; allowing by default", fromLLM: true };
-    }
-  };
-}
-
-export interface OpenAIJudgeOptions {
-  apiKey: string;
-  /** Model to use (default: gpt-4o-mini). */
-  model?: string;
-  /** Base URL override (default: OPENAI_BASE_URL env or api.openai.com). */
-  baseUrl?: string;
-}
-
-/**
- * Create a JudgeProvider backed by an OpenAI-compatible Chat Completions API.
- */
-export function createOpenAIJudge(options: OpenAIJudgeOptions): JudgeProvider {
-  const base = (options.baseUrl ?? process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
-
-  return async (command: string, signal?: AbortSignal): Promise<JudgeVerdict> => {
-    try {
-      const resp = await fetch(`${base}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${options.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: options.model ?? "gpt-4o-mini",
-          max_tokens: 256,
-          temperature: 0,
-          messages: [
-            { role: "system", content: JUDGE_SYSTEM_PROMPT },
-            { role: "user", content: buildJudgeUserPrompt(command) },
-          ],
-        }),
-        ...(signal === undefined ? {} : { signal }),
-      });
-
-      if (!resp.ok) {
-        return {
-          safe: true,
-          reasoning: `Judge unavailable (HTTP ${resp.status}); allowing by default`,
-          fromLLM: true,
-        };
-      }
-
-      const body = (await resp.json()) as {
-        choices?: Array<{ message?: { content?: string } }>;
-      };
-      const text = body.choices?.[0]?.message?.content ?? "";
-
-      return parseJudgeResponse(text);
-    } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === "AbortError") throw err;
-      return { safe: true, reasoning: "Judge error; allowing by default", fromLLM: true };
-    }
-  };
-}
-
 // ── Response parsing ────────────────────────────────────────────────────────
 
-function parseJudgeResponse(text: string): JudgeVerdict {
+export function parseJudgeResponse(text: string): JudgeVerdict {
   const json = text.match(/\{[\s\S]*\}/)?.[0];
   if (!json) {
     return { safe: true, reasoning: "Judge response unparseable; allowing by default", fromLLM: true };

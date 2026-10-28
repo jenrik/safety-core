@@ -8,7 +8,7 @@ import {
   clearJudgeVerdict,
   clearJudgeVerdicts,
   completePolicyInitialEnvironment,
-  createCompletionJudge,
+  buildJudgeUserPrompt,
   createPermissionPromptServer,
   createPolicyRuntimeReloader,
   type ExecutableFilesystem,
@@ -19,6 +19,8 @@ import {
   invokeJudge,
   isSecretPath,
   type JudgeProvider,
+  JUDGE_SYSTEM_PROMPT,
+  parseJudgeResponse,
   type LoadedPolicyRuntime,
   loadPolicyRuntime,
   nodeExecutableFilesystem,
@@ -675,18 +677,28 @@ async function buildJudgeProvider(
   if (!runtime || !registry) return null;
   const model = resolveJudgeModel(configured, availableJudgeModels(registry), active);
   if (!model) return null;
-  return createCompletionJudge(async (systemPrompt, userPrompt, signal) => {
-    const response = await runtime.completeSimple(
-      model,
-      { systemPrompt, messages: [{ role: "user", content: userPrompt, timestamp: Date.now() }] },
-      { maxTokens: 256, temperature: 0, ...(signal === undefined ? {} : { signal }), maxRetries: 0 },
-    );
-    if (response.stopReason === "error") throw new Error(response.errorMessage ?? "Judge request failed");
-    return response.content
-      .filter((block): block is { type: "text"; text: string } => block.type === "text")
-      .map((block) => block.text)
-      .join("");
-  });
+  return async (command, signal) => {
+    try {
+      const response = await runtime.completeSimple(
+        model,
+        {
+          systemPrompt: JUDGE_SYSTEM_PROMPT,
+          messages: [{ role: "user", content: buildJudgeUserPrompt(command), timestamp: Date.now() }],
+        },
+        { maxTokens: 256, temperature: 0, ...(signal === undefined ? {} : { signal }), maxRetries: 0 },
+      );
+      if (response.stopReason === "error") throw new Error(response.errorMessage ?? "Judge request failed");
+      return parseJudgeResponse(
+        response.content
+          .filter((block): block is { type: "text"; text: string } => block.type === "text")
+          .map((block) => block.text)
+          .join(""),
+      );
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
+      return { safe: true, reasoning: "Judge error; allowing by default", fromLLM: true };
+    }
+  };
 }
 
 function availableJudgeModels(

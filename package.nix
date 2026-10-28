@@ -122,7 +122,12 @@ let
   # `../data/` → `./data/` in the adapter so it works when placed as
   # index.ts at the root of the output directory.
   mkExtensionDir =
-    name: adapterFile: corePackage:
+    {
+      name,
+      adapterFile,
+      corePackage,
+      localAdapterModules ? [ ],
+    }:
     stdenv.mkDerivation {
       name = "safety-core-${name}";
       dontUnpack = true;
@@ -147,18 +152,39 @@ let
            cp -r ${corePackage} $out/node_modules/@safety-core/core
          fi
 
-         # Place the adapter as index.ts at the root, rewriting imports so they
-         # resolve relative to the new location.
-         ${gnused}/bin/sed 's|../src/|./src/|g; s|../data/|./data/|g' ${adapterFile} > $out/index.ts
+          # Place the adapter as index.ts at the root, rewriting imports so they
+          # resolve relative to the new location.
+          ${gnused}/bin/sed 's|../src/|./src/|g; s|../data/|./data/|g' ${adapterFile} > $out/index.ts
+          ${lib.concatMapStringsSep "\n" (
+            module: "cp ${module} $out/${baseNameOf module}"
+          ) localAdapterModules}
       '';
     };
 
-  piDir = mkExtensionDir "pi" ./adapters/pi.ts coreNodePackage;
+  piDir = mkExtensionDir {
+    name = "pi";
+    adapterFile = ./adapters/pi.ts;
+    corePackage = coreNodePackage;
+  };
   # OpenCode v1 and v2 receive independent extension directories. They share
   # behavior today but must remain separately packageable as their APIs evolve.
-  opencodePlugin = mkExtensionDir "opencode" ./adapters/opencode.ts coreNodePackage;
-  opencodeV2Plugin = mkExtensionDir "opencode-v2" ./adapters/opencode-v2.ts coreNodePackage;
-  opencodeTuiPlugin = mkExtensionDir "opencode-tui" ./adapters/opencode-tui.ts coreNodePackage;
+  opencodePlugin = mkExtensionDir {
+    name = "opencode";
+    adapterFile = ./adapters/opencode.ts;
+    corePackage = coreNodePackage;
+    localAdapterModules = [ ./adapters/opencode-judge.ts ];
+  };
+  opencodeV2Plugin = mkExtensionDir {
+    name = "opencode-v2";
+    adapterFile = ./adapters/opencode-v2.ts;
+    corePackage = coreNodePackage;
+    localAdapterModules = [ ./adapters/opencode-judge.ts ];
+  };
+  opencodeTuiPlugin = mkExtensionDir {
+    name = "opencode-tui";
+    adapterFile = ./adapters/opencode-tui.ts;
+    corePackage = coreNodePackage;
+  };
 
   # Trusted code policies are compiled independently. The loader rejects
   # relative imports, so every artifact must be self-contained at this boundary.

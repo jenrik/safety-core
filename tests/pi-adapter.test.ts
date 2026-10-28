@@ -10,6 +10,7 @@ import {
   forwardPermissionPrompt,
   getJudgeVerdict,
   initBundledBashParser,
+  JUDGE_SYSTEM_PROMPT,
   type LoadedPolicyRuntime,
   loadPolicyRuntime,
   type ValidatedBashPolicy,
@@ -239,6 +240,69 @@ test("Pi consumes Bash judge verdicts when rendered, completed, or shut down", a
   );
   handlers.get("session_shutdown")!({});
   expect(getJudgeVerdict("shutdown")).toBeUndefined();
+});
+
+test("Pi native judge blocks denials and allows provider failures", async () => {
+  const { createPiExtension } = await import("../adapters/pi.ts");
+  const handlers = new Map<string, Function>();
+  const model = { provider: "test", id: "judge" };
+  let response: unknown = {
+    stopReason: "stop",
+    content: [{ type: "text", text: '{"ok":false,"reason":"native judge denied"}' }],
+  };
+  let request: { systemPrompt?: string; messages?: Array<{ content?: string }> } | undefined;
+  createPiExtension(
+    {
+      on: (name: string, handler: Function) => handlers.set(name, handler),
+      registerTool() {},
+      registerCommand() {},
+      appendEntry() {},
+    } as never,
+    {
+      runtime: Promise.resolve(runtime),
+      evaluatePolicies: () => ({ ...defer, decision: "allow", analysis: { complete: true } }),
+    },
+  );
+  const context = {
+    cwd: "/workspace",
+    model,
+    modelRegistry: {
+      getAvailable: () => [model],
+      getAll: () => [model],
+      runtime: {
+        completeSimple: async (_model: unknown, input: typeof request) => {
+          request = input;
+          return response;
+        },
+      },
+    },
+    sessionManager: { getBranch: () => [] },
+    ui: { notify() {} },
+  };
+  const previousSocket = process.env.SAFETY_CORE_PROMPT_SOCKET;
+  process.env.SAFETY_CORE_PROMPT_SOCKET = "/existing-prompt-socket";
+  try {
+    await handlers.get("session_start")!({}, context);
+    await expect(
+      handlers.get("tool_call")!(
+        { toolName: "bash", toolCallId: "native-deny", input: { command: "true credentials" } },
+        context,
+      ),
+    ).resolves.toEqual({ block: true, reason: "native judge denied" });
+    expect(request?.systemPrompt).toBe(JUDGE_SYSTEM_PROMPT);
+    expect(request?.messages?.[0]?.content).toContain("true credentials");
+
+    response = { stopReason: "error", errorMessage: "provider unavailable", content: [] };
+    await expect(
+      handlers.get("tool_call")!(
+        { toolName: "bash", toolCallId: "native-error", input: { command: "true credentials" } },
+        context,
+      ),
+    ).resolves.toBeUndefined();
+  } finally {
+    if (previousSocket === undefined) delete process.env.SAFETY_CORE_PROMPT_SOCKET;
+    else process.env.SAFETY_CORE_PROMPT_SOCKET = previousSocket;
+  }
 });
 
 test("Pi surfaces and de-duplicates defer reasons in the one-time permission prompt", async () => {

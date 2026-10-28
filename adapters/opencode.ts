@@ -8,8 +8,6 @@ import {
   checkBashFilePermissions,
   checkWebfetchUrl,
   completePolicyInitialEnvironment,
-  createAnthropicJudge,
-  createOpenAIJudge,
   createOpenCodeBashPreflights,
   createOpenCodeFilePermissions,
   createPolicyRuntimeReloader,
@@ -31,6 +29,7 @@ import {
   setJudgeProvider,
   shouldInvokeJudge,
 } from "@safety-core/core";
+import { buildOpenCodeJudgeProvider } from "./opencode-judge.ts";
 
 const OPENCODE_V1_PLUGIN_ID = "safety-core.policy-reload";
 
@@ -91,7 +90,7 @@ export async function createOpenCodePlugin(
       evaluateLoadedPolicies(loaded, source, completePolicyInitialEnvironment(process.env), context));
   const preflights = createOpenCodeBashPreflights();
   let poisoned: string | undefined;
-  setJudgeProvider(buildJudgeProvider());
+  setJudgeProvider(buildOpenCodeJudgeProvider());
 
   const evaluateCommand = async (source: string, input: Record<string, unknown> = {}, workdir = cwd) => {
     const context: OpenCodeFilePermissionContext = {
@@ -254,12 +253,6 @@ export function blockReason(result: BashPolicyEvaluation): string {
       ? denial.decision.reason?.map((part) => (part.kind === "literal" ? part.value : String(part.value))).join("")
       : undefined) ?? "Bash policy denied this command";
   return `Blocked by safety policy: ${reason}`;
-}
-
-function buildJudgeProvider() {
-  if (process.env.ANTHROPIC_API_KEY) return createAnthropicJudge({ apiKey: process.env.ANTHROPIC_API_KEY });
-  if (process.env.OPENAI_API_KEY) return createOpenAIJudge({ apiKey: process.env.OPENAI_API_KEY });
-  return null;
 }
 
 function replyDirectory(directory: string | undefined): { readonly directory?: string } {
