@@ -857,19 +857,30 @@ function executeNormalizedInvocation(
     : input.state.environment;
   const builtin = transitionBuiltin(normalized, withShellEnvironment(input.state, builtinEnvironment), span);
   if (builtin.handled) {
-    if (!builtin.dispatch && (normalized.redirects.length > 0 || input.inheritedRedirects.length > 0)) {
-      recordInvocationEvent(normalized, input, context, span, inPipeline, executionTarget);
-    }
-    if (!builtin.dispatch && builtin.outcome && builtin.outcome.kind !== "safe") {
-      context.recordPolicyEvent?.(
-        projectExecutionGapEvent("unmodeled-builtin-transition", {
-          environment: normalized.environment,
-          span,
-          provenance: input.provenance,
-          inPipeline,
-          processEffect: input.processEffect,
-        }),
-      );
+    if (!builtin.dispatch) {
+      if (normalized.redirects.length > 0 || input.inheritedRedirects.length > 0) {
+        recordInvocationEvent(normalized, input, context, span, inPipeline, executionTarget);
+      } else if (builtin.outcome && builtin.outcome.kind !== "safe") {
+        context.recordPolicyEvent?.(
+          projectExecutionGapEvent("unmodeled-builtin-transition", {
+            environment: normalized.environment,
+            span,
+            provenance: input.provenance,
+            inPipeline,
+            processEffect: input.processEffect,
+          }),
+        );
+      } else {
+        context.recordPolicyEvent?.(
+          projectExecutionGapEvent("modeled-builtin-transition", {
+            environment: normalized.environment,
+            span,
+            provenance: input.provenance,
+            inPipeline,
+            processEffect: input.processEffect,
+          }),
+        );
+      }
     }
     const returnsFromFunction = builtin.returned && input.functionDepth > 0;
     const next = returnsFromFunction
