@@ -240,6 +240,19 @@ describe("Bash generic policy events", () => {
     );
   });
 
+  test("does not let policy coverage hide modeled builtin effects in a local function", () => {
+    const result = analyzeBashWithPolicies({
+      source: "prepare(){ local PATH=/safe; export PATH; }; prepare; command -v helm",
+      initialEnvironment: completePolicyInitialEnvironment({}),
+      policies: [policy("permission", () => allow)],
+    });
+
+    expect(result.events).toContainEqual(
+      expect.objectContaining({ kind: "execution-gap", reason: "modeled-builtin-transition" }),
+    );
+    expect(result.decision).toBe("defer");
+  });
+
   test("a new Bash process imports functions from its own exported environment", () => {
     const initialEnvironment = completePolicyInitialEnvironment({ "BASH_FUNC_helm%%": "() { gh imported; }" });
     const run = (source: string) =>
@@ -355,6 +368,24 @@ describe("Bash generic policy events", () => {
           source,
         ).toBeFalse();
       }
+    }
+  });
+
+  test("property: modeled builtin effects remain visible across local function names and values", () => {
+    for (let index = 0; index < 64; index++) {
+      const name = `prepare_${index}`;
+      const value = `value_${index}`;
+      const result = analyzeBashWithPolicies({
+        source: `${name}(){ local MARK=${value}; export MARK; }; ${name}; command -v helm`,
+        initialEnvironment: completePolicyInitialEnvironment({}),
+        policies: [policy("permission", () => allow)],
+      });
+
+      expect(
+        result.events.some((event) => event.kind === "execution-gap" && event.reason === "modeled-builtin-transition"),
+        name,
+      ).toBeTrue();
+      expect(result.decision, name).toBe("defer");
     }
   });
 
