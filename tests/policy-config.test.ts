@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -143,12 +153,15 @@ describe("authoritative global policy configuration", () => {
       ...globalConfig(["read.policy.mjs"]),
       pi: { autoApprove: true, judgeModel: "provider/model", showFullCommand: true },
     });
+    chmodSync(path, 0o640);
     expect(persistPiAdapterConfig(path, { showFullCommand: false })).toBe(true);
     const updated = JSON.parse(readFileSync(path, "utf8"));
     expect(updated.pi).toEqual({ autoApprove: true, judgeModel: "provider/model", showFullCommand: false });
     expect(updated.version).toBe(1);
     expect(updated.policies).toEqual(["read.policy.mjs"]);
     expect(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }).pi.showFullCommand).toBe(false);
+    expect(statSync(path).mode & 0o777).toBe(0o640);
+    expect(readdirSync(join(home, "safety-core"))).toEqual(["config.json"]);
   });
 
   test("skips symlinked, malformed, and missing config files without throwing", () => {
@@ -181,6 +194,7 @@ describe("authoritative global policy configuration", () => {
       });
       expect(persistPiAdapterConfig(path, { showFullCommand: value }), `seed ${seed}`).toBe(true);
       expect(loadGlobalPolicyConfig({ SAFETY_CORE_CONFIG_HOME: home }).pi.showFullCommand, `seed ${seed}`).toBe(value);
+      expect(readdirSync(join(home, "safety-core")), `seed ${seed}`).toEqual(["config.json"]);
     }
   });
 

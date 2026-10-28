@@ -1,5 +1,17 @@
-import { createHash } from "node:crypto";
-import { accessSync, constants, existsSync, lstatSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  accessSync,
+  chmodSync,
+  constants,
+  existsSync,
+  lstatSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 
 export class PolicyStartupError extends Error {
@@ -188,7 +200,20 @@ export function persistPiAdapterConfig(path: string, patch: Partial<PiAdapterCon
     accessSync(path, constants.W_OK);
     const record = requireRecord(readJson(path).value, path, "configuration must be an object");
     const current = record.pi === undefined ? {} : requireRecord(record.pi, path, "pi must be an object");
-    writeFileSync(path, `${JSON.stringify({ ...record, pi: { ...current, ...patch } }, null, 2)}\n`);
+    const temporaryPath = join(dirname(path), `.${basename(path)}-${randomUUID()}.tmp`);
+    try {
+      writeFileSync(temporaryPath, `${JSON.stringify({ ...record, pi: { ...current, ...patch } }, null, 2)}\n`, {
+        flag: "wx",
+      });
+      chmodSync(temporaryPath, statSync(path).mode);
+      renameSync(temporaryPath, path);
+    } finally {
+      try {
+        unlinkSync(temporaryPath);
+      } catch {
+        // Temporary-file cleanup must not turn a completed replacement into a failure.
+      }
+    }
     return true;
   } catch {
     return false;
