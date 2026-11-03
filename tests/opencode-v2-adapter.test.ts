@@ -23,6 +23,13 @@ test("OpenCode v2 exports a native plugin definition", () => {
 
 test("OpenCode v2 setup registers native V2 hooks without a V1 hook map", async () => {
   const hooks = new Map<string, (event: any) => Promise<void>>();
+  const tools = new Map<
+    string,
+    {
+      id: string;
+      execute(input: unknown, context: { sessionID: string; id: string }): Promise<unknown>;
+    }
+  >([["read", { id: "read", execute: async () => ({ content: "unreachable" }) }]]);
   let command: { execute: (input: unknown) => Promise<void> } | undefined;
   const cleanup = await OpenCodeV2Plugin.setup({
     location: { directory: process.cwd() },
@@ -35,8 +42,15 @@ test("OpenCode v2 setup registers native V2 hooks without a V1 hook map", async 
       },
     },
     tool: {
-      hook: async (name, callback) => {
-        hooks.set(`tool.${name}`, callback);
+      transform: async (callback) => {
+        callback({
+          get: (id) => tools.get(id),
+          update: (id, update) => {
+            const tool = tools.get(id);
+            if (tool) update(tool);
+          },
+        });
+        return { dispose: async () => {} };
       },
     },
     permission: {
@@ -47,10 +61,15 @@ test("OpenCode v2 setup registers native V2 hooks without a V1 hook map", async 
     event: { subscribe: async function* () {} },
   });
 
-  expect([...hooks.keys()].sort()).toEqual(["permission.evaluate", "tool.execute.after", "tool.execute.before"]);
-  await expect(
-    hooks.get("tool.execute.before")!({ tool: "read", sessionID: "s", id: "c", input: { path: ".env" } }),
-  ).rejects.toThrow("Blocked by safety policy");
+  expect([...hooks.keys()]).toEqual(["permission.evaluate"]);
+  await expect(tools.get("read")!.execute({ path: ".env" }, { sessionID: "s", id: "c" })).rejects.toThrow(
+    "Blocked by safety policy",
+  );
+  for (let seed = 0; seed < 1_024; seed++)
+    await expect(
+      tools.get("read")!.execute({ path: `private-${seed}.pem` }, { sessionID: "s", id: `c-${seed}` }),
+      `seed ${seed}`,
+    ).rejects.toThrow("Blocked by safety policy");
   await command!.execute({ untrusted: true });
   await cleanup!();
 });

@@ -58,6 +58,11 @@ export type OpenCodeV2PermissionEvent = {
 
 type OpenCodeV2Registration = { dispose(): Promise<void> };
 
+type OpenCodeV2RegisteredTool = {
+  readonly id: string;
+  execute(input: unknown, context: { readonly sessionID: string; readonly id: string }): Promise<unknown>;
+};
+
 export type OpenCodeV2Context = {
   readonly location: { readonly directory: string; readonly worktree?: string };
   readonly agent: { list(): Promise<unknown> };
@@ -71,10 +76,12 @@ export type OpenCodeV2Context = {
     ): Promise<OpenCodeV2Registration>;
   };
   readonly tool: {
-    hook(
-      name: "execute.before" | "execute.after",
-      callback: (event: OpenCodeV2ToolEvent) => Promise<void>,
-    ): Promise<unknown>;
+    transform(
+      callback: (editor: {
+        get(id: string): OpenCodeV2RegisteredTool | undefined;
+        update(id: string, update: (tool: OpenCodeV2RegisteredTool) => void): void;
+      }) => void,
+    ): Promise<OpenCodeV2Registration>;
   };
   readonly permission: {
     hook(name: "evaluate", callback: (event: OpenCodeV2PermissionEvent) => Promise<void>): Promise<unknown>;
@@ -322,8 +329,24 @@ export default {
   async setup(context: OpenCodeV2Context) {
     const policy = await createOpenCodeV2PolicyRuntime({}, context);
     const reloadCommand = await registerOpenCodeV2ReloadCommand(context.command, () => policy.reload());
-    await context.tool.hook("execute.before", (event) => policy.before(event));
-    await context.tool.hook("execute.after", async (event) => policy.after(event));
+    await context.tool.transform((editor) => {
+      for (const tool of ["read", "webfetch", "bash", "shell"]) {
+        const registered = editor.get(tool);
+        if (!registered) continue;
+        const execute = registered.execute;
+        editor.update(tool, (definition) => {
+          definition.execute = async (input, execution) => {
+            const event = { tool, sessionID: execution.sessionID, id: execution.id, input };
+            await policy.before(event);
+            try {
+              return await execute(input, execution);
+            } finally {
+              policy.after(event);
+            }
+          };
+        });
+      }
+    });
     await context.permission.hook("evaluate", (event) => policy.evaluatePermission(event));
 
     const events = new AbortController();
