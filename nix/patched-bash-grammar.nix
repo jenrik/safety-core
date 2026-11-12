@@ -5,9 +5,12 @@ let
     stdenv
     nodejs_22
     linkFarm
-    tree-sitter
     writeShellScript
     ;
+  # The bundled grammar is compiled to WASM during the build, so use the
+  # wasm-enabled tree-sitter CLI (it provides binaryen's wasm-opt and lld).
+  # Without this the CLI tries to fetch the toolchain into $HOME/.cache.
+  tree-sitter = pkgs.tree-sitter.override { wasmSupport = true; };
   wasi32 = pkgs.pkgsCross.wasi32;
 
   # tree-sitter 0.26.9 passes the retired wasm32-unknown-wasi target. Nix's
