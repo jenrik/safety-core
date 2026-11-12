@@ -198,10 +198,7 @@ describe("policy environment manifest", () => {
   test("defines present, empty, unset, and unavailable behavior without emitting values", () => {
     expect(policyInitialEnvironment({ GH_PAGER: "" })).toMatchObject({ kind: "filtered", values: { GH_PAGER: "" } });
     const pager = policyInitialEnvironment({ PAGER: "less" });
-    expect(pager.kind === "filtered" ? Object.keys(pager.values) : []).toEqual([
-      BASH_FUNCTIONS_CAPTURED_FACT,
-      "__SAFETY_CORE_INHERITED_GH_PAGER",
-    ]);
+    expect(pager.kind === "filtered" ? Object.keys(pager.values) : []).toEqual([BASH_FUNCTIONS_CAPTURED_FACT, "PAGER"]);
     const empty = policyInitialEnvironment({});
     expect(empty).toMatchObject({
       kind: "filtered",

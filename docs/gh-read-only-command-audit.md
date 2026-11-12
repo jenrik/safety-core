@@ -354,7 +354,7 @@ Authentication variables are listed for completeness but their values are never 
 | `GH_DEBUG` | defer | gh | yes | Can emit request, response, and authentication diagnostics. |
 | `DEBUG` | defer | gh | yes | Can emit verbose diagnostics. |
 | `GH_PAGER` | defer | gh | yes | Can execute an arbitrary pager command. |
-| `PAGER` | defer | gh | yes | Can execute an arbitrary gh pager command; ambient Git paging remains trusted. |
+| `PAGER` | defer | gh | yes | Can execute an arbitrary gh pager command. |
 | `GLAMOUR_STYLE` | defer | gh | yes | Redirects Markdown rendering through an unreviewed style or path. |
 | `NO_COLOR` | ignored | gh | no | Disables color and terminal escape sequences. |
 | `CLICOLOR` | ignored | gh | no | Only changes color rendering. |

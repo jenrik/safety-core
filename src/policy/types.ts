@@ -1,5 +1,5 @@
 import type { SourceSpan } from "../bash/cst.js";
-import type { BindingValue } from "../bash/environment.js";
+import type { BindingValue, EnvironmentOrigin } from "../bash/environment.js";
 import type { NormalizedRedirect, ResolvedWord } from "../bash/expand.js";
 import type { BashIoContext } from "../bash/io.js";
 import type { BashExecutionTargetKind } from "../bash/resolution.js";
@@ -74,6 +74,8 @@ export interface InvocationView {
   readonly environment: Readonly<Record<string, BindingValue>>;
   /** Export state for every materialized binding in the invocation environment. */
   readonly exportedEnvironment?: Readonly<Record<string, boolean>>;
+  /** Provenance for every materialized binding in the invocation environment. */
+  readonly environmentOrigin?: Readonly<Record<string, EnvironmentOrigin>>;
   /** Whether bindings absent from the modeled map are unknown or proven unset. */
   readonly missingBindings: "unknown" | "unset";
   readonly redirects: readonly NormalizedRedirect[];

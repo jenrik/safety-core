@@ -90,7 +90,7 @@ Open every authoring session by resolving these with the operator, and record th
 
 ### Environment and assignments
 
-- Which environment variables may influence the decision, and must they be known (`environmentIsKnown`) or is a missing one treated as possibly present (`missingEnvironmentMayBePresent`)? Which variables are unsafe (`environmentAnyUnsafe`)?
+- Which environment variables may influence the decision, and must they be known (`environmentIsKnown`) or is a missing one treated as possibly present (`missingEnvironmentMayBePresent`)? Which variables are unsafe (`environmentAnyUnsafe`)? Note that `environmentAnyUnsafe` trusts non-empty values inherited from the harness and treats script-written values as unsafe; use `environmentOriginIs` when the origin must be checked directly.
 - Which variables are routing, credential, or configuration gates that must be absent or known-empty for an `allow` (for example `KUBECONFIG`, `HELM_KUBETOKEN`, `NIX_*`, `JFROG_CLI_*`, `GIT_CONFIG_*`, `PAGER`), and is a nonempty or unknown value a `defer`? Give a per-variable rationale.
 - Do we permit command-prefix assignments, and if so which exact subset (`hasAssignment`, `hasAnyAssignment`, `assignmentsAreSubset`)? Are exported Bash function definitions in the environment in scope?
 

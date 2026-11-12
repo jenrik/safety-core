@@ -112,19 +112,24 @@ describe("generic read-only Bash profile", () => {
       expect(generic(command), command).toBe("defer");
   });
 
-  test("defers Git reads when an external diff helper is configured by the environment", () => {
+  test("trusts inherited Git execution-routing variables but defers script assignments", () => {
     for (const command of [
       "GIT_EXTERNAL_DIFF=/tmp/diff-helper git diff --stat origin/main...origin/feature",
       "export GIT_EXTERNAL_DIFF=/tmp/diff-helper; git diff --stat origin/main...origin/feature",
       "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.external GIT_CONFIG_VALUE_0=/tmp/diff-helper; git diff --stat origin/main...origin/feature",
       "export GIT_PAGER='sh -c false'; git log --oneline HEAD",
+      "export PAGER=less; git diff --check",
     ])
       expect(generic(command), command).toBe("defer");
-    expect(
-      genericWithEnvironment("git diff --stat origin/main...origin/feature", {
-        GIT_EXTERNAL_DIFF: "/tmp/diff-helper",
-      }),
-    ).toBe("defer");
+    for (const [name, value] of [
+      ["PAGER", "less"],
+      ["GIT_PAGER", "less"],
+      ["GIT_EXTERNAL_DIFF", "/tmp/diff-helper"],
+      ["GIT_CONFIG_GLOBAL", "/tmp/gitconfig"],
+      ["GIT_CONFIG_SYSTEM", "/tmp/gitconfig"],
+      ["GIT_CONFIG_PARAMETERS", "'diff.external=/tmp/diff-helper'"],
+    ] as const)
+      expect(genericWithEnvironment("git diff --check", { [name]: value }), `${name}=${value}`).toBe("allow");
   });
 
   test("property: strace output forms never preserve a generic read-only allow", () => {

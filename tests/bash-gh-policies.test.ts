@@ -150,20 +150,31 @@ describe("walker-backed gh policy compatibility", () => {
     expect(configured("gh issue create", apiProfile, { GH_PAGER: "" }).permission.kind).toBe("ignore");
   });
 
-  test("defers inherited configuration and imported Bash function shadowing", () => {
+  test("trusts inherited configuration and defers imported Bash function shadowing", () => {
     const dockerProfile = snapshot({
       strictProfiles: Object.freeze({ ...snapshot().strictProfiles, dockerReadOnly: true }),
     });
     const kubectlProfile = snapshot({
       strictProfiles: Object.freeze({ ...snapshot().strictProfiles, kubectlReadOnly: true }),
     });
-    const cases = [
+    for (const [source, profile, environment] of [
       ["docker image ls", dockerProfile, { DOCKER_CONFIG: "/tmp/docker-config" }],
       ["kubectl get pods", kubectlProfile, { KUBECONFIG: "/tmp/kubeconfig" }],
+    ] as const)
+      expect(
+        evaluateConfiguredBash({
+          source,
+          initialEnvironment: policyInitialEnvironment(environment),
+          profileSnapshot: profile,
+        }).permission.kind,
+        source,
+      ).toBe("allow");
+    for (const [source, profile, environment] of [
+      ["export DOCKER_CONFIG=/tmp/docker-config; docker image ls", dockerProfile, {}],
+      ["export KUBECONFIG=/tmp/kubeconfig; kubectl get pods", kubectlProfile, {}],
       ["docker image ls", dockerProfile, { "BASH_FUNC_docker%%": "() { credential-canary; }" }],
       ["kubectl get pods", kubectlProfile, { "BASH_FUNC_kubectl%%": "() { credential-canary; }" }],
-    ] as const;
-    for (const [source, profile, environment] of cases) {
+    ] as const) {
       const result = evaluateConfiguredBash({
         source,
         initialEnvironment: policyInitialEnvironment(environment),
@@ -556,7 +567,10 @@ describe("walker-backed gh policy compatibility", () => {
     expect(configured(api, apiProfile, { PAGER: "printf" }).permission.kind).toBe("defer");
     expect(configured(api, apiProfile, { GH_PAGER: "", GH_HOST: "" }).permission.kind).toBe("defer");
     expect(configured(api, apiProfile, { GH_PAGER: "", GH_HOST: "attacker.example" }).permission.kind).toBe("defer");
-    expect(configured(pr, prProfile, { GH_PROMPT_DISABLED: "1", GH_PATH: "/tmp/gh" }).permission.kind).toBe("deny");
+    expect(configured(pr, prProfile, { GH_PROMPT_DISABLED: "1", GH_PATH: "/tmp/gh" }).permission.kind).toBe("defer");
+    expect(configured(`export GH_PATH=/tmp/gh; ${pr}`, prProfile, { GH_PROMPT_DISABLED: "1" }).permission.kind).toBe(
+      "deny",
+    );
     expect(configured(api, apiProfile, { GH_TELEMETRY_SAMPLE_RATE: "100" }).permission.kind).toBe("defer");
 
     expect(
@@ -765,32 +779,28 @@ describe("walker-backed gh policy compatibility", () => {
     }
   });
 
-  test("property: every applicable non-empty gh environment route prevents ownership approval", () => {
+  test("property: inherited gh environment routes are trusted while script assignments prevent ownership approval", () => {
     const apiProfile = snapshot({ ghApiReadOnly: true });
     const prProfile = snapshot({ ghPrCreate: Object.freeze(policy) });
+    const pr = "gh pr create --repo github.com/acme/widgets --fill";
     for (const name of GH_API_DEFER_ENVIRONMENT_NAMES) {
       expect(configured("gh api user", apiProfile, { GH_PAGER: "", [name]: "policy-test" }).permission.kind, name).toBe(
         "defer",
       );
-      expect(configured("gh api user", apiProfile, { GH_PAGER: "", [name]: "" }).permission.kind, `${name} empty`).toBe(
-        "defer",
-      );
+      expect(
+        configured(`export ${name}=policy-test; gh api user`, apiProfile, { GH_PAGER: "" }).permission.kind,
+        `${name} assigned`,
+      ).toBe("defer");
     }
     for (const name of GH_GLOBAL_DEFER_ENVIRONMENT_NAMES) {
       expect(
-        configured("gh pr create --repo github.com/acme/widgets --fill", prProfile, {
-          GH_PROMPT_DISABLED: "1",
-          [name]: "policy-test",
-        }).permission.kind,
-        name,
-      ).toBe("deny");
-      expect(
-        configured("gh pr create --repo github.com/acme/widgets --fill", prProfile, {
-          GH_PROMPT_DISABLED: "1",
-          [name]: "",
-        }).permission.kind,
-        `${name} empty`,
+        configured(pr, prProfile, { GH_PROMPT_DISABLED: "1", [name]: "policy-test" }).permission.kind,
+        `${name} inherited`,
       ).toBe("defer");
+      expect(
+        configured(`export ${name}=policy-test; ${pr}`, prProfile, { GH_PROMPT_DISABLED: "1" }).permission.kind,
+        `${name} assigned`,
+      ).toBe("deny");
     }
   });
 

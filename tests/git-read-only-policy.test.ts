@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { analyzeGitReadOnlyInvocation } from "../src/bash/policies/git.ts";
-import { GH_INHERITED_PAGER_FACT, policyInitialEnvironment } from "../src/bash/policy-environment.ts";
+import { policyInitialEnvironment } from "../src/bash/policy-environment.ts";
 
 function decision(...args: string[]): string {
   return analyzeGitReadOnlyInvocation(args).kind;
@@ -35,7 +35,7 @@ describe("Git read-only policy", () => {
         GIT_CONFIG_COUNT: "1",
         GIT_CONFIG_KEY_0: "diff.external",
         GH_PAGER: "/tmp/gh-pager",
-        [GH_INHERITED_PAGER_FACT]: "/tmp/shared-pager",
+        PAGER: "/tmp/shared-pager",
       },
     });
   });

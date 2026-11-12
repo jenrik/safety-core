@@ -17,7 +17,6 @@ import {
 import {
   BASH_FUNCTIONS_CAPTURED_FACT,
   GH_DEFER_ENVIRONMENT_NAMES,
-  GH_INHERITED_PAGER_FACT,
   inheritedBashFunctionFact,
 } from "../policy-environment.js";
 
@@ -144,23 +143,13 @@ export function commandTokens(args: readonly string[], valueFlags: ReadonlySet<s
   return tokens;
 }
 
-/** Defer when gh behavior can be redirected by inherited or shell-assigned state. */
+/** Defer when gh behavior can be redirected by shell-assigned or unresolved state. */
 export function hasUnsafeGhEnvironmentBinding(
   cursor: InvocationCursor,
   names: readonly string[] = GH_DEFER_ENVIRONMENT_NAMES,
 ): boolean {
   const environment = cursor.invocation.environment;
-  for (const name of names) {
-    if (name === GH_INHERITED_PAGER_FACT) continue;
-    if (name === "PAGER") {
-      if (hasBinding(environment, "PAGER")) {
-        if (bindingIsUnsafe(environment, "PAGER")) return true;
-      } else if (bindingIsUnsafe(environment, GH_INHERITED_PAGER_FACT)) return true;
-      continue;
-    }
-    if (bindingIsUnsafe(environment, name)) return true;
-  }
-  return false;
+  return names.some((name) => bindingIsUnsafe(environment, name));
 }
 
 /** An explicit empty or `cat` GH_PAGER overrides both mutable config and PAGER. */
@@ -198,14 +187,14 @@ export function hasInheritedExecutableFunction(cursor: InvocationCursor, executa
 }
 
 function hasUnsafeConfigurationBinding(cursor: InvocationCursor, executable: string): boolean {
-  return (UNSAFE_CONFIGURATION_BINDINGS[executable] ?? []).some((name) => {
-    const value = lookupBinding(cursor.invocation.environment, name).value;
-    return value.kind === "unknown" || (value.kind === "known" && value.value.length > 0);
-  });
+  return (UNSAFE_CONFIGURATION_BINDINGS[executable] ?? []).some((name) =>
+    bindingIsUnsafe(cursor.invocation.environment, name),
+  );
 }
 
 function bindingIsUnsafe(environment: Environment, name: string): boolean {
   if (!hasBinding(environment, name)) return environment.missingBindings === "unknown";
-  const value = lookupBinding(environment, name).value;
-  return value.kind === "unknown" || (value.kind === "known" && value.value.length > 0);
+  const binding = lookupBinding(environment, name);
+  if (binding.value.kind === "unknown") return true;
+  return binding.value.kind === "known" && binding.value.value.length > 0 && binding.origin !== "inherited";
 }

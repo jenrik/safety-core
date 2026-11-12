@@ -10,8 +10,7 @@ export interface PolicyEnvironmentRoute {
   readonly capture: boolean;
 }
 
-/** Internal fact used so gh can inspect inherited PAGER without changing Git's accepted ambient pager boundary. */
-export const GH_INHERITED_PAGER_FACT = "__SAFETY_CORE_INHERITED_GH_PAGER";
+/** Internal fact used so exported Bash definitions are visible without exposing their values. */
 export const BASH_FUNCTIONS_CAPTURED_FACT = "__SAFETY_CORE_BASH_FUNCTIONS_CAPTURED";
 const PRESENT_REDACTED_VALUE = "__SAFETY_CORE_PRESENT";
 const EXPORTED_BASH_FUNCTION = /^BASH_FUNC_(.+)%%$/;
@@ -38,13 +37,7 @@ export const POLICY_ENVIRONMENT_ROUTES: readonly PolicyEnvironmentRoute[] = Obje
   ghDefer("GH_DEBUG", "Can emit request, response, and authentication diagnostics."),
   ghDefer("DEBUG", "Can emit verbose diagnostics."),
   ghDefer("GH_PAGER", "Can execute an arbitrary pager command."),
-  Object.freeze({
-    name: "PAGER",
-    disposition: "defer",
-    scope: "gh",
-    rationale: "Can execute an arbitrary gh pager command; ambient Git paging remains trusted.",
-    capture: true,
-  }),
+  ghDefer("PAGER", "Can execute an arbitrary gh pager command."),
   ghDefer("GLAMOUR_STYLE", "Redirects Markdown rendering through an unreviewed style or path."),
   ignored("NO_COLOR", "Disables color and terminal escape sequences."),
   ignored("CLICOLOR", "Only changes color rendering."),
@@ -83,7 +76,6 @@ export const GH_DEFER_ENVIRONMENT_NAMES: readonly string[] = Object.freeze([
   ...POLICY_ENVIRONMENT_ROUTES.filter((route) => route.scope === "gh" && route.disposition === "defer").map(
     (route) => route.name,
   ),
-  GH_INHERITED_PAGER_FACT,
 ]);
 
 /** Variables consulted by common gh startup or by both owned network routes. */
@@ -104,7 +96,6 @@ export const GH_GLOBAL_DEFER_ENVIRONMENT_NAMES: readonly string[] = Object.freez
 export const GH_API_DEFER_ENVIRONMENT_NAMES: readonly string[] = Object.freeze([
   ...GH_GLOBAL_DEFER_ENVIRONMENT_NAMES,
   "GH_REPO",
-  GH_INHERITED_PAGER_FACT,
 ]);
 
 /**
@@ -123,10 +114,6 @@ export function policyInitialEnvironment(
     if (bashFunction) {
       values[name] = value;
       values[inheritedBashFunctionFact(bashFunction)] = PRESENT_REDACTED_VALUE;
-      continue;
-    }
-    if (name === "PAGER") {
-      values[GH_INHERITED_PAGER_FACT] = value;
       continue;
     }
     if (name === "GIT_CONFIG_PARAMETERS") {

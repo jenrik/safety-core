@@ -42,8 +42,16 @@ describe("persistent Bash environment", () => {
     const unavailable = modeledBindings(fromInitialEnvironment({ KNOWN: "value" }));
     const verified = modeledBindings(fromInitialEnvironment({ KNOWN: "value" }, {}, "unset"));
 
-    expect(unavailable).toEqual({ values: { KNOWN: known("value") }, missingBindings: "unknown" });
-    expect(verified).toEqual({ values: { KNOWN: known("value") }, missingBindings: "unset" });
+    expect(unavailable).toEqual({
+      values: { KNOWN: known("value") },
+      origins: { KNOWN: "inherited" },
+      missingBindings: "unknown",
+    });
+    expect(verified).toEqual({
+      values: { KNOWN: known("value") },
+      origins: { KNOWN: "inherited" },
+      missingBindings: "unset",
+    });
     expect(Object.isFrozen(unavailable)).toBeTrue();
     expect(Object.isFrozen(unavailable.values)).toBeTrue();
   });
@@ -55,7 +63,34 @@ describe("persistent Bash environment", () => {
       value: known("BAR"),
       exported: true,
       readonly: true,
+      origin: "inherited",
     });
+  });
+
+  test("tracks whether bindings came from the harness snapshot or the analyzed script", () => {
+    const initial = fromInitialEnvironment({ INHERITED: "one", REPLACED: "two" });
+    const assigned = assignBinding(initial, "REPLACED", known("three"));
+    const exported = setExported(assigned, "INHERITED", true);
+    const local = assignLocalBinding(pushFunctionFrame(exported), "LOCAL", known("four"));
+
+    expect(lookupBinding(exported, "INHERITED")).toMatchObject({ origin: "inherited", exported: true });
+    expect(lookupBinding(exported, "REPLACED")).toMatchObject({ origin: "script", value: known("three") });
+    expect(lookupBinding(local, "LOCAL")).toMatchObject({ origin: "script", value: known("four") });
+    expect(modeledBindings(exported).origins).toEqual({ INHERITED: "inherited", REPLACED: "script" });
+  });
+
+  test("property: every assignment form marks a binding as script-originated", () => {
+    for (let seed = 0; seed < 256; seed++) {
+      const name = `VARIABLE_${seed}`;
+      const value = known(`value-${seed}`);
+      for (const environment of [
+        assignBinding(fromInitialEnvironment({ [name]: "inherited" }), name, value),
+        assignLocalBinding(pushFunctionFrame(fromInitialEnvironment({ [name]: "inherited" })), name, value),
+        assignNonLocalBinding(pushFunctionFrame(fromInitialEnvironment({ [name]: "inherited" })), name, value),
+        unsetBinding(fromInitialEnvironment({ [name]: "inherited" }), name),
+      ])
+        expect(lookupBinding(environment, name).origin, name).toBe("script");
+    }
   });
 
   test("uses parent lookup and lets function frames shadow without mutating callers", () => {

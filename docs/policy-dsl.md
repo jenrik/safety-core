@@ -10,8 +10,8 @@ compute a jump target.
 The loader for JSON sources is introduced separately. This document specifies
 the source document accepted by `parsePolicyDocument`,
 `validatePolicyDocument`, and `compilePolicyDocument`. Existing v1 documents
-retain their exact grammar and builtin catalogue. The intra-word facilities
-below are available only to v2 documents.
+remain valid. New v1 builtins are additive; the intra-word facilities below are
+available only to v2 documents.
 
 ## Document
 
@@ -255,7 +255,7 @@ All builtins are total and only inspect supplied values. `n`, `m`, `s`, `r`,
 and provenance-route sizes. `stringish` accepts a known string or immutable
 input reference and preserves unknown handling for the evaluator.
 
-The table below is the unchanged v1 catalogue (also available in v2).
+The table below is the closed v1 catalogue (also available in v2).
 
 | Builtin | Signature | Bound | Use |
 | --- | --- | --- | --- |
@@ -295,6 +295,7 @@ The table below is the unchanged v1 catalogue (also available in v2).
 | `environmentIsUnknown` | `(environment-value) -> bool` | `O(1)` | unresolved env proof |
 | `environmentValueEquals` | `(environment-value, string) -> bool` | `O(n)` | exact env proof value; unknown remains unknown |
 | `environmentIsExported` | `(string) -> bool` | `O(1)` | exported proof variable |
+| `environmentOriginIs` | `(string, string) -> bool` | `O(1)` | binding origin: `inherited` or `script` |
 | `missingEnvironmentMayBePresent` | `() -> bool` | `O(1)` | absent versus unknown environment |
 | `redirectHasInputPath` | `(stringish) -> bool` | `O(r + n)` | secret redirects |
 | `hasAssignment` | `(string) -> bool` | `O(a)` | prefix assignments |
@@ -305,7 +306,7 @@ The table below is the unchanged v1 catalogue (also available in v2).
 | `isDirectExecutable` | `(string) -> bool` | `O(n)` | exact unqualified executable |
 | `hasInheritedExecutableFunction` | `(string) -> bool` | `O(n)` | imported function shadowing |
 | `executionTargetIs` | `(string) -> bool` | `O(1)` | resolved target: `builtin`, `shell-function`, `external-path`, or `unresolved` |
-| `environmentAnyUnsafe` | `(string-set) -> bool` | `O(ns)` | finite unsafe environment routes |
+| `environmentAnyUnsafe` | `(string-set) -> bool` | `O(ns)` | finite routes unknown or written by the analyzed script |
 | `longOptionPrefixesAny` | `(stringish, string-set) -> bool` | `O(ns)` | audited long-option prefix table |
 | `hasProvenanceRoute` | `(string) -> bool` | `O(p)` | shell-wrapper routes |
 | `isInPipeline` | `() -> bool` | `O(1)` | pipeline context |
@@ -313,6 +314,16 @@ The table below is the unchanged v1 catalogue (also available in v2).
 | `inputIsBindingResolved` | `(stringish) -> bool` | `O(1)` | binding-derived input provenance |
 | `inputBlockedDomain` | `(stringish) -> string` | `O(1)` | unresolved-input blocked-domain metadata |
 | `domainToken` | `(stringish, string) -> bool` | `O(nm)` | ASCII domain mention with hostname boundaries |
+
+Every binding records its origin. `inherited` bindings come from the harness
+snapshot; `script` bindings were written by the analyzed Bash source, including
+prefix assignments, `export`, `readonly`, `unset`, and wrapper assignment
+forms. `environmentAnyUnsafe` treats a non-empty inherited value as safe
+because the agent cannot mutate the harness process environment, while an
+unknown name or a non-empty script binding remains unsafe. Policies that need
+the distinction directly can use `environmentOriginIs(name, "inherited")` or
+`environmentOriginIs(name, "script")`; a missing origin is unknown, never
+inherited.
 
 Only v2 adds the following total builtins:
 

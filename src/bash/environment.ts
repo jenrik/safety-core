@@ -12,10 +12,14 @@ export type BindingValue =
   | { readonly kind: "unknown"; readonly reason: UnknownReason }
   | { readonly kind: "unset" };
 
+/** Whether a binding came from the harness snapshot or from the analyzed script. */
+export type EnvironmentOrigin = "inherited" | "script";
+
 export interface Binding {
   readonly value: BindingValue;
   readonly exported: boolean;
   readonly readonly: boolean;
+  readonly origin: EnvironmentOrigin;
 }
 
 /** A scope identity. Its implementation state is held privately and immutable. */
@@ -51,6 +55,7 @@ export interface EnvironmentPatch {
 /** Complete materialization of modeled bindings and the semantics of absent names. */
 export interface ModeledBindings {
   readonly values: Readonly<Record<string, BindingValue>>;
+  readonly origins: Readonly<Record<string, EnvironmentOrigin>>;
   readonly missingBindings: Environment["missingBindings"];
 }
 
@@ -119,6 +124,7 @@ export function fromVerifiedInitialEnvironment(
         value: typeof value === "string" ? known(value) : "value" in value ? value.value : value,
         exported: true,
         readonly: false,
+        origin: "inherited" as const,
       },
     ]),
   ) as Readonly<Record<string, Binding>>;
@@ -138,11 +144,12 @@ export function fromFilteredInitialEnvironment(
         value: typeof value === "string" ? known(value) : "value" in value ? value.value : value,
         exported: true,
         readonly: false,
+        origin: "inherited" as const,
       },
     ]),
   ) as Record<string, Binding>;
   for (const name of unsetNames) {
-    if (!(name in bindings)) bindings[name] = createBinding(unset(), false, false);
+    if (!(name in bindings)) bindings[name] = createBinding(unset(), false, false, "inherited");
   }
   return fromInitialEnvironment(bindings, budgets, "unknown");
 }
@@ -175,8 +182,10 @@ export function modeledBindings(environment: Environment): ModeledBindings {
     for (const name of own.keys()) names.add(name);
   };
   collect(environment.overlay ?? environment.frame);
+  const bindings = [...names].map((name) => [name, lookupBinding(environment, name)] as const);
   return Object.freeze({
-    values: Object.freeze(Object.fromEntries([...names].map((name) => [name, lookupBinding(environment, name).value]))),
+    values: Object.freeze(Object.fromEntries(bindings.map(([name, binding]) => [name, binding.value]))),
+    origins: Object.freeze(Object.fromEntries(bindings.map(([name, binding]) => [name, binding.origin]))),
     missingBindings: environment.missingBindings,
   });
 }
@@ -186,7 +195,7 @@ export function assignBinding(environment: Environment, name: string, value: Bin
     return assignNonLocalBinding(environment, name, value);
   }
   const previous = lookupBinding(environment, name);
-  return writeBinding(environment, name, createBinding(value, previous.exported, previous.readonly));
+  return writeBinding(environment, name, createBinding(value, previous.exported, previous.readonly, "script"));
 }
 
 /** Creates a function-local shadow without modifying a caller-visible binding. */
@@ -195,7 +204,7 @@ export function assignLocalBinding(environment: Environment, name: string, value
   const previous = lookupOwnBinding(target, name) ?? createBinding(unset(), false, false);
   return replaceActiveFrame(
     environment,
-    writeFrame(target, name, createBinding(value, previous.exported, previous.readonly), true),
+    writeFrame(target, name, createBinding(value, previous.exported, previous.readonly, "script"), true),
   );
 }
 
@@ -204,7 +213,11 @@ export function assignNonLocalBinding(environment: Environment, name: string, va
   const target = environment.overlay ?? environment.frame;
   const destination = findNearestBindingScope(target, name) ?? outermostScope(target);
   const previous = lookupOwnBinding(destination, name) ?? createBinding(unset(), false, false);
-  const updatedDestination = writeFrame(destination, name, createBinding(value, previous.exported, previous.readonly));
+  const updatedDestination = writeFrame(
+    destination,
+    name,
+    createBinding(value, previous.exported, previous.readonly, "script"),
+  );
   const updatedTarget =
     destination === target ? updatedDestination : replaceAncestorFrame(target, destination, updatedDestination);
   return replaceActiveFrame(environment, updatedTarget);
@@ -212,19 +225,19 @@ export function assignNonLocalBinding(environment: Environment, name: string, va
 
 export function unsetBinding(environment: Environment, name: string): Environment {
   return writeVisibleBinding(environment, name, (previous) =>
-    createBinding(unset(), previous.exported, previous.readonly),
+    createBinding(unset(), previous.exported, previous.readonly, "script"),
   );
 }
 
 export function setExported(environment: Environment, name: string, exported: boolean): Environment {
   return writeVisibleBinding(environment, name, (previous) =>
-    createBinding(previous.value, exported, previous.readonly),
+    createBinding(previous.value, exported, previous.readonly, previous.origin),
   );
 }
 
 export function setReadonly(environment: Environment, name: string, readonly: boolean): Environment {
   return writeVisibleBinding(environment, name, (previous) =>
-    createBinding(previous.value, previous.exported, readonly),
+    createBinding(previous.value, previous.exported, readonly, previous.origin),
   );
 }
 
@@ -335,6 +348,7 @@ export function mergeCheckpoint(checkpoint: BranchCheckpoint, branches: readonly
           unknown({ kind: "branch-disagreement" }),
           bindings.every((binding) => binding.exported),
           bindings.every((binding) => binding.readonly),
+          "script",
         );
     merged = writeBinding(merged, name, next);
   }
@@ -551,13 +565,19 @@ function hasTaintSince(environment: Environment, base: Environment): boolean {
 }
 
 function normalizeBinding(value: string | Binding | BindingValue): Binding {
-  if (typeof value === "string") return createBinding(known(value), false, false);
-  if ("exported" in value && "readonly" in value) return createBinding(value.value, value.exported, value.readonly);
-  return createBinding(value, false, false);
+  if (typeof value === "string") return createBinding(known(value), false, false, "inherited");
+  if ("exported" in value && "readonly" in value)
+    return createBinding(value.value, value.exported, value.readonly, value.origin);
+  return createBinding(value, false, false, "inherited");
 }
 
-function createBinding(value: BindingValue, exported: boolean, readonly: boolean): Binding {
-  return Object.freeze({ value: freezeValue(value), exported, readonly });
+function createBinding(
+  value: BindingValue,
+  exported: boolean,
+  readonly: boolean,
+  origin: EnvironmentOrigin = "script",
+): Binding {
+  return Object.freeze({ value: freezeValue(value), exported, readonly, origin });
 }
 
 function freezeValue(value: BindingValue): BindingValue {
@@ -575,7 +595,12 @@ function freezeReason(reason: UnknownReason): UnknownReason {
 }
 
 function bindingsEqual(left: Binding, right: Binding): boolean {
-  return left.exported === right.exported && left.readonly === right.readonly && valuesEqual(left.value, right.value);
+  return (
+    left.exported === right.exported &&
+    left.readonly === right.readonly &&
+    left.origin === right.origin &&
+    valuesEqual(left.value, right.value)
+  );
 }
 
 function isPositivePositionalParameter(name: string): boolean {

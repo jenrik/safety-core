@@ -135,6 +135,12 @@ export const BUILTINS_V1: Readonly<Record<string, BuiltinDefinition>> = Object.f
     "Exact environment value comparison; unknown remains unknown.",
   ),
   environmentIsExported: builtin(["string"], "bool", "O(1)", "Known exported-environment proof predicate."),
+  environmentOriginIs: builtin(
+    ["string", "string"],
+    "bool",
+    "O(1)",
+    "Whether a visible binding originated in the harness snapshot or the analyzed script.",
+  ),
   missingEnvironmentMayBePresent: builtin(
     [],
     "bool",
@@ -174,7 +180,7 @@ export const BUILTINS_V1: Readonly<Record<string, BuiltinDefinition>> = Object.f
     ["string-set"],
     "bool",
     "O(ns)",
-    "Whether a finite environment route is unknown or has a non-empty known value.",
+    "Whether a finite environment route is unknown, or was written by the analyzed script with a non-empty value.",
   ),
   longOptionPrefixesAny: builtin(
     ["stringish", "string-set"],

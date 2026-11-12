@@ -1,4 +1,4 @@
-import type { BindingValue } from "../../bash/environment.js";
+import type { BindingValue, EnvironmentOrigin } from "../../bash/environment.js";
 import type { ResolvedWord } from "../../bash/expand.js";
 import { isBindingResolvedWord } from "../../bash/word-provenance.js";
 import type {
@@ -850,6 +850,15 @@ function builtin(name: string, args: readonly RuntimeValue[], context: RuntimeCo
         context.event.kind === "invocation" &&
         context.event.exportedEnvironment?.[strings[0]] === true
       );
+    case "environmentOriginIs": {
+      if (typeof strings[0] !== "string" || typeof strings[1] !== "string") return UNKNOWN;
+      const value = context.event.environment[strings[0]];
+      if (value === undefined) return context.event.missingBindings === "unset" ? false : UNKNOWN;
+      if (value.kind === "unknown") return UNKNOWN;
+      if (value.kind === "unset") return false;
+      const actual = environmentOrigin(context.event, strings[0]);
+      return actual === undefined ? UNKNOWN : actual === strings[1];
+    }
     case "missingEnvironmentMayBePresent":
       return context.event.missingBindings === "unknown";
     case "redirectHasInputPath":
@@ -1176,12 +1185,14 @@ function inheritedExecutableFunction(event: BashPolicyEvent, executable: string 
 function environmentIsUnsafe(event: BashPolicyEvent, name: unknown): boolean {
   if (typeof name !== "string") return true;
   const value = environmentLookup(event, name);
-  return (
-    value === UNKNOWN ||
-    !isBinding(value) ||
-    value.kind === "unknown" ||
-    (value.kind === "known" && value.value.length > 0)
-  );
+  if (value === UNKNOWN || !isBinding(value) || value.kind === "unknown") return true;
+  if (value.kind !== "known" || value.value.length === 0) return false;
+  return environmentOrigin(event, name) !== "inherited";
+}
+
+/** Missing provenance fails closed: only a proven harness value is trusted. */
+function environmentOrigin(event: BashPolicyEvent, name: string): EnvironmentOrigin | undefined {
+  return event.kind === "invocation" ? event.environmentOrigin?.[name] : undefined;
 }
 function inputRedirectTarget(event: Extract<BashPolicyEvent, { readonly kind: "invocation" }>): RuntimeValue {
   const target = event.redirects.find((redirect) => redirect.kind === "input")?.target;

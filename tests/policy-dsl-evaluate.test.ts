@@ -387,6 +387,86 @@ describe("DCRM evaluation", () => {
     }
   });
 
+  test("environment origin predicates distinguish inherited harness values from script assignments", () => {
+    const inherited = policy(
+      environmentConditionPolicy({ call: "environmentOriginIs", args: ["REQUIRED", "inherited"] }),
+    );
+    const script = policy(environmentConditionPolicy({ call: "environmentOriginIs", args: ["REQUIRED", "script"] }));
+    const safe = policy(environmentConditionPolicy({ not: { call: "environmentAnyUnsafe", args: [["REQUIRED"]] } }));
+    const known = { kind: "known" as const, value: "value" };
+    const cases = [
+      [
+        "inherited nonempty",
+        { environment: { REQUIRED: known }, environmentOrigin: { REQUIRED: "inherited" as const } },
+        "allow",
+        "defer",
+        "allow",
+      ],
+      [
+        "script nonempty",
+        { environment: { REQUIRED: known }, environmentOrigin: { REQUIRED: "script" as const } },
+        "defer",
+        "allow",
+        "defer",
+      ],
+      [
+        "script empty",
+        {
+          environment: { REQUIRED: { kind: "known" as const, value: "" } },
+          environmentOrigin: { REQUIRED: "script" as const },
+        },
+        "defer",
+        "allow",
+        "allow",
+      ],
+      [
+        "unknown value",
+        {
+          environment: { REQUIRED: { kind: "unknown" as const, reason: { kind: "expansion" } } },
+          environmentOrigin: { REQUIRED: "inherited" as const },
+        },
+        "defer",
+        "defer",
+        "defer",
+      ],
+      ["missing provenance", { environment: { REQUIRED: known } }, "defer", "defer", "defer"],
+      ["proven unset", { environment: {}, missingBindings: "unset" }, "defer", "defer", "allow"],
+    ] as const;
+
+    for (const [name, overrides, inheritedDecision, scriptDecision, safeDecision] of cases) {
+      const input = { ...event([]), ...overrides };
+      expect(inherited.evaluate(input).kind, `${name} inherited`).toBe(inheritedDecision);
+      expect(script.evaluate(input).kind, `${name} script`).toBe(scriptDecision);
+      expect(safe.evaluate(input).kind, `${name} safe`).toBe(safeDecision);
+    }
+  });
+
+  test("property: environmentAnyUnsafe is true only for unknown or non-empty script values", () => {
+    const safe = policy(environmentConditionPolicy({ not: { call: "environmentAnyUnsafe", args: [["REQUIRED"]] } }));
+    for (let index = 0; index < 256; index++) {
+      const value = `value-${index}`;
+      for (const [origin, expected] of [
+        ["inherited", "allow"],
+        ["script", "defer"],
+      ] as const) {
+        const input = {
+          ...event([]),
+          environment: { REQUIRED: { kind: "known" as const, value } },
+          environmentOrigin: { REQUIRED: origin as "inherited" | "script" },
+        };
+        expect(safe.evaluate(input).kind, `${origin} seed ${index}`).toBe(expected);
+      }
+      expect(
+        safe.evaluate({
+          ...event([]),
+          environment: { REQUIRED: { kind: "unknown" as const, reason: { kind: "expansion" } } },
+          environmentOrigin: { REQUIRED: "inherited" },
+        }).kind,
+        `unknown seed ${index}`,
+      ).toBe("defer");
+    }
+  });
+
   test("property: environment value equality complements only known bindings", () => {
     const condition = {
       call: "environmentValueEquals",

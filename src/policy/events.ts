@@ -57,6 +57,7 @@ export function projectInvocationEvent(command: NormalizedCommand, context: Bash
     argv: Object.freeze([...command.argv]),
     environment: immutableBindings(environment.values),
     exportedEnvironment: immutableExports(command.environment, environment.values),
+    environmentOrigin: Object.freeze({ ...environment.origins }),
     missingBindings: environment.missingBindings,
     redirects: Object.freeze([...(command.inheritedRedirects ?? []), ...command.redirects]),
     ownRedirects: Object.freeze([...command.redirects]),
